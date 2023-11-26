@@ -1,0 +1,13 @@
+[package]
+name = "rust2go"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+syn = { version = "2", features = ["full"], optional = true }
+anyhow = "1"
+bindgen = "0.69"
+
+[features]
+default = ["gen"]
+gen = ["syn"]

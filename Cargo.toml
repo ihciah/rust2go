@@ -1,0 +1,4 @@
+[workspace]
+
+members = ["rust2go", "rust2go-cli"]
+resolver = "2"

@@ -1,29 +1,23 @@
-/// Convert a pointer type to its ownership type.
-/// # Safety
-/// The impl must be correct.
-pub unsafe trait GetOwned<T> {
-    /// # Safety
-    /// The pointer must be valid.
-    unsafe fn get_owned(&self) -> T;
-}
-
-/// Convert a ownership type to its pointer type.
+/// Convert between a pointer type and its ownership type.
 /// # Safety
 /// The impl must be correct, pointer must be stable.
-pub unsafe trait GetRef<T> {
-    fn get_ref(&self) -> T;
+pub unsafe trait RefConvertion {
+    type Owned;
+    fn get_ref(owned: &Self::Owned) -> Self;
+    /// # Safety
+    /// The pointer must be valid.
+    unsafe fn get_owned(&self) -> Self::Owned;
 }
 
 macro_rules! primitive_impl {
     ($($ty:ty),*) => {
         $(
-            unsafe impl GetOwned<$ty> for $ty {
-                unsafe fn get_owned(&self) -> $ty {
-                    *self
+            unsafe impl RefConvertion for $ty {
+                type Owned = $ty;
+                fn get_ref(owned: &$ty) -> Self {
+                    *owned
                 }
-            }
-            unsafe impl GetRef<$ty> for $ty {
-                fn get_ref(&self) -> $ty {
+                unsafe fn get_owned(&self) -> $ty {
                     *self
                 }
             }

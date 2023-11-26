@@ -348,7 +348,12 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
         out
     }
 
-    pub fn generate_rs(&self, mapping: &HashMap<String, String>) -> String {
+    pub fn generate_rs(
+        &self,
+        mapping: &HashMap<String, String>,
+        rs_file_name: Option<&str>,
+        binding_ext: Option<&str>,
+    ) -> String {
         let mut out = String::new();
         let (fn_trait_impls, fn_callbacks): (Vec<_>, Vec<_>) = self
             .fns
@@ -360,7 +365,11 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
                 )
             })
             .unzip();
-        out.push_str(r#"pub mod binding { include!(concat!(env!("OUT_DIR"), "/bindings.rs")); }"#);
+        let rs_name = rs_file_name.unwrap_or(crate::DEFAULT_BINDING_NAME);
+        out.push_str(&format!(
+            "pub mod binding {{ include!(concat!(env!(\"OUT_DIR\"), \"/{rs_name}\")); {} }}",
+            binding_ext.unwrap_or_default()
+        ));
         out.push_str(&format!("\npub struct {}Impl;\n", self.name));
         out.push_str(&format!("impl {} for {}Impl {{\n", self.name, self.name));
         fn_trait_impls.iter().for_each(|imp| out.push_str(imp));
@@ -384,7 +393,7 @@ impl FnRepr {
             (true, None) => panic!("async function must have a return value"),
             (false, None) => {
                 // fn demo_check(r: user::DemoRequest) {
-                //     unsafe {binding::CDemoCall_demo_check(::rust2go::GetRef::get_ref(&r))}
+                //     unsafe {binding::CDemoCall_demo_check(::rust2go::RefConvertion::get_ref(&r))}
                 // }
                 out.push_str(" {\n");
                 out.push_str(&format!(
@@ -392,7 +401,7 @@ impl FnRepr {
                     self.name
                 ));
                 for (param_name, _) in self.params.iter() {
-                    out.push_str(&format!("::rust2go::GetRef::get_ref(&{param_name}), "));
+                    out.push_str(&format!("::rust2go::RefConvertion::get_ref(&{param_name}), "));
                 }
                 out.push_str(")}\n}\n");
             }
@@ -400,7 +409,7 @@ impl FnRepr {
                 // fn demo_check(r: user::DemoRequest) -> user::DemoResponse {
                 //     let mut slot = None;
                 //     unsafe { binding::CDemoCall_demo_check(
-                //         ::rust2go::GetRef::get_ref(&r),
+                //         ::rust2go::RefConvertion::get_ref(&r),
                 //         &slot as *const _ as *const () as *mut _,
                 //         Self::demo_check_cb as *const () as *mut _,
                 //     )}
@@ -413,7 +422,7 @@ impl FnRepr {
                     self.name
                 ));
                 for (param_name, _) in self.params.iter() {
-                    out.push_str(&format!("::rust2go::GetRef::get_ref(&{param_name}), "));
+                    out.push_str(&format!("::rust2go::RefConvertion::get_ref(&{param_name}), "));
                 }
                 out.push_str(&format!(
                     "&slot as *const _ as *const () as *mut _,
@@ -429,8 +438,8 @@ impl FnRepr {
                 // ) -> impl std::future::Future<Output = user::DemoResponse> {
                 //     ::rust2go::ResponseFuture::Init(
                 //         |waker: std::task::Waker, r: user::DemoRequest, slot: *const (), cb: *const ()| {
-                //             let r_ref = ::rust2go::GetRef::get_ref(&r);
-                //             let waker_ref = ::rust2go::GetRef::get_ref(&waker);
+                //             let r_ref = ::rust2go::RefConvertion::get_ref(&r);
+                //             let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);
                 //             std::mem::forget(waker);
                 //             unsafe {
                 //                 binding::CDemoCall_demo_check_async(
@@ -454,7 +463,7 @@ impl FnRepr {
                     out.push_str(&format!("{}: {}, ", param_name, param_type));
                 }
                 out.push_str("slot: *const (), cb: *const ()| {\n");
-                out.push_str("            let waker_ref = ::rust2go::GetRef::get_ref(&waker);\n");
+                out.push_str("            let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);\n");
                 out.push_str("            std::mem::forget(waker);\n");
                 out.push_str(&format!(
                     "            unsafe {{ binding::C{trait_name}_{}(\n",
@@ -463,7 +472,7 @@ impl FnRepr {
                 out.push_str("                waker_ref,\n");
                 for (param_name, _) in self.params.iter() {
                     out.push_str(&format!(
-                        "                ::rust2go::GetRef::get_ref(&{}),\n",
+                        "                ::rust2go::RefConvertion::get_ref(&{}),\n",
                         param_name
                     ));
                 }
@@ -487,14 +496,14 @@ impl FnRepr {
             (false, Some(ret)) => {
                 // #[no_mangle]
                 // unsafe extern "C" fn demo_check_cb(resp: binding::DemoResponseRef, slot: *const ()) {
-                //     *(slot as *mut Option<user::DemoResponse>) = Some(::rust2go::GetOwned::get_owned(&resp));
+                //     *(slot as *mut Option<user::DemoResponse>) = Some(::rust2go::RefConvertion::get_owned(&resp));
                 // }
                 let resp_ref_ty = match mapping.get(ret) {
                     Some(ref_struct) => ref_struct.clone(),
                     None => ret.clone(),
                 };
                 out.push_str(&format!("#[no_mangle]\nunsafe extern \"C\" fn {fn_name}(resp: binding::{resp_ref_ty}, slot: *const ()) {{\n"));
-                out.push_str(&format!("    *(slot as *mut Option<{ret}>) = Some(::rust2go::GetOwned::get_owned(&resp));\n"));
+                out.push_str(&format!("    *(slot as *mut Option<{ret}>) = Some(::rust2go::RefConvertion::get_owned(&resp));\n"));
                 out.push_str("}\n");
             }
             (true, Some(ret)) => {
@@ -504,17 +513,17 @@ impl FnRepr {
                 //     resp: binding::DemoResponseRef,
                 //     slot: *const (),
                 // ) {
-                //     ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::GetOwned::get_owned(&resp));
-                //     ::rust2go::GetOwned::<std::task::Waker>::get_owned(&waker).wake();
+                //     ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::RefConvertion::get_owned(&resp));
+                //     ::rust2go::RefConvertion::get_owned(&waker).wake();
                 // }
                 let resp_ref_ty = match mapping.get(ret) {
                     Some(ref_struct) => ref_struct.clone(),
                     None => ret.clone(),
                 };
                 out.push_str(&format!("#[no_mangle]\nunsafe extern \"C\" fn {fn_name}(waker: binding::WakerRef, resp: binding::{resp_ref_ty}, slot: *const ()) {{\n"));
-                out.push_str("    ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::GetOwned::get_owned(&resp));\n");
+                out.push_str("    ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::RefConvertion::get_owned(&resp));\n");
                 out.push_str(
-                    "    ::rust2go::GetOwned::<std::task::Waker>::get_owned(&waker).wake();\n",
+                    "    ::rust2go::RefConvertion::get_owned(&waker).wake();\n",
                 );
                 out.push_str("}\n");
             }
@@ -570,7 +579,7 @@ mod tests {
         println!("traits: {traits:?}");
 
         for trait_ in traits {
-            println!("traits gen: {}", trait_.generate_rs(&names));
+            println!("traits gen: {}", trait_.generate_rs(&names, None, None));
         }
 
         bindgen::Builder::default()

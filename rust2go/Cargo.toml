@@ -7,6 +7,7 @@ edition = "2021"
 syn = { version = "2", features = ["full"], optional = true }
 anyhow = "1"
 bindgen = "0.69"
+rust2go-macro = { path = "../rust2go-macro" }
 
 [features]
 default = ["gen"]

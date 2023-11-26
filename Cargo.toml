@@ -1,4 +1,12 @@
 [workspace]
-
-members = ["rust2go", "rust2go-cli"]
+members = ["rust2go", "rust2go-cli", "rust2go-macro", "example"]
 resolver = "2"
+
+[workspace.package]
+authors = ["ihciah <ihciah@gmail.com>"]
+categories = ["development-tools::ffi", "external-ffi-bindings"]
+description = "Calling go from Rust with FFI."
+edition = "2021"
+keywords = ["ffi", "golang", "go", "async"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/ihciah/rust2go"

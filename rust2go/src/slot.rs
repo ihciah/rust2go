@@ -11,6 +11,7 @@ use std::{
 /// There's 2 reasons to use it when async rust to go ffi(Go holds writer and rust holds reader):
 /// 1. Rust cannot guarantee trying read before go write.
 /// 2. Rust can dealloc the memory before go write by simply drop it if using a Box directly.
+#[inline]
 pub fn new_atomic_slot<T>() -> (SlotReader<T>, SlotWriter<T>) {
     let inner = SlotInner::new();
     let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(inner))) };
@@ -27,6 +28,7 @@ struct State(AtomicU8);
 
 impl State {
     // Load with Acquire.
+    #[inline]
     fn load(&self) -> u8 {
         self.0.load(Acquire)
     }
@@ -53,6 +55,7 @@ impl State {
 }
 
 impl<T> SlotInner<T> {
+    #[inline]
     fn new() -> Self {
         Self {
             state: State(AtomicU8::from(0b11)),
@@ -62,6 +65,7 @@ impl<T> SlotInner<T> {
 
     /// # Safety
     /// Can only be read once.
+    #[inline]
     unsafe fn read(&self) -> Option<T> {
         // If the write bit set to zero, we can read it.
         if self.state.load() & 0b01 == 0 {
@@ -73,6 +77,7 @@ impl<T> SlotInner<T> {
 
     /// # Safety
     /// By design write should only be called once and not simultaneously.
+    #[inline]
     unsafe fn write(&mut self, data: T) {
         // Write data and set the write bit to zero.
         self.data.as_mut_ptr().write(data);
@@ -121,10 +126,12 @@ unsafe impl<T: Send> Sync for SlotWriter<T> {}
 impl<T> SlotWriter<T> {
     /// # Safety
     /// Can only write once.
+    #[inline]
     pub unsafe fn write(mut self, data: T) {
         self.0.as_mut().write(data)
     }
 
+    #[inline]
     pub fn into_ptr(self) -> *const () {
         let ptr = self.0.as_ptr() as *const ();
         std::mem::forget(self);
@@ -133,6 +140,7 @@ impl<T> SlotWriter<T> {
 
     /// # Safety
     /// Pointer must be a valid *SlotInner<T>.
+    #[inline]
     pub unsafe fn from_ptr(ptr: *const ()) -> Self {
         Self(NonNull::new_unchecked(ptr as _))
     }

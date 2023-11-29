@@ -28,7 +28,7 @@ For detailed example, please checkout [the example project](./example).
 
 ### Basic Ability Enhancement
 - [ ] More complicated data types support
-- [ ] Support user passing references
+- [x] Support user passing references
 - [ ] More elegant code generation implementation
 - [ ] Better build cache control
 - [ ] Golang interface support(separate user code from generated code)

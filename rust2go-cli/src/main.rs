@@ -48,7 +48,8 @@ fn main() {
         .iter()
         .for_each(|t| output.push_str(&t.generate_c_callbacks(&name_mapping)));
 
-    let mut go_content = format!("package main\n\n/*\n{output}*/\nimport \"C\"\nimport \"unsafe\"\n\n");
+    let mut go_content =
+        format!("package main\n\n/*\n{output}*/\nimport \"C\"\nimport \"unsafe\"\n\n");
     traits
         .iter()
         .for_each(|t| go_content.push_str(&t.generate_go_exports(&name_mapping)));

@@ -690,7 +690,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
 name = "rust2go"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-macro"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "quote",
  "syn 2.0.39",

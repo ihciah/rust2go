@@ -11,7 +11,7 @@ async fn main() {
         name: "ihciah".to_string(),
         age: 28,
     };
-    println!("[sync] User pass: {}", DemoCallImpl::demo_check(req).pass);
+    println!("[sync] User pass: {}", DemoCallImpl::demo_check(&req).pass);
 
     // Simulate calling a async go function twice.
     // In async way, current thread will not be blocked.

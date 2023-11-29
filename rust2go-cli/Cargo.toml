@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cbindgen = "0.26"
-rust2go = { path = "../rust2go", features = ["gen"] }
+rust2go = { version = "0.0.1", path = "../rust2go", features = ["gen"] }
 
 [[bin]]
-name = "rust2go"
+name = "rust2go-cli"
 path = "src/main.rs"

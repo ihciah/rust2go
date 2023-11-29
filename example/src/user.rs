@@ -19,6 +19,6 @@ pub struct DemoResponse {
 // Both `async fn`` and `impl Future` styles are supported.
 
 pub trait DemoCall {
-    fn demo_check(req: DemoRequest) -> DemoResponse;
+    fn demo_check(req: &DemoRequest) -> DemoResponse;
     fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
 }

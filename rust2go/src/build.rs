@@ -14,6 +14,7 @@ pub struct Builder<IDL = (), GOSRC = ()> {
     go_src: GOSRC,
     out_dir: Option<PathBuf>,
     out_name: Option<String>,
+    log: Option<PathBuf>,
     binding_name: Option<String>,
 }
 
@@ -30,6 +31,7 @@ impl Builder {
             go_src: (),
             out_dir: None,
             out_name: None,
+            log: None,
             binding_name: None,
         }
     }
@@ -42,6 +44,7 @@ impl<IDL, GOSRC> Builder<IDL, GOSRC> {
             go_src: self.go_src,
             out_name: self.out_name,
             out_dir: self.out_dir,
+            log: self.log,
             binding_name: self.binding_name,
         }
     }
@@ -52,6 +55,18 @@ impl<IDL, GOSRC> Builder<IDL, GOSRC> {
             go_src: go_src.into(),
             out_name: self.out_name,
             out_dir: self.out_dir,
+            log: self.log,
+            binding_name: self.binding_name,
+        }
+    }
+
+    pub fn with_log<S: Into<PathBuf>>(self, log: S) -> Self {
+        Builder {
+            idl: self.idl,
+            go_src: self.go_src,
+            out_name: self.out_name,
+            out_dir: self.out_dir,
+            log: Some(log.into()),
             binding_name: self.binding_name,
         }
     }
@@ -94,7 +109,10 @@ impl Builder<PathBuf, PathBuf> {
             .unwrap_or_else(|| PathBuf::from(env::var("OUT_DIR").unwrap()));
         let out_name = self.out_name.as_deref().unwrap_or("rust2go.rs");
         let out_file = out_dir.join(out_name);
-        std::fs::write(out_file, output).expect("Unable to write file");
+        std::fs::write(out_file, &output).expect("Unable to write file");
+        if let Some(log_file) = self.log {
+            std::fs::write(log_file, output).expect("Unable to write log file");
+        }
     }
 
     // Use ext_gen to generate convertion for String and Waker.

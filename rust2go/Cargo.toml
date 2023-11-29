@@ -1,13 +1,13 @@
 [package]
 name = "rust2go"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]
 syn = { version = "2", features = ["full"], optional = true }
 anyhow = "1"
 bindgen = "0.69"
-rust2go-macro = { path = "../rust2go-macro" }
+rust2go-macro = { version = "0.0.1", path = "../rust2go-macro" }
 
 [features]
 default = ["gen"]

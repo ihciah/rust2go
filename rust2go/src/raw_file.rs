@@ -120,9 +120,15 @@ pub struct StringRef {
                         syn::Pat::Ident(i) => i.ident.to_string(),
                         _ => anyhow::bail!("only ident fn args are supported"),
                     };
-                    let param_type = match param.ty.as_ref() {
+                    let mut ty = param.ty.as_ref();
+                    let mut is_reference = false;
+                    if let syn::Type::Reference(r) = param.ty.as_ref() {
+                        is_reference = true;
+                        ty = &r.elem;
+                    }
+                    let param_type = match ty {
                         syn::Type::Path(p) => p,
-                        _ => anyhow::bail!("only path type params are supported"),
+                        _ => anyhow::bail!("only path type params are supported, ty: {ty:?}"),
                     };
                     let param_type_str = param_type
                         .path
@@ -132,7 +138,11 @@ pub struct StringRef {
                         })
                         .unwrap()
                         .to_string();
-                    params.push((param_name, param_type_str));
+                    params.push(Param {
+                        name: param_name,
+                        ty: param_type_str,
+                        is_reference,
+                    });
                 }
                 let ret = match &fn_item.sig.output {
                     syn::ReturnType::Default => None,
@@ -222,8 +232,48 @@ pub struct TraitRepr {
 pub struct FnRepr {
     name: String,
     is_async: bool,
-    params: Vec<(String, String)>,
+    params: Vec<Param>,
     ret: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct Param {
+    name: String,
+    ty: String,
+    is_reference: bool,
+}
+
+impl Param {
+    pub fn c_param(&self, mapping: &HashMap<String, String>) -> String {
+        let param_type = match mapping.get(&self.ty) {
+            Some(ref_struct) => format!("C.{ref_struct}"),
+            None => format!("C.{}", (rust_primitive_to_c(&self.ty))),
+        };
+        format!("_ {param_type}, ")
+    }
+
+    pub fn rs_param(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&self.name);
+        out.push_str(": ");
+        if self.is_reference {
+            out.push('&');
+        }
+        out.push_str(&self.ty);
+        out.push_str(", ");
+        out
+    }
+
+    pub fn rs_ref_args(&self) -> String {
+        let mut out = String::new();
+        out.push_str("::rust2go::RefConvertion::get_ref(");
+        if !self.is_reference {
+            out.push('&');
+        }
+        out.push_str(&self.name);
+        out.push_str("), ");
+        out
+    }
 }
 
 impl TraitRepr {
@@ -275,13 +325,9 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
                     //     // user logic
                     // }
                     out.push('(');
-                    for (_, param_type) in fn_.params.iter() {
-                        let param_type = match mapping.get(param_type) {
-                            Some(ref_struct) => format!("C.{ref_struct}"),
-                            None => format!("C.{}", (rust_primitive_to_c(param_type))),
-                        };
-                        out.push_str(&format!("_ {param_type}, "));
-                    }
+                    fn_.params
+                        .iter()
+                        .for_each(|p| out.push_str(&p.c_param(mapping)));
                     out.push_str(") {\n    // user logic\n}\n");
                 }
                 (false, Some(ret)) => {
@@ -292,13 +338,9 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
                     //     C.demo_check_cb(unsafe.Pointer(cb), resp, unsafe.Pointer(slot))
                     // }
                     out.push('(');
-                    for (_, param_type) in fn_.params.iter() {
-                        let param_type = match mapping.get(param_type) {
-                            Some(ref_struct) => format!("C.{ref_struct}"),
-                            None => format!("C.{}", (rust_primitive_to_c(param_type))),
-                        };
-                        out.push_str(&format!("_ {param_type}, "));
-                    }
+                    fn_.params
+                        .iter()
+                        .for_each(|p| out.push_str(&p.c_param(mapping)));
 
                     out.push_str("slot *C.void, cb *C.void) {\n    // user logic\n");
                     let ret_type = match mapping.get(ret) {
@@ -321,13 +363,9 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
                     //     }()
                     // }
                     out.push_str("(w C.WakerRef, ");
-                    for (_, param_type) in fn_.params.iter() {
-                        let param_type = match mapping.get(param_type) {
-                            Some(ref_struct) => format!("C.{ref_struct}"),
-                            None => format!("C.{}", (rust_primitive_to_c(param_type))),
-                        };
-                        out.push_str(&format!("_ {param_type}, "));
-                    }
+                    fn_.params
+                        .iter()
+                        .for_each(|p| out.push_str(&p.c_param(mapping)));
 
                     out.push_str("slot *C.void, cb *C.void) {\n");
                     out.push_str("    go func() {\n");
@@ -385,9 +423,7 @@ impl FnRepr {
     fn generate_rs_impl(&self, trait_name: &str) -> String {
         let mut out = String::new();
         out.push_str(&format!("fn {}(", self.name));
-        for (param_name, param_type) in self.params.iter() {
-            out.push_str(&format!("{}: {}, ", param_name, param_type));
-        }
+        self.params.iter().for_each(|p| out.push_str(&p.rs_param()));
         out.push(')');
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),
@@ -400,9 +436,9 @@ impl FnRepr {
                     "    unsafe {{ binding::C{trait_name}_{}(",
                     self.name
                 ));
-                for (param_name, _) in self.params.iter() {
-                    out.push_str(&format!("::rust2go::RefConvertion::get_ref(&{param_name}), "));
-                }
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&p.rs_ref_args()));
                 out.push_str(")}\n}\n");
             }
             (false, Some(ret)) => {
@@ -421,9 +457,9 @@ impl FnRepr {
                     "    unsafe {{ binding::C{trait_name}_{}(",
                     self.name
                 ));
-                for (param_name, _) in self.params.iter() {
-                    out.push_str(&format!("::rust2go::RefConvertion::get_ref(&{param_name}), "));
-                }
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&p.rs_ref_args()));
                 out.push_str(&format!(
                     "&slot as *const _ as *const () as *mut _,
                     Self::{}_cb as *const () as *mut _",
@@ -459,23 +495,20 @@ impl FnRepr {
                 ));
                 out.push_str("    ::rust2go::ResponseFuture::Init(\n");
                 out.push_str("        |waker: std::task::Waker, ");
-                for (param_name, param_type) in self.params.iter() {
-                    out.push_str(&format!("{}: {}, ", param_name, param_type));
-                }
+                self.params.iter().for_each(|p| out.push_str(&p.rs_param()));
                 out.push_str("slot: *const (), cb: *const ()| {\n");
-                out.push_str("            let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);\n");
+                out.push_str(
+                    "            let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);\n",
+                );
                 out.push_str("            std::mem::forget(waker);\n");
                 out.push_str(&format!(
                     "            unsafe {{ binding::C{trait_name}_{}(\n",
                     self.name
                 ));
                 out.push_str("                waker_ref,\n");
-                for (param_name, _) in self.params.iter() {
-                    out.push_str(&format!(
-                        "                ::rust2go::RefConvertion::get_ref(&{}),\n",
-                        param_name
-                    ));
-                }
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&p.rs_ref_args()));
                 out.push_str("                slot as *const _ as *mut _,\n");
                 out.push_str("                cb as *const _ as *mut _,\n");
                 out.push_str("            )}}, req, ");
@@ -522,9 +555,7 @@ impl FnRepr {
                 };
                 out.push_str(&format!("#[no_mangle]\nunsafe extern \"C\" fn {fn_name}(waker: binding::WakerRef, resp: binding::{resp_ref_ty}, slot: *const ()) {{\n"));
                 out.push_str("    ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::RefConvertion::get_owned(&resp));\n");
-                out.push_str(
-                    "    ::rust2go::RefConvertion::get_owned(&waker).wake();\n",
-                );
+                out.push_str("    ::rust2go::RefConvertion::get_owned(&waker).wake();\n");
                 out.push_str("}\n");
             }
         }

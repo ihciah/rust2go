@@ -1,12 +1,20 @@
 [package]
 name = "rust2go-cli"
-version = "0.0.1"
-edition = "2021"
+version = "0.0.2"
+
+description = "rust2go commandline tool"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cbindgen = "0.26"
-rust2go = { version = "0.0.1", path = "../rust2go", features = ["gen"] }
+rust2go = { version = "0.0.2", path = "../rust2go", features = ["gen"] }
 
 [[bin]]
 name = "rust2go-cli"

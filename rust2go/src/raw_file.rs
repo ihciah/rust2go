@@ -1,3 +1,4 @@
+use quote::ToTokens;
 use std::{borrow::Cow, collections::HashMap};
 
 pub struct RawRsFile {
@@ -17,6 +18,7 @@ impl RawRsFile {
 
         name_mapping.insert("Waker".to_string(), "WakerRef".to_string());
         name_mapping.insert("String".to_string(), "StringRef".to_string());
+        // Add these to generated code to make golang have C structs of waker and string.
         result.push_str(
             r#"
 #[repr(C)]
@@ -27,6 +29,11 @@ pub struct WakerRef {
 #[repr(C)]
 pub struct StringRef {
     pub ptr: *const u8,
+    pub len: usize,
+}
+#[repr(C)]
+pub struct ListRef {
+    pub ptr: *const (),
     pub len: usize,
 }
 "#,
@@ -56,34 +63,8 @@ pub struct StringRef {
                             .as_ref()
                             .ok_or_else(|| anyhow::anyhow!("only named fields are supported"))?
                             .to_string();
-                        let field_type = match &field.ty {
-                            syn::Type::Path(p) => p,
-                            _ => anyhow::bail!("only path types are supported"),
-                        };
-                        let field_type_str = field_type
-                            .path
-                            .get_ident()
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("only single ident path types are supported")
-                            })?
-                            .to_string();
-                        let new_field_type = match field_type_str.as_str() {
-                            "u8" => Cow::Borrowed("u8"),
-                            "u16" => Cow::Borrowed("u16"),
-                            "u32" => Cow::Borrowed("u32"),
-                            "u64" => Cow::Borrowed("u64"),
-                            "i8" => Cow::Borrowed("i8"),
-                            "i16" => Cow::Borrowed("i16"),
-                            "i32" => Cow::Borrowed("i32"),
-                            "i64" => Cow::Borrowed("i64"),
-                            "bool" => Cow::Borrowed("bool"),
-                            _ => Cow::Owned(format!("{field_type_str}Ref")),
-                        };
-                        result.push_str("    pub ");
-                        result.push_str(&field_name);
-                        result.push_str(": ");
-                        result.push_str(&new_field_type);
-                        result.push_str(",\n");
+                        let new_field_type = type_to_ref_ident(&field.ty).unwrap();
+                        result.push_str(&format!("pub {field_name}: {new_field_type},\n"));
                     }
                     result.push('}');
                 }
@@ -126,6 +107,7 @@ pub struct StringRef {
                         is_reference = true;
                         ty = &r.elem;
                     }
+
                     let param_type = match ty {
                         syn::Type::Path(p) => p,
                         _ => anyhow::bail!("only path type params are supported, ty: {ty:?}"),
@@ -147,7 +129,7 @@ pub struct StringRef {
                 let ret = match &fn_item.sig.output {
                     syn::ReturnType::Default => None,
                     syn::ReturnType::Type(_, t) => match t.as_ref() {
-                        syn::Type::Path(_) => type_to_path_ident(t).ok(),
+                        syn::Type::Path(_) => Some(type_to_string(t)?),
                         // Check if it's a future.
                         syn::Type::ImplTrait(i) => {
                             let t_str = i
@@ -173,7 +155,7 @@ pub struct StringRef {
                                                 if t.ident == "Output" =>
                                             {
                                                 // extract the type of the Output.
-                                                let ret = Some(type_to_path_ident(&t.ty).ok()?);
+                                                let ret = Some(type_to_string(&t.ty).ok()?);
                                                 if is_async {
                                                     panic!("async cannot be used with impl Future");
                                                 }
@@ -206,19 +188,6 @@ pub struct StringRef {
             out.push(TraitRepr { name, fns });
         }
         Ok(out)
-    }
-}
-
-fn type_to_path_ident(ty: &syn::Type) -> anyhow::Result<String> {
-    match ty {
-        syn::Type::Path(p) => {
-            let ident = p
-                .path
-                .get_ident()
-                .ok_or_else(|| anyhow::anyhow!("only single ident path types are supported"))?;
-            Ok(ident.to_string())
-        }
-        _ => anyhow::bail!("only path types are supported"),
     }
 }
 
@@ -264,14 +233,24 @@ impl Param {
         out
     }
 
-    pub fn rs_ref_args(&self) -> String {
+    pub fn rs_type(&self) -> String {
         let mut out = String::new();
-        out.push_str("::rust2go::RefConvertion::get_ref(");
-        if !self.is_reference {
+        if self.is_reference {
             out.push('&');
         }
-        out.push_str(&self.name);
-        out.push_str("), ");
+        out.push_str(&self.ty);
+        out.push_str(", ");
+        out
+    }
+
+    pub fn rs_ref_calc(&self) -> String {
+        let mut out = String::new();
+        let ref_mark = if !self.is_reference { "&" } else { "" };
+        out.push_str(&format!(
+            "let (_buf, {}) = ::rust2go::ToRef::calc_ref({ref_mark}{});",
+            self.name, self.name
+        ));
+
         out
     }
 }
@@ -390,7 +369,6 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
         &self,
         mapping: &HashMap<String, String>,
         rs_file_name: Option<&str>,
-        binding_ext: Option<&str>,
     ) -> String {
         let mut out = String::new();
         let (fn_trait_impls, fn_callbacks): (Vec<_>, Vec<_>) = self
@@ -405,8 +383,7 @@ void {fn_name}_cb(const void *f_ptr, {resp_name} resp, const void *slot) {{
             .unzip();
         let rs_name = rs_file_name.unwrap_or(crate::DEFAULT_BINDING_NAME);
         out.push_str(&format!(
-            "pub mod binding {{ include!(concat!(env!(\"OUT_DIR\"), \"/{rs_name}\")); {} }}",
-            binding_ext.unwrap_or_default()
+            "pub mod binding {{ #![allow(warnings)] include!(concat!(env!(\"OUT_DIR\"), \"/{rs_name}\")); }}"
         ));
         out.push_str(&format!("\npub struct {}Impl;\n", self.name));
         out.push_str(&format!("impl {} for {}Impl {{\n", self.name, self.name));
@@ -429,23 +406,28 @@ impl FnRepr {
             (true, None) => panic!("async function must have a return value"),
             (false, None) => {
                 // fn demo_check(r: user::DemoRequest) {
-                //     unsafe {binding::CDemoCall_demo_check(::rust2go::RefConvertion::get_ref(&r))}
+                //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
+                //     unsafe {binding::CDemoCall_demo_check(::std::mem::transmute(r))}
                 // }
                 out.push_str(" {\n");
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&p.rs_ref_calc()));
                 out.push_str(&format!(
                     "    unsafe {{ binding::C{trait_name}_{}(",
                     self.name
                 ));
                 self.params
                     .iter()
-                    .for_each(|p| out.push_str(&p.rs_ref_args()));
+                    .for_each(|p| out.push_str(&format!("::std::mem::transmute({}),", p.name)));
                 out.push_str(")}\n}\n");
             }
             (false, Some(ret)) => {
                 // fn demo_check(r: user::DemoRequest) -> user::DemoResponse {
                 //     let mut slot = None;
+                //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
                 //     unsafe { binding::CDemoCall_demo_check(
-                //         ::rust2go::RefConvertion::get_ref(&r),
+                //         ::std::mem::transmute(r),
                 //         &slot as *const _ as *const () as *mut _,
                 //         Self::demo_check_cb as *const () as *mut _,
                 //     )}
@@ -453,13 +435,16 @@ impl FnRepr {
                 // }
                 out.push_str(&format!(" -> {ret} {{\n"));
                 out.push_str("    let mut slot = None;\n");
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&p.rs_ref_calc()));
                 out.push_str(&format!(
                     "    unsafe {{ binding::C{trait_name}_{}(",
                     self.name
                 ));
                 self.params
                     .iter()
-                    .for_each(|p| out.push_str(&p.rs_ref_args()));
+                    .for_each(|p| out.push_str(&format!("::std::mem::transmute({}),", p.name)));
                 out.push_str(&format!(
                     "&slot as *const _ as *const () as *mut _,
                     Self::{}_cb as *const () as *mut _",
@@ -473,20 +458,25 @@ impl FnRepr {
                 //     req: user::DemoRequest,
                 // ) -> impl std::future::Future<Output = user::DemoResponse> {
                 //     ::rust2go::ResponseFuture::Init(
-                //         |waker: std::task::Waker, r: user::DemoRequest, slot: *const (), cb: *const ()| {
-                //             let r_ref = ::rust2go::RefConvertion::get_ref(&r);
-                //             let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);
+                //         |waker: std::task::Waker, r: (user::DemoRequest,), slot: *const (), cb: *const ()| {
+                //             let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);
                 //             std::mem::forget(waker);
+                //
+                //             let size = ::rust2go::ToRef::calc_size(&r);
+                //             let mut buffer = ::std::vec::Vec::<u8>::with_capacity(size);
+                //             let mut writer = unsafe { ::rust2go::Writer::new(buffer.as_ptr() as _) };
+                //             let r_ref = ::rust2go::ToRef::to_ref(&r, &mut writer);
+                //             unsafe { buffer.set_len(size) };
                 //             unsafe {
                 //                 binding::CDemoCall_demo_check_async(
-                //                     waker_ref,
-                //                     r_ref,
+                //                     ::std::mem::transmute(waker_ref),
+                //                     ::std::mem::transmute(r_ref.0),
                 //                     slot as *const _ as *mut _,
                 //                     cb as *const _ as *mut _,
                 //                 )
                 //             };
                 //         },
-                //         req,
+                //         (req,),
                 //         Self::demo_check_async_cb as *const (),
                 //     )
                 // }
@@ -494,25 +484,35 @@ impl FnRepr {
                     " -> impl ::std::future::Future<Output = {ret}> {{\n",
                 ));
                 out.push_str("    ::rust2go::ResponseFuture::Init(\n");
-                out.push_str("        |waker: std::task::Waker, ");
-                self.params.iter().for_each(|p| out.push_str(&p.rs_param()));
-                out.push_str("slot: *const (), cb: *const ()| {\n");
+                out.push_str("        |waker: std::task::Waker, r: (");
+                self.params.iter().for_each(|p| out.push_str(&p.rs_type()));
+                out.push_str("), slot: *const (), cb: *const ()| {\n");
+                out.push_str("let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);\n");
+                out.push_str("std::mem::forget(waker);\n\n");
+                out.push_str("let size = ::rust2go::ToRef::calc_size(&r);\n");
+                out.push_str("let mut buffer = ::std::vec::Vec::<u8>::with_capacity(size);\n");
                 out.push_str(
-                    "            let waker_ref = ::rust2go::RefConvertion::get_ref(&waker);\n",
+                    "let mut writer = unsafe { ::rust2go::Writer::new(buffer.as_ptr() as _) };\n",
                 );
-                out.push_str("            std::mem::forget(waker);\n");
+                out.push_str("let r_ref = ::rust2go::ToRef::to_ref(&r, &mut writer);\n");
+                out.push_str("unsafe { buffer.set_len(size) };\n");
+
                 out.push_str(&format!(
-                    "            unsafe {{ binding::C{trait_name}_{}(\n",
+                    "unsafe {{ binding::C{trait_name}_{}(\n",
                     self.name
                 ));
-                out.push_str("                waker_ref,\n");
-                self.params
-                    .iter()
-                    .for_each(|p| out.push_str(&p.rs_ref_args()));
+                out.push_str("::std::mem::transmute(waker_ref),\n");
+                (0..self.params.len())
+                    .for_each(|n| out.push_str(&format!("::std::mem::transmute(r_ref.{n}),")));
                 out.push_str("                slot as *const _ as *mut _,\n");
                 out.push_str("                cb as *const _ as *mut _,\n");
-                out.push_str("            )}}, req, ");
-                out.push_str(&format!("Self::{}_cb as *const ())}}", self.name));
+                out.push_str("            )}}, (");
+
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&format!("{},", p.name)));
+
+                out.push_str(&format!("),Self::{}_cb as *const ())}}", self.name));
             }
         }
         out
@@ -529,14 +529,14 @@ impl FnRepr {
             (false, Some(ret)) => {
                 // #[no_mangle]
                 // unsafe extern "C" fn demo_check_cb(resp: binding::DemoResponseRef, slot: *const ()) {
-                //     *(slot as *mut Option<user::DemoResponse>) = Some(::rust2go::RefConvertion::get_owned(&resp));
+                //     *(slot as *mut Option<DemoResponse>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                 // }
                 let resp_ref_ty = match mapping.get(ret) {
                     Some(ref_struct) => ref_struct.clone(),
                     None => ret.clone(),
                 };
                 out.push_str(&format!("#[no_mangle]\nunsafe extern \"C\" fn {fn_name}(resp: binding::{resp_ref_ty}, slot: *const ()) {{\n"));
-                out.push_str(&format!("    *(slot as *mut Option<{ret}>) = Some(::rust2go::RefConvertion::get_owned(&resp));\n"));
+                out.push_str(&format!("*(slot as *mut Option<{ret}>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));\n"));
                 out.push_str("}\n");
             }
             (true, Some(ret)) => {
@@ -548,14 +548,16 @@ impl FnRepr {
                 // ) {
                 //     ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::RefConvertion::get_owned(&resp));
                 //     ::rust2go::RefConvertion::get_owned(&waker).wake();
+                //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                //     <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                 // }
                 let resp_ref_ty = match mapping.get(ret) {
                     Some(ref_struct) => ref_struct.clone(),
                     None => ret.clone(),
                 };
                 out.push_str(&format!("#[no_mangle]\nunsafe extern \"C\" fn {fn_name}(waker: binding::WakerRef, resp: binding::{resp_ref_ty}, slot: *const ()) {{\n"));
-                out.push_str("    ::rust2go::SlotWriter::from_ptr(slot).write(::rust2go::RefConvertion::get_owned(&resp));\n");
-                out.push_str("    ::rust2go::RefConvertion::get_owned(&waker).wake();\n");
+                out.push_str(&format!("::rust2go::SlotWriter::<{ret}>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));\n"));
+                out.push_str("<::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();\n");
                 out.push_str("}\n");
             }
         }
@@ -581,6 +583,59 @@ fn rust_primitive_to_c(name: &str) -> &str {
         "f32" => "float",
         "f64" => "double",
         _ => panic!("unreconigzed rust primitive type {name}"),
+    }
+}
+
+fn type_to_segment(ty: &syn::Type) -> anyhow::Result<&syn::PathSegment> {
+    let field_type = match ty {
+        syn::Type::Path(p) => p,
+        _ => anyhow::bail!("only path types are supported"),
+    };
+    let path = &field_type.path;
+    // Leading colon is not allow
+    if path.leading_colon.is_some() {
+        anyhow::bail!("types with leading colons are not supported");
+    }
+    // We only accept single-segment path
+    if path.segments.len() != 1 {
+        anyhow::bail!("types with multiple segments are not supported");
+    }
+    Ok(path.segments.first().unwrap())
+}
+
+fn type_to_string(ty: &syn::Type) -> anyhow::Result<String> {
+    let seg = type_to_segment(ty)?;
+    match seg.ident.to_string().as_str() {
+        "Vec" => Ok(ty.to_token_stream().to_string()),
+        _ => {
+            if !seg.arguments.is_none() {
+                anyhow::bail!("custom types with arguments are not supported")
+            }
+            Ok(seg.ident.to_string())
+        }
+    }
+}
+
+// Convert original type to ref type ident(only Vec can have generic type).
+// primitive -> primitive
+// Vec<T> -> ListRef
+// * -> *Ref
+fn type_to_ref_ident(ty: &syn::Type) -> anyhow::Result<syn::Ident> {
+    let seg = type_to_segment(ty)?;
+    match seg.ident.to_string().as_str() {
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "bool" | "char" | "f32" => {
+            if !seg.arguments.is_none() {
+                anyhow::bail!("primitive types with arguments are not supported");
+            }
+            Ok(seg.ident.clone())
+        }
+        "Vec" => Ok(syn::Ident::new("ListRef", seg.ident.span())),
+        x => {
+            if !seg.arguments.is_none() {
+                anyhow::bail!("custom types with arguments are not supported")
+            }
+            Ok(syn::Ident::new(&format!("{x}Ref"), seg.ident.span()))
+        }
     }
 }
 
@@ -610,7 +665,7 @@ mod tests {
         println!("traits: {traits:?}");
 
         for trait_ in traits {
-            println!("traits gen: {}", trait_.generate_rs(&names, None, None));
+            println!("traits gen: {}", trait_.generate_rs(&names, None));
         }
 
         bindgen::Builder::default()

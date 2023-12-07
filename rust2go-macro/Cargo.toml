@@ -1,7 +1,16 @@
 [package]
 name = "rust2go-macro"
-version = "0.0.1"
-edition = "2021"
+version = "0.0.2"
+
+description = "rust2go macro"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+
 
 [lib]
 proc-macro = true

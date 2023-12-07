@@ -3,11 +3,19 @@
 include!(concat!(env!("OUT_DIR"), "/rust2go.rs"));
 
 // Define your own structs.
-pub struct DemoRequest {
+#[derive(rust2go::R2G, Clone)]
+pub struct DemoUser {
     pub name: String,
     pub age: u8,
 }
 
+// Define your own structs.
+#[derive(rust2go::R2G, Clone)]
+pub struct DemoComplicatedRequest {
+    pub users: Vec<DemoUser>,
+}
+
+#[derive(rust2go::R2G, Clone)]
 pub struct DemoResponse {
     pub pass: bool,
 }
@@ -19,6 +27,9 @@ pub struct DemoResponse {
 // Both `async fn`` and `impl Future` styles are supported.
 
 pub trait DemoCall {
-    fn demo_check(req: &DemoRequest) -> DemoResponse;
-    fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
+    fn demo_oneway(req: &DemoUser);
+    fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
+    fn demo_check_async(
+        req: &DemoComplicatedRequest,
+    ) -> impl std::future::Future<Output = DemoResponse>;
 }

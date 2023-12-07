@@ -27,7 +27,7 @@ For detailed example, please checkout [the example project](./example).
 - [x] Future and basic synchronization primitives used
 
 ### Basic Ability Enhancement
-- [ ] More complicated data types support
+- [x] More complicated data types support
 - [x] Support user passing references
 - [ ] More elegant code generation implementation
 - [ ] Better build cache control

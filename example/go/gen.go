@@ -13,15 +13,24 @@ typedef struct StringRef {
   uintptr_t len;
 } StringRef;
 
-typedef struct DemoRequestRef {
+typedef struct DemoUserRef {
   struct StringRef name;
   uint8_t age;
-} DemoRequestRef;
+} DemoUserRef;
 
 typedef struct WakerRef {
   const void *ptr;
   const void *vtable;
 } WakerRef;
+
+typedef struct ListRef {
+  const void *ptr;
+  uintptr_t len;
+} ListRef;
+
+typedef struct DemoComplicatedRequestRef {
+  struct ListRef users;
+} DemoComplicatedRequestRef;
 
 typedef struct DemoResponseRef {
   bool pass;
@@ -45,28 +54,23 @@ import (
 	"unsafe"
 )
 
-//export CDemoCall_demo_check
-func CDemoCall_demo_check(req C.DemoRequestRef, slot *C.void, cb *C.void) {
+//export CDemoCall_demo_oneway
+func CDemoCall_demo_oneway(_ C.DemoUserRef, ) {
     // user logic
-    resp := C.DemoResponseRef{pass: filter(req)}
+}
+//export CDemoCall_demo_check
+func CDemoCall_demo_check(_ C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+    // user logic
+    resp := C.DemoResponseRef{pass: true}
     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp, unsafe.Pointer(slot))
 }
 //export CDemoCall_demo_check_async
-func CDemoCall_demo_check_async(w C.WakerRef, req C.DemoRequestRef, slot *C.void, cb *C.void) {
+func CDemoCall_demo_check_async(w C.WakerRef, _ C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
     go func() {
         // user logic
-        resp := C.DemoResponseRef{pass: async_filter(req)}
+        resp := C.DemoResponseRef{pass: true}
+        time.Sleep(time.Duration(3) * time.Second)
         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, resp, unsafe.Pointer(slot))
     }()
 }
-
-func filter(req C.DemoRequestRef) C.bool {
-  return req.age > 18
-}
-
-func async_filter(req C.DemoRequestRef) C.bool {
-  time.Sleep(time.Duration(5) * time.Second)
-  return req.age > 18
-}
-
 func main() {}

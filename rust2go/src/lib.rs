@@ -1,5 +1,8 @@
+#![feature(waker_getters)]
+
+#[macro_use]
 mod convert;
-pub use convert::RefConvertion;
+pub use convert::{DataView, FromRef, ListRef, MemType, StringRef, ToRef, WakerRef, Writer};
 
 mod slot;
 pub use slot::{new_atomic_slot, SlotReader, SlotWriter};
@@ -7,7 +10,7 @@ pub use slot::{new_atomic_slot, SlotReader, SlotWriter};
 mod future;
 pub use future::ResponseFuture;
 
-pub use rust2go_macro::R2GCvt;
+pub use rust2go_macro::R2G;
 
 #[cfg(feature = "gen")]
 pub mod raw_file;

@@ -1,11 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
     env,
     path::{Path, PathBuf},
     process::Command,
 };
-
-use bindgen::callbacks::{DeriveInfo, ParseCallbacks, TypeKind};
 
 use crate::raw_file::RawRsFile;
 
@@ -87,20 +84,12 @@ impl Builder<PathBuf, PathBuf> {
             .binding_name
             .as_deref()
             .unwrap_or(crate::DEFAULT_BINDING_NAME);
-        Self::build_go(
-            &self.go_src,
-            binding_name,
-            Box::new(DeriveExt::from(&mapping)),
-        );
+        Self::build_go(&self.go_src, binding_name);
 
         // Generate trait impls and ext impls
         let mut output = String::new();
         for tt in traits.iter() {
-            output.push_str(&tt.generate_rs(
-                &mapping,
-                Some(binding_name),
-                Some(&Self::ext_gen(&mapping)),
-            ));
+            output.push_str(&tt.generate_rs(&mapping, Some(binding_name)));
         }
 
         // Write into $OUT_DIR/rust2go.rs(dir and file name can be specified by users)
@@ -115,55 +104,7 @@ impl Builder<PathBuf, PathBuf> {
         }
     }
 
-    // Use ext_gen to generate convertion for String and Waker.
-    fn ext_gen(mapping: &HashMap<String, String>) -> String {
-        let mut output = String::new();
-        if mapping.contains_key("String") {
-            output.push_str(
-                r#"
-            unsafe impl ::rust2go::RefConvertion for StringRef {
-                type Owned = ::std::string::String;
-                fn get_ref(s: &::std::string::String) -> StringRef {
-                    StringRef {
-                        ptr: s.as_ptr(),
-                        len: s.len(),
-                    }
-                }
-                unsafe fn get_owned(&self) -> ::std::string::String {
-                    let slice = std::slice::from_raw_parts(self.ptr, self.len);
-                    match ::std::string::String::from_utf8_lossy(slice) {
-                        ::std::borrow::Cow::Borrowed(s) => s.to_string(),
-                        ::std::borrow::Cow::Owned(s) => s,
-                    }
-                }
-            }
-            "#,
-            );
-        }
-        if mapping.contains_key("Waker") {
-            output.push_str(
-                r#"
-            unsafe impl ::rust2go::RefConvertion for WakerRef {
-                type Owned = ::std::task::Waker;
-                fn get_ref(w: &::std::task::Waker) -> WakerRef {
-                    WakerRef {
-                        ptr: w.as_raw().data() as *const _,
-                        vtable: w.as_raw().vtable() as *const _ as *const _,
-                    }
-                }
-                unsafe fn get_owned(&self) -> ::std::task::Waker {
-                    let vtable = &*(self.vtable as *const std::task::RawWakerVTable);
-                    let raw = ::std::task::RawWaker::new(self.ptr as *const _, vtable);
-                    ::std::task::Waker::from_raw(raw)
-                }
-            }
-            "#,
-            );
-        }
-        output
-    }
-
-    fn build_go(go_src: &Path, binding_name: &str, parse_cb: Box<dyn ParseCallbacks>) {
+    fn build_go(go_src: &Path, binding_name: &str) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
@@ -178,7 +119,6 @@ impl Builder<PathBuf, PathBuf> {
         let bindings = bindgen::Builder::default()
             .header(out_dir.join("libgo.h").to_str().unwrap())
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-            .parse_callbacks(parse_cb)
             .generate()
             .expect("Unable to generate bindings");
 
@@ -192,29 +132,5 @@ impl Builder<PathBuf, PathBuf> {
             out_dir.to_str().unwrap()
         );
         println!("cargo:rustc-link-lib=static=go");
-    }
-}
-
-#[derive(Debug)]
-struct DeriveExt {
-    ref_types: HashSet<String>,
-}
-
-impl From<&HashMap<String, String>> for DeriveExt {
-    fn from(value: &HashMap<String, String>) -> Self {
-        let mut ref_types: HashSet<String> = value.values().cloned().collect();
-        ref_types.remove("StringRef");
-        ref_types.remove("WakerRef");
-        Self { ref_types }
-    }
-}
-
-impl ParseCallbacks for DeriveExt {
-    fn add_derives(&self, info: &DeriveInfo<'_>) -> Vec<String> {
-        if info.kind == TypeKind::Struct && self.ref_types.contains(info.name) {
-            vec!["::rust2go::R2GCvt".to_string()]
-        } else {
-            vec![]
-        }
     }
 }

@@ -15,6 +15,7 @@ pub enum ResponseFuture<Req, Resp, Exec> {
 impl<Req, Resp, Exec> Future for ResponseFuture<Req, Resp, Exec>
 where
     // (Waker, Req, *SlotWriter<Resp>, Callback)
+    // Note: Req is usually a tuple.
     Exec: FnOnce(Waker, Req, *const (), *const ()) + Unpin,
     Req: Unpin,
 {

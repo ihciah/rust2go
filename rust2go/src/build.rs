@@ -6,6 +6,12 @@ use std::{
 
 use crate::raw_file::RawRsFile;
 
+#[derive(PartialEq, Eq)]
+pub enum LinkType {
+    Static,
+    Dynamic,
+}
+
 pub struct Builder<IDL = (), GOSRC = ()> {
     idl: IDL,
     go_src: GOSRC,
@@ -13,6 +19,7 @@ pub struct Builder<IDL = (), GOSRC = ()> {
     out_name: Option<String>,
     log: Option<PathBuf>,
     binding_name: Option<String>,
+    link: LinkType,
 }
 
 impl Default for Builder {
@@ -30,6 +37,7 @@ impl Builder {
             out_name: None,
             log: None,
             binding_name: None,
+            link: LinkType::Static,
         }
     }
 }
@@ -43,6 +51,7 @@ impl<IDL, GOSRC> Builder<IDL, GOSRC> {
             out_dir: self.out_dir,
             log: self.log,
             binding_name: self.binding_name,
+            link: self.link,
         }
     }
 
@@ -54,6 +63,7 @@ impl<IDL, GOSRC> Builder<IDL, GOSRC> {
             out_dir: self.out_dir,
             log: self.log,
             binding_name: self.binding_name,
+            link: self.link,
         }
     }
 
@@ -65,6 +75,19 @@ impl<IDL, GOSRC> Builder<IDL, GOSRC> {
             out_dir: self.out_dir,
             log: Some(log.into()),
             binding_name: self.binding_name,
+            link: self.link,
+        }
+    }
+
+    pub fn with_link(self, link: LinkType) -> Self {
+        Builder {
+            idl: self.idl,
+            go_src: self.go_src,
+            out_name: self.out_name,
+            out_dir: self.out_dir,
+            log: self.log,
+            binding_name: self.binding_name,
+            link,
         }
     }
 }
@@ -84,7 +107,7 @@ impl Builder<PathBuf, PathBuf> {
             .binding_name
             .as_deref()
             .unwrap_or(crate::DEFAULT_BINDING_NAME);
-        Self::build_go(&self.go_src, binding_name);
+        Self::build_go(&self.go_src, binding_name, self.link);
 
         // Generate trait impls and ext impls
         let mut output = String::new();
@@ -104,14 +127,22 @@ impl Builder<PathBuf, PathBuf> {
         }
     }
 
-    fn build_go(go_src: &Path, binding_name: &str) {
+    fn build_go(go_src: &Path, binding_name: &str, link: LinkType) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
             .arg("build")
-            .arg("-buildmode=c-archive")
+            .arg(if link == LinkType::Static {
+                "-buildmode=c-archive"
+            } else {
+                "-buildmode=c-shared"
+            })
             .arg("-o")
-            .arg(out_dir.join("libgo.a"))
+            .arg(out_dir.join(if link == LinkType::Static {
+                "libgo.a"
+            } else {
+                "libgo.so"
+            }))
             .arg(go_src);
 
         go_build.status().expect("Go build failed");
@@ -131,6 +162,10 @@ impl Builder<PathBuf, PathBuf> {
             "cargo:rustc-link-search=native={}",
             out_dir.to_str().unwrap()
         );
-        println!("cargo:rustc-link-lib=static=go");
+        if link == LinkType::Static {
+            println!("cargo:rustc-link-lib=static=go");
+        } else {
+            println!("cargo:rustc-link-lib=dylib=go");
+        }
     }
 }

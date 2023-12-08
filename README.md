@@ -32,7 +32,7 @@ For detailed example, please checkout [the example project](./example).
 - [ ] More elegant code generation implementation
 - [ ] Better build cache control
 - [ ] Golang interface support(separate user code from generated code)
-- [ ] Dynamic linking support
+- [x] Dynamic linking support
 - [ ] Golang helper library
 
 ### Extended Features

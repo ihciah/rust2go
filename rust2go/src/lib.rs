@@ -18,6 +18,6 @@ pub mod raw_file;
 #[cfg(feature = "gen")]
 mod build;
 #[cfg(feature = "gen")]
-pub use build::Builder;
+pub use build::{Builder, LinkType};
 
 pub(crate) const DEFAULT_BINDING_NAME: &str = "_go_bindings.rs";

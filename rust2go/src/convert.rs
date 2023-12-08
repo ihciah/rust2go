@@ -270,7 +270,14 @@ macro_rules! primitive_impl {
 primitive_impl!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64, bool, char);
 
 macro_rules! tuple_impl {
-    ($(($ty:ident, $name:tt)),*) => {
+    (($ty:ident, $name:tt)) => {
+        tuple_impl!(@# ($ty, $name));
+    };
+    ($(($ty:ident, $name:tt)),+) => {
+        tuple_impl!(@# $(($ty, $name)),*);
+        tuple_impl!(@! [$(($ty, $name))*]);
+    };
+    (@# $(($ty:ident, $name:tt)),*) => {
         impl<$($ty,)*> ToRef for ($($ty,)*) where $($ty:ToRef,)* {
             const MEM_TYPE: MemType = MemType::Primitive$(.max($ty::MEM_TYPE))*;
             type Ref = ($($ty::Ref,)*);
@@ -286,131 +293,20 @@ macro_rules! tuple_impl {
             }
         }
     };
+    (@! [] ($ty_l:ident, $name_l:tt) $(($ty:ident, $name:tt))*) => {
+        tuple_impl!(@~ [$(($ty, $name))*]);
+    };
+    (@! [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        tuple_impl!(@! [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
+    (@~ [] $(($ty:ident, $name:tt))*) => {
+        tuple_impl!($(($ty, $name)),*);
+    };
+    (@~ [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        tuple_impl!(@~ [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
 }
 
-tuple_impl!((T1, 0));
-tuple_impl!((T1, 0), (T2, 1));
-tuple_impl!((T1, 0), (T2, 1), (T3, 2));
-tuple_impl!((T1, 0), (T2, 1), (T3, 2), (T4, 3));
-tuple_impl!((T1, 0), (T2, 1), (T3, 2), (T4, 3), (T5, 4));
-tuple_impl!((T1, 0), (T2, 1), (T3, 2), (T4, 3), (T5, 4), (T6, 5));
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9),
-    (T11, 10)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9),
-    (T11, 10),
-    (T12, 11)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9),
-    (T11, 10),
-    (T12, 11),
-    (T13, 12)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9),
-    (T11, 10),
-    (T12, 11),
-    (T13, 12),
-    (T14, 13)
-);
-tuple_impl!(
-    (T1, 0),
-    (T2, 1),
-    (T3, 2),
-    (T4, 3),
-    (T5, 4),
-    (T6, 5),
-    (T7, 6),
-    (T8, 7),
-    (T9, 8),
-    (T10, 9),
-    (T11, 10),
-    (T12, 11),
-    (T13, 12),
-    (T14, 13),
-    (T15, 14)
-);
 tuple_impl!(
     (T1, 0),
     (T2, 1),

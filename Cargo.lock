@@ -694,6 +694,7 @@ version = "0.0.2"
 dependencies = [
  "anyhow",
  "bindgen",
+ "proc-macro2",
  "quote",
  "rust2go-macro",
  "syn 2.0.39",

@@ -29,7 +29,7 @@ For detailed example, please checkout [the example project](./example).
 ### Basic Ability Enhancement
 - [x] More complicated data types support
 - [x] Support user passing references
-- [ ] More elegant code generation implementation
+- [x] More elegant code generation implementation
 - [ ] Better build cache control
 - [ ] Golang interface support(separate user code from generated code)
 - [ ] Dynamic linking support

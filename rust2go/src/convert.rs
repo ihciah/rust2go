@@ -17,15 +17,10 @@ impl MemType {
 
     pub const fn max(self, other: Self) -> Self {
         match (self, other) {
-            (MemType::Primitive, MemType::Primitive) => MemType::Primitive,
-            (MemType::Primitive, MemType::SimpleWrapper) => MemType::SimpleWrapper,
-            (MemType::Primitive, MemType::Complex) => MemType::Complex,
-            (MemType::SimpleWrapper, MemType::Primitive) => MemType::SimpleWrapper,
-            (MemType::SimpleWrapper, MemType::SimpleWrapper) => MemType::SimpleWrapper,
+            (MemType::Complex, _) => MemType::Complex,
             (MemType::SimpleWrapper, MemType::Complex) => MemType::Complex,
-            (MemType::Complex, MemType::Primitive) => MemType::Complex,
-            (MemType::Complex, MemType::SimpleWrapper) => MemType::Complex,
-            (MemType::Complex, MemType::Complex) => MemType::Complex,
+            (MemType::SimpleWrapper, _) => MemType::SimpleWrapper,
+            (MemType::Primitive, r) => r,
         }
     }
 }

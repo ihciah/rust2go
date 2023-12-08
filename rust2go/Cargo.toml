@@ -12,12 +12,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-syn = { version = "2", features = ["full"], optional = true }
-quote = { version = "1", optional = true }
+rust2go-macro = { version = "0.0.2", path = "../rust2go-macro" }
+
 anyhow = "1"
 bindgen = "0.69"
-rust2go-macro = { version = "0.0.2", path = "../rust2go-macro" }
+
+syn = { version = "2", features = ["full"], optional = true }
+quote = { version = "1", optional = true }
+proc-macro2 = { version = "1", optional = true }
 
 [features]
 default = ["gen"]
-gen = ["syn", "quote"]
+gen = ["syn", "quote", "proc-macro2"]

@@ -74,7 +74,6 @@ impl Builder<PathBuf, PathBuf> {
         // Read and parse IDL file.
         let file_content = std::fs::read_to_string(self.idl).expect("Unable to read file");
         let raw_file = RawRsFile::new(file_content);
-        let (mapping, _) = raw_file.convert_to_ref().expect("Unable to convert to ref");
         let traits = raw_file.convert_trait().expect("Parse trait failed");
 
         // Golang -> $OUT_DIR/_go_bindings.rs
@@ -89,7 +88,7 @@ impl Builder<PathBuf, PathBuf> {
         // Generate trait impls and ext impls
         let mut output = String::new();
         for tt in traits.iter() {
-            output.push_str(&tt.generate_rs(&mapping, Some(binding_name)));
+            output.push_str(&tt.generate_rs(Some(binding_name)).unwrap().to_string());
         }
 
         // Write into $OUT_DIR/rust2go.rs(dir and file name can be specified by users)

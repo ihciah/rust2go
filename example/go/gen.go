@@ -38,13 +38,13 @@ typedef struct DemoResponseRef {
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
+inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
     ((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-void DemoCall_demo_check_async_cb(const void *f_ptr, struct WakerRef waker, struct DemoResponseRef resp, const void *slot) {
+inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct WakerRef waker, struct DemoResponseRef resp, const void *slot) {
     ((void (*)(struct WakerRef, struct DemoResponseRef, const void*))f_ptr)(waker, resp, slot);
 }
 */

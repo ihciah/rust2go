@@ -365,7 +365,7 @@ impl FnRepr {
                 r#"
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-void {fn_name}_cb(const void *f_ptr, struct WakerRef waker, {c_resp_type} resp, const void *slot) {{
+inline void {fn_name}_cb(const void *f_ptr, struct WakerRef waker, {c_resp_type} resp, const void *slot) {{
 ((void (*)(struct WakerRef, {c_resp_type}, const void*))f_ptr)(waker, resp, slot);
 }}
 "#,
@@ -374,7 +374,7 @@ void {fn_name}_cb(const void *f_ptr, struct WakerRef waker, {c_resp_type} resp, 
                 r#"
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot) {{
+inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot) {{
 ((void (*)({c_resp_type}, const void*))f_ptr)(resp, slot);
 }}
 "#,

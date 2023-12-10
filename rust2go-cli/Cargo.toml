@@ -14,7 +14,7 @@ repository.workspace = true
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cbindgen = "0.26"
-rust2go = { version = "0.0.2", path = "../rust2go", features = ["gen"] }
+rust2go-common = { version = "0.0.2", path = "../rust2go-common" }
 
 [[bin]]
 name = "rust2go-cli"

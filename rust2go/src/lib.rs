@@ -11,14 +11,20 @@ pub use slot::{new_atomic_slot, SlotReader, SlotWriter};
 mod future;
 pub use future::ResponseFuture;
 
-pub use rust2go_macro::R2G;
+pub use rust2go_macro::{r2g, R2G};
 
-#[cfg(feature = "gen")]
-pub mod raw_file;
+pub const DEFAULT_BINDING_FILE: &str = "_go_bindings.rs";
+#[macro_export]
+macro_rules! r2g_include_binding {
+    () => {
+        include!(concat!(env!("OUT_DIR"), "/_go_bindings.rs"));
+    };
+    ($file:literal) => {
+        include!(concat!(env!("OUT_DIR"), "/", $file));
+    };
+}
 
-#[cfg(feature = "gen")]
+#[cfg(feature = "build")]
 mod build;
-#[cfg(feature = "gen")]
+#[cfg(feature = "build")]
 pub use build::{Builder, LinkType};
-
-pub(crate) const DEFAULT_BINDING_NAME: &str = "_go_bindings.rs";

@@ -8,4 +8,4 @@ rust2go = { path = "../rust2go" }
 monoio = { version = "0.2", features = ["sync"] }
 
 [build-dependencies]
-rust2go = { path = "../rust2go", features = ["gen"] }
+rust2go = { path = "../rust2go", features = ["build"] }

@@ -1,5 +1,11 @@
 [workspace]
-members = ["rust2go", "rust2go-cli", "rust2go-macro", "example"]
+members = [
+    "rust2go",
+    "rust2go-cli",
+    "rust2go-macro",
+    "rust2go-common",
+    "example",
+]
 resolver = "2"
 
 [workspace.package]

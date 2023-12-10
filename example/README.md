@@ -7,7 +7,7 @@
 rust2go = { path = "../rust2go" }
 
 [build-dependencies]
-rust2go = { path = "../rust2go", features = ["gen"] }
+rust2go = { path = "../rust2go", features = ["build"] }
 ```
 
     And also install commandline tool:
@@ -17,13 +17,15 @@ cargo install --force rust2go-cli
 
 2. Create an empty `user.rs` and add it to `main.rs`: `mod user;`.
 
-3. Define request and response structs, and calling conventions in `user.rs`:
+3. Define request and response structs, and calling conventions in `user.rs`. You should also add `#[derive(rust2go::R2G)]` to your structs.
 ```rust
+#[derive(rust2go::R2G)]
 pub struct DemoRequest {
     pub name: String,
     pub age: u8,
 }
 
+#[derive(rust2go::R2G)]
 pub struct DemoResponse {
     pub pass: bool,
 }
@@ -42,7 +44,6 @@ pub trait DemoCall {
 ```rust
 fn main() {
     rust2go::Builder::new()
-        .with_rs_idl("./src/user.rs")
         .with_go_src("go/gen.go")
         .build();
 }
@@ -50,7 +51,21 @@ fn main() {
 
 7. Add an include to the top of `user.rs` to make sure the generated code is used:
 ```rust
-include!(concat!(env!("OUT_DIR"), "/rust2go.rs"));
+pub mod binding {
+    rust2go::r2g_include_binding!();
+}
+```
+
+    Also add macro `#[rust2go::r2g]` to your trait:
+```rust
+#[rust2go::r2g]
+pub trait DemoCall {
+    fn demo_oneway(req: &DemoUser);
+    fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
+    fn demo_check_async(
+        req: &DemoComplicatedRequest,
+    ) -> impl std::future::Future<Output = DemoResponse>;
+}
 ```
 
 8. Call the golang with `user::{$trait}Impl`.

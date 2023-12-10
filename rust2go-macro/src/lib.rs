@@ -1,9 +1,10 @@
 use proc_macro::TokenStream;
 use quote::quote;
+use rust2go_common::raw_file::TraitRepr;
 use syn::{parse_macro_input, DeriveInput, Ident};
 
 #[proc_macro_derive(R2G)]
-pub fn r2g(input: TokenStream) -> TokenStream {
+pub fn r2g_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     // Skip derive when the type has generics.
     if !input.generics.params.is_empty() {
@@ -98,4 +99,31 @@ pub fn r2g(input: TokenStream) -> TokenStream {
         }
     };
     TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn r2g(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let mut out = item.clone();
+    let binding_path = if attr.is_empty() {
+        None
+    } else {
+        match syn::parse::<syn::Path>(attr) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                out.extend(TokenStream::from(e.to_compile_error()));
+                return out;
+            }
+        }
+    };
+    out.extend(
+        syn::parse::<syn::ItemTrait>(item)
+            .and_then(|trat| r2g_trait(binding_path, trat))
+            .unwrap_or_else(|e| TokenStream::from(e.to_compile_error())),
+    );
+    out
+}
+
+fn r2g_trait(binding_path: Option<syn::Path>, trat: syn::ItemTrait) -> syn::Result<TokenStream> {
+    let trat = TraitRepr::try_from(&trat)?;
+    Ok(trat.generate_rs(binding_path.as_ref())?.into())
 }

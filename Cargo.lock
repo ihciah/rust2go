@@ -706,14 +706,25 @@ version = "0.0.2"
 dependencies = [
  "cbindgen",
  "clap 4.4.8",
- "rust2go",
+ "rust2go-common",
+]
+
+[[package]]
+name = "rust2go-common"
+version = "0.0.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.39",
 ]
 
 [[package]]
 name = "rust2go-macro"
 version = "0.0.2"
 dependencies = [
+ "anyhow",
  "quote",
+ "rust2go-common",
  "syn 2.0.39",
 ]
 

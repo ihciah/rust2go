@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use clap::Parser;
-use rust2go::raw_file::RawRsFile;
+use rust2go_common::raw_file::RawRsFile;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

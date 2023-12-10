@@ -1,11 +1,25 @@
-use anyhow::{bail, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
-use syn::{Ident, Token};
+use syn::{
+    Error, File, FnArg, Ident, Item, ItemTrait, Pat, Path, PathSegment, Result, ReturnType, Token,
+    TraitItem, Type,
+};
+
+macro_rules! serr {
+    ($msg:expr) => {
+        Error::new(Span::call_site(), $msg)
+    };
+}
+
+macro_rules! sbail {
+    ($msg:expr) => {
+        return Err(Error::new(Span::call_site(), $msg))
+    };
+}
 
 pub struct RawRsFile {
-    file: syn::File,
+    file: File,
 }
 
 impl RawRsFile {
@@ -16,7 +30,7 @@ impl RawRsFile {
     }
 
     // The returned mapping is struct OriginalType -> RefType.
-    pub fn convert_to_ref(&self) -> anyhow::Result<(HashMap<Ident, Ident>, TokenStream)> {
+    pub fn convert_to_ref(&self) -> Result<(HashMap<Ident, Ident>, TokenStream)> {
         let mut name_mapping = HashMap::new();
 
         // Add these to generated code to make golang have C structs of waker and string.
@@ -63,7 +77,7 @@ impl RawRsFile {
                 //    pub name: StringRef,
                 //    pub age: u8,
                 // }
-                syn::Item::Struct(s) => {
+                Item::Struct(s) => {
                     let struct_name = s.ident.clone();
                     let struct_name_ref = format_ident!("{}Ref", struct_name);
                     name_mapping.insert(struct_name, struct_name_ref.clone());
@@ -73,7 +87,7 @@ impl RawRsFile {
                         let field_name = field
                             .clone()
                             .ident
-                            .ok_or_else(|| anyhow::anyhow!("only named fields are supported"))?;
+                            .ok_or_else(|| serr!("only named fields are supported"))?;
                         let field_type = ParamType::try_from(&field.ty)?;
                         field_names.push(field_name);
                         field_types.push(field_type.to_rust_ref());
@@ -91,116 +105,122 @@ impl RawRsFile {
         Ok((name_mapping, out))
     }
 
-    pub fn convert_trait(&self) -> anyhow::Result<Vec<TraitRepr>> {
-        let mut out = Vec::new();
-        let traits = self.file.items.iter().filter_map(|item| match item {
-            syn::Item::Trait(t) => Some(t),
-            _ => None,
-        });
-        for trat in traits {
-            let trait_name = trat.ident.clone();
-            let mut fns = Vec::new();
-
-            for item in trat.items.iter() {
-                let syn::TraitItem::Fn(fn_item) = item else {
-                    bail!("only fn items are supported");
-                };
-                let fn_name = fn_item.sig.ident.clone();
-                let mut params = Vec::new();
-                for param in fn_item.sig.inputs.iter() {
-                    let syn::FnArg::Typed(param) = param else {
-                        bail!("only typed fn args are supported")
-                    };
-                    // param name
-                    let syn::Pat::Ident(param_name) = param.pat.as_ref() else {
-                        bail!("only ident fn args are supported");
-                    };
-                    // param type
-                    let param_type = ParamType::try_from(param.ty.as_ref())?;
-                    params.push(Param {
-                        name: param_name.ident.clone(),
-                        ty: param_type,
-                    });
-                }
-                let mut is_async = fn_item.sig.asyncness.is_some();
-                let ret = match &fn_item.sig.output {
-                    syn::ReturnType::Default => None,
-                    syn::ReturnType::Type(_, t) => match t.as_ref() {
-                        syn::Type::Path(_) => {
-                            let param_type = ParamType::try_from(t.as_ref())?;
-                            Some(param_type)
-                        }
-                        // Check if it's a future.
-                        syn::Type::ImplTrait(i) => {
-                            let t_str = i
-                                .bounds
-                                .iter()
-                                .find_map(|b| match b {
-                                    syn::TypeParamBound::Trait(t) => {
-                                        let last_seg = t.path.segments.last().unwrap();
-                                        if last_seg.ident != "Future" {
-                                            return None;
-                                        }
-                                        // extract the Output type of the future.
-                                        let arg = match &last_seg.arguments {
-                                            syn::PathArguments::AngleBracketed(a)
-                                                if a.args.len() == 1 =>
-                                            {
-                                                a.args.first().unwrap()
-                                            }
-                                            _ => return None,
-                                        };
-                                        match arg {
-                                            syn::GenericArgument::AssocType(t)
-                                                if t.ident == "Output" =>
-                                            {
-                                                // extract the type of the Output.
-                                                let ret = Some(ParamType::try_from(&t.ty).unwrap());
-                                                if is_async {
-                                                    panic!("async cannot be used with impl Future");
-                                                }
-                                                is_async = true;
-                                                ret
-                                            }
-                                            _ => None,
-                                        }
-                                    }
-                                    _ => None,
-                                })
-                                .ok_or_else(|| {
-                                    anyhow::anyhow!("only future types are supported")
-                                })?;
-                            Some(t_str)
-                        }
-                        _ => anyhow::bail!("only path type returns are supported"),
-                    },
-                };
-                if is_async && ret.is_none() {
-                    anyhow::bail!("async function must have a return value")
-                }
-                fns.push(FnRepr {
-                    name: fn_name,
-                    is_async,
-                    params,
-                    ret,
-                });
-            }
-            out.push(TraitRepr {
-                name: trait_name,
-                fns,
-            });
-        }
+    pub fn convert_trait(&self) -> Result<Vec<TraitRepr>> {
+        let out: Vec<TraitRepr> = self
+            .file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Trait(t) => Some(t),
+                _ => None,
+            })
+            .map(|trat| trat.try_into())
+            .collect::<Result<Vec<TraitRepr>>>()?;
         Ok(out)
     }
 }
 
-#[derive(Debug)]
 pub struct TraitRepr {
     name: Ident,
     fns: Vec<FnRepr>,
 }
 
-#[derive(Debug)]
+impl TryFrom<&ItemTrait> for TraitRepr {
+    type Error = Error;
+
+    fn try_from(trat: &ItemTrait) -> Result<Self> {
+        let trait_name = trat.ident.clone();
+        let mut fns = Vec::new();
+
+        for item in trat.items.iter() {
+            let TraitItem::Fn(fn_item) = item else {
+                sbail!("only fn items are supported");
+            };
+            let fn_name = fn_item.sig.ident.clone();
+            let mut params = Vec::new();
+            for param in fn_item.sig.inputs.iter() {
+                let FnArg::Typed(param) = param else {
+                    sbail!("only typed fn args are supported")
+                };
+                // param name
+                let Pat::Ident(param_name) = param.pat.as_ref() else {
+                    sbail!("only ident fn args are supported");
+                };
+                // param type
+                let param_type = ParamType::try_from(param.ty.as_ref())?;
+                params.push(Param {
+                    name: param_name.ident.clone(),
+                    ty: param_type,
+                });
+            }
+            let mut is_async = fn_item.sig.asyncness.is_some();
+            let ret = match &fn_item.sig.output {
+                ReturnType::Default => None,
+                ReturnType::Type(_, t) => match t.as_ref() {
+                    Type::Path(_) => {
+                        let param_type = ParamType::try_from(t.as_ref())?;
+                        Some(param_type)
+                    }
+                    // Check if it's a future.
+                    Type::ImplTrait(i) => {
+                        let t_str = i
+                            .bounds
+                            .iter()
+                            .find_map(|b| match b {
+                                syn::TypeParamBound::Trait(t) => {
+                                    let last_seg = t.path.segments.last().unwrap();
+                                    if last_seg.ident != "Future" {
+                                        return None;
+                                    }
+                                    // extract the Output type of the future.
+                                    let arg = match &last_seg.arguments {
+                                        syn::PathArguments::AngleBracketed(a)
+                                            if a.args.len() == 1 =>
+                                        {
+                                            a.args.first().unwrap()
+                                        }
+                                        _ => return None,
+                                    };
+                                    match arg {
+                                        syn::GenericArgument::AssocType(t)
+                                            if t.ident == "Output" =>
+                                        {
+                                            // extract the type of the Output.
+                                            let ret = Some(ParamType::try_from(&t.ty).unwrap());
+                                            if is_async {
+                                                panic!("async cannot be used with impl Future");
+                                            }
+                                            is_async = true;
+                                            ret
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                                _ => None,
+                            })
+                            .ok_or_else(|| serr!("only future types are supported"))?;
+                        Some(t_str)
+                    }
+                    _ => sbail!("only path type returns are supported"),
+                },
+            };
+            if is_async && ret.is_none() {
+                sbail!("async function must have a return value")
+            }
+            fns.push(FnRepr {
+                name: fn_name,
+                is_async,
+                params,
+                ret,
+            });
+        }
+        Ok(TraitRepr {
+            name: trait_name,
+            fns,
+        })
+    }
+}
+
 pub struct FnRepr {
     name: Ident,
     is_async: bool,
@@ -208,23 +228,20 @@ pub struct FnRepr {
     ret: Option<ParamType>,
 }
 
-#[derive(Debug)]
 pub struct Param {
     name: Ident,
     ty: ParamType,
 }
 
-#[derive(Debug, Clone)]
 pub struct ParamType {
     inner: ParamTypeInner,
     is_reference: bool,
 }
 
-#[derive(Debug, Clone)]
 pub enum ParamTypeInner {
     Primitive(Ident),
     Custom(Ident),
-    List(syn::Type),
+    List(Type),
 }
 
 impl ToTokens for ParamType {
@@ -240,12 +257,12 @@ impl ToTokens for ParamType {
     }
 }
 
-impl TryFrom<&syn::Type> for ParamType {
-    type Error = anyhow::Error;
+impl TryFrom<&Type> for ParamType {
+    type Error = Error;
 
-    fn try_from(mut ty: &syn::Type) -> Result<Self, Self::Error> {
+    fn try_from(mut ty: &Type) -> Result<Self> {
         let mut is_reference = false;
-        if let syn::Type::Reference(r) = ty {
+        if let Type::Reference(r) = ty {
             is_reference = true;
             ty = &r.elem;
         }
@@ -256,14 +273,14 @@ impl TryFrom<&syn::Type> for ParamType {
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "bool" | "char"
             | "f32" => {
                 if !seg.arguments.is_none() {
-                    bail!("primitive types with arguments are not supported")
+                    sbail!("primitive types with arguments are not supported")
                 }
                 ParamTypeInner::Primitive(seg.ident.clone())
             }
             "Vec" => ParamTypeInner::List(ty.clone()),
             _ => {
                 if !seg.arguments.is_none() {
-                    bail!("custom types with arguments are not supported")
+                    sbail!("custom types with arguments are not supported")
                 }
                 ParamTypeInner::Custom(seg.ident.clone())
             }
@@ -274,6 +291,7 @@ impl TryFrom<&syn::Type> for ParamType {
         })
     }
 }
+
 impl ParamType {
     fn to_c(&self, with_struct: bool) -> String {
         let struct_ = if with_struct { "struct " } else { "" };
@@ -301,7 +319,7 @@ impl ParamType {
         }
     }
 
-    fn to_rust_ref(&self) -> syn::Ident {
+    fn to_rust_ref(&self) -> Ident {
         match &self.inner {
             ParamTypeInner::Primitive(name) => name.clone(),
             ParamTypeInner::Custom(name) => format_ident!("{}Ref", name),
@@ -324,22 +342,27 @@ impl TraitRepr {
     }
 
     // Generate rust impl, callbacks and binding mod include.
-    pub fn generate_rs(&self, rs_file_name: Option<&str>) -> Result<TokenStream> {
+    pub fn generate_rs(&self, binding_path: Option<&Path>) -> Result<TokenStream> {
+        const DEFAULT_BINDING_MOD: &str = "binding";
+        let path_prefix = match binding_path {
+            Some(p) => quote! {#p::},
+            None => {
+                let binding_mod = format_ident!("{DEFAULT_BINDING_MOD}");
+                quote! {#binding_mod::}
+            }
+        };
         let (mut fn_trait_impls, mut fn_callbacks) = (
             Vec::with_capacity(self.fns.len()),
             Vec::with_capacity(self.fns.len()),
         );
         for f in self.fns.iter() {
-            fn_trait_impls.push(f.to_rs_impl(&self.name)?);
-            fn_callbacks.push(f.to_rs_callback()?);
+            fn_trait_impls.push(f.to_rs_impl(&self.name, &path_prefix)?);
+            fn_callbacks.push(f.to_rs_callback(&path_prefix)?);
         }
 
-        let rs_binding_name = rs_file_name.unwrap_or(crate::DEFAULT_BINDING_NAME);
         let trait_name = &self.name;
         let impl_struct_name = format_ident!("{}Impl", trait_name);
         Ok(quote! {
-            pub mod binding { #![allow(warnings)] include!(concat!(env!("OUT_DIR"), "/", #rs_binding_name)); }
-
             pub struct #impl_struct_name;
             impl #trait_name for #impl_struct_name {
                 #(#fn_trait_impls)*
@@ -448,7 +471,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         out
     }
 
-    fn to_rs_impl(&self, trait_name: &Ident) -> Result<TokenStream> {
+    fn to_rs_impl(&self, trait_name: &Ident, path_prefix: &TokenStream) -> Result<TokenStream> {
         let mut out = TokenStream::default();
 
         let func_name = &self.name;
@@ -467,7 +490,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         });
         let c_func_name = format_ident!("C{trait_name}_{func_name}");
         match (self.is_async, &self.ret) {
-            (true, None) => panic!("async function must have a return value"),
+            (true, None) => sbail!("async function must have a return value"),
             (false, None) => {
                 // fn demo_check(r: user::DemoRequest) {
                 //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
@@ -478,7 +501,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                         #(
                             let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
                         )*
-                        unsafe {binding::#c_func_name(#(::std::mem::transmute(#func_param_names)),*)}
+                        unsafe {#path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*)}
                     }
                 });
             }
@@ -501,7 +524,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                         #(
                             let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
                         )*
-                        unsafe { binding::#c_func_name(#(::std::mem::transmute(#func_param_names)),*, &slot as *const _ as *const () as *mut _, Self::#callback_name as *const () as *mut _) };
+                        unsafe { #path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*, &slot as *const _ as *const () as *mut _, Self::#callback_name as *const () as *mut _) };
                         slot.take().unwrap()
                     }
                 });
@@ -548,7 +571,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                             let r_ref = ::rust2go::ToRef::to_ref(&r, &mut writer);
                             unsafe { buffer.set_len(size) };
                             unsafe {
-                                binding::#c_func_name(
+                                #path_prefix #c_func_name(
                                     ::std::mem::transmute(waker_ref),
                                     #(::std::mem::transmute(r_ref.#tuple_ids),)*
                                     slot as *const _ as *mut _,
@@ -566,11 +589,11 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         Ok(out)
     }
 
-    fn to_rs_callback(&self) -> anyhow::Result<TokenStream> {
+    fn to_rs_callback(&self, path_prefix: &TokenStream) -> Result<TokenStream> {
         let fn_name = format_ident!("{}_cb", self.name);
 
         match (self.is_async, &self.ret) {
-            (true, None) => bail!("async function must have a return value"),
+            (true, None) => sbail!("async function must have a return value"),
             (false, None) => {
                 // There's no need to generate callback for sync function without callback.
                 Ok(TokenStream::default())
@@ -583,7 +606,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 let resp_ref_ty = ret.to_rust_ref();
                 Ok(quote! {
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(resp: binding::#resp_ref_ty, slot: *const ()) {
+                    unsafe extern "C" fn #fn_name(resp: #path_prefix #resp_ref_ty, slot: *const ()) {
                         *(slot as *mut Option<#ret>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                     }
                 })
@@ -601,7 +624,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 let resp_ref_ty = ret.to_rust_ref();
                 Ok(quote! {
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(waker: binding::WakerRef, resp: binding::#resp_ref_ty, slot: *const ()) {
+                    unsafe extern "C" fn #fn_name(waker: #path_prefix WakerRef, resp: #path_prefix #resp_ref_ty, slot: *const ()) {
                         ::rust2go::SlotWriter::<#ret>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                         <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                     }
@@ -611,55 +634,19 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
     }
 }
 
-fn type_to_segment(ty: &syn::Type) -> anyhow::Result<&syn::PathSegment> {
+fn type_to_segment(ty: &Type) -> Result<&PathSegment> {
     let field_type = match ty {
-        syn::Type::Path(p) => p,
-        _ => anyhow::bail!("only path types are supported"),
+        Type::Path(p) => p,
+        _ => sbail!("only path types are supported"),
     };
     let path = &field_type.path;
     // Leading colon is not allow
     if path.leading_colon.is_some() {
-        anyhow::bail!("types with leading colons are not supported");
+        sbail!("types with leading colons are not supported");
     }
     // We only accept single-segment path
     if path.segments.len() != 1 {
-        anyhow::bail!("types with multiple segments are not supported");
+        sbail!("types with multiple segments are not supported");
     }
     Ok(path.segments.first().unwrap())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let raw = r#"
-        pub struct DemoRequest {
-            pub name: String,
-            pub age: u8,
-        }
-        pub struct DemoResponse {
-            pub pass: bool,
-        }
-        pub trait DemoCall {
-            fn demo_check(req: DemoRequest) -> DemoResponse;
-            fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
-        }
-        "#;
-        let raw_file = super::RawRsFile::new(raw);
-        let (names, result) = raw_file.convert_to_ref().unwrap();
-        println!("names: {names:?}");
-        println!("result: {result}");
-
-        let traits = raw_file.convert_trait().unwrap();
-        println!("traits: {traits:?}");
-
-        for trait_ in traits {
-            println!("traits gen: {}", trait_.generate_rs(None).unwrap());
-        }
-
-        bindgen::Builder::default()
-            .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-            .generate()
-            .expect("Unable to generate bindings");
-    }
 }

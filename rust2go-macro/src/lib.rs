@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use rust2go_common::raw_file::TraitRepr;
+use rust2go_common::{raw_file::TraitRepr, sbail};
 use syn::{parse_macro_input, DeriveInput, Ident};
 
 #[proc_macro_derive(R2G)]
@@ -103,27 +103,59 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn r2g(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let mut out = item.clone();
     let binding_path = if attr.is_empty() {
         None
     } else {
         match syn::parse::<syn::Path>(attr) {
             Ok(path) => Some(path),
-            Err(e) => {
-                out.extend(TokenStream::from(e.to_compile_error()));
-                return out;
-            }
+            Err(e) => return TokenStream::from(e.to_compile_error()),
         }
     };
-    out.extend(
-        syn::parse::<syn::ItemTrait>(item)
-            .and_then(|trat| r2g_trait(binding_path, trat))
-            .unwrap_or_else(|e| TokenStream::from(e.to_compile_error())),
-    );
-    out
+    syn::parse::<syn::ItemTrait>(item)
+        .and_then(|trat| r2g_trait(binding_path, trat))
+        .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
 }
 
-fn r2g_trait(binding_path: Option<syn::Path>, trat: syn::ItemTrait) -> syn::Result<TokenStream> {
-    let trat = TraitRepr::try_from(&trat)?;
-    Ok(trat.generate_rs(binding_path.as_ref())?.into())
+fn r2g_trait(
+    binding_path: Option<syn::Path>,
+    mut trat: syn::ItemTrait,
+) -> syn::Result<TokenStream> {
+    let trat_repr = TraitRepr::try_from(&trat)?;
+
+    // remove attributes of all functions
+    trat.items
+        .iter_mut()
+        .filter_map(|trat_fn| match trat_fn {
+            syn::TraitItem::Fn(f) => Some(f),
+            _ => None,
+        })
+        .for_each(|f| {
+            f.attrs.clear();
+        });
+
+    // for all functions with #[drop_safe_ret], change the return type.
+    for (fn_repr, trat_fn) in trat_repr
+        .fns()
+        .iter()
+        .zip(trat.items.iter_mut())
+        .filter(|(fn_repr, _)| fn_repr.drop_safe_ret_params())
+    {
+        match trat_fn {
+            syn::TraitItem::Fn(f) => {
+                let orig = match fn_repr.ret() {
+                    None => quote! { () },
+                    Some(ret) => quote! { #ret },
+                };
+                let tys = fn_repr.params().iter().map(|p| p.ty());
+
+                f.sig.asyncness = None;
+                f.sig.output = syn::parse_quote! { -> impl ::std::future::Future<Output = (#orig, (#(#tys,)*))> };
+            }
+            _ => sbail!("only fn is supported"),
+        }
+    }
+
+    let mut out = quote! {#trat};
+    out.extend(trat_repr.generate_rs(binding_path.as_ref())?);
+    Ok(out.into())
 }

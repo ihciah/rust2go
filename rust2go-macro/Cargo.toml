@@ -18,5 +18,6 @@ proc-macro = true
 [dependencies]
 rust2go-common = { version = "0.0.2", path = "../rust2go-common" }
 
+proc-macro2 = { version = "1" }
 quote = { version = "1" }
 syn = { version = "2", features = ["full"] }

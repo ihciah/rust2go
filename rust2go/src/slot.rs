@@ -12,17 +12,29 @@ use std::{
 /// 1. Rust cannot guarantee trying read before go write.
 /// 2. Rust can dealloc the memory before go write by simply drop it if using a Box directly.
 #[inline]
-pub fn new_atomic_slot<T>() -> (SlotReader<T>, SlotWriter<T>) {
+pub fn new_atomic_slot<T, A>() -> (SlotReader<T, A>, SlotWriter<T, A>) {
     let inner = SlotInner::new();
     let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(inner))) };
     (SlotReader(ptr), SlotWriter(ptr))
 }
 
-struct SlotInner<T> {
+struct SlotInner<T, A = ()> {
     state: State,
     data: MaybeUninit<T>,
+    attachment: Option<A>,
 }
 
+impl<T, A> Drop for SlotInner<T, A> {
+    fn drop(&mut self) {
+        if self.state.load() & 0b100 != 0 {
+            unsafe { self.data.assume_init_drop() };
+        }
+    }
+}
+
+// 0b00x: x=1 means writer is dropped, x=0 means writer is alive.
+// 0b0x0: x=1 means reader is dropped, x=0 means reader is alive.
+// 0bx00: x=1 means data is written, x=0 means data is not written.
 #[repr(transparent)]
 struct State(AtomicU8);
 
@@ -54,64 +66,88 @@ impl State {
     }
 }
 
-impl<T> SlotInner<T> {
+impl<T, A> SlotInner<T, A> {
     #[inline]
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
-            state: State(AtomicU8::from(0b11)),
+            state: State(AtomicU8::new(0)),
             data: MaybeUninit::uninit(),
+            attachment: None,
         }
     }
 
-    /// # Safety
-    /// Can only be read once.
     #[inline]
-    unsafe fn read(&self) -> Option<T> {
-        // If the write bit set to zero, we can read it.
-        if self.state.load() & 0b01 == 0 {
-            Some(unsafe { self.data.as_ptr().read() })
+    fn read(&self) -> Option<T> {
+        let mut data = MaybeUninit::uninit();
+        let copied = self.state.fetch_update_action(|curr| {
+            if curr & 0b101 == 0b101 {
+                // data has been written and writer has been dropped(data has been fully written)
+                unsafe { data = MaybeUninit::new(self.data.as_ptr().read()) };
+                // unset the written bit
+                (true, Some(curr & 0b011))
+            } else {
+                (false, None)
+            }
+        });
+
+        if copied {
+            Some(unsafe { data.assume_init() })
         } else {
             None
         }
     }
 
-    /// # Safety
-    /// By design write should only be called once and not simultaneously.
     #[inline]
-    unsafe fn write(&mut self, data: T) {
-        // Write data and set the write bit to zero.
-        self.data.as_mut_ptr().write(data);
-        self.state
-            .fetch_update_action(|curr| ((), Some(curr & 0b10)));
+    fn write(&mut self, data: T) -> Option<T> {
+        let succ = self.state.fetch_update_action(|curr| {
+            if curr & 0b100 != 0 {
+                // data has been written or another writer has got this bit(but this would not happen in fact)
+                (false, None)
+            } else {
+                // we got this bit
+                (true, Some(0b100 | curr))
+            }
+        });
+
+        if !succ {
+            return Some(data);
+        }
+
+        unsafe { self.data.as_mut_ptr().write(data) };
+        None
     }
 }
 
 #[repr(transparent)]
-pub struct SlotReader<T>(NonNull<SlotInner<T>>);
-unsafe impl<T: Send> Send for SlotReader<T> {}
-unsafe impl<T: Send> Sync for SlotReader<T> {}
+pub struct SlotReader<T, A = ()>(NonNull<SlotInner<T, A>>);
+unsafe impl<T: Send, A: Send> Send for SlotReader<T, A> {}
+unsafe impl<T: Send, A: Send> Sync for SlotReader<T, A> {}
 
-impl<T> SlotReader<T> {
-    /// Copy and take output
-    /// # Safety
-    /// Can only be read once.
+impl<T, A> SlotReader<T, A> {
     #[inline]
-    pub unsafe fn read(&self) -> Option<T> {
-        self.0.as_ref().read()
+    pub fn read(&self) -> Option<T> {
+        unsafe { self.0.as_ref() }.read()
+    }
+
+    /// # Safety
+    /// Must be read after attachment write.
+    #[inline]
+    pub unsafe fn read_with_attachment(&mut self) -> Option<(T, Option<A>)> {
+        let inner = unsafe { self.0.as_mut() };
+        inner.read().map(|res| (res, inner.attachment.take()))
     }
 }
 
-impl<T> Drop for SlotReader<T> {
+impl<T, A> Drop for SlotReader<T, A> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            if self.0.as_ref().state.fetch_update_action(|curr| {
-                if curr & 0b01 != 0 {
-                    (false, Some(0b01))
-                } else {
-                    (true, Some(0b00))
-                }
-            }) {
+            if self
+                .0
+                .as_ref()
+                .state
+                .fetch_update_action(|curr| (curr & 0b001 != 0, Some(0b010 | curr)))
+            {
                 drop(Box::from_raw(self.0.as_ptr()));
             }
         }
@@ -119,16 +155,14 @@ impl<T> Drop for SlotReader<T> {
 }
 
 #[repr(transparent)]
-pub struct SlotWriter<T>(NonNull<SlotInner<T>>);
-unsafe impl<T: Send> Send for SlotWriter<T> {}
-unsafe impl<T: Send> Sync for SlotWriter<T> {}
+pub struct SlotWriter<T, A = ()>(NonNull<SlotInner<T, A>>);
+unsafe impl<T: Send, A: Send> Send for SlotWriter<T, A> {}
+unsafe impl<T: Send, A: Send> Sync for SlotWriter<T, A> {}
 
-impl<T> SlotWriter<T> {
-    /// # Safety
-    /// Can only write once.
+impl<T, A> SlotWriter<T, A> {
     #[inline]
-    pub unsafe fn write(mut self, data: T) {
-        self.0.as_mut().write(data)
+    pub fn write(mut self, data: T) {
+        unsafe { self.0.as_mut() }.write(data);
     }
 
     #[inline]
@@ -144,19 +178,23 @@ impl<T> SlotWriter<T> {
     pub unsafe fn from_ptr(ptr: *const ()) -> Self {
         Self(NonNull::new_unchecked(ptr as _))
     }
+
+    #[inline]
+    pub(crate) fn attach(&mut self, attachment: A) -> &mut A {
+        unsafe { self.0.as_mut() }.attachment.insert(attachment)
+    }
 }
 
-impl<T> Drop for SlotWriter<T> {
+impl<T, A> Drop for SlotWriter<T, A> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            if self.0.as_ref().state.fetch_update_action(|curr| {
-                if curr & 0b10 != 0 {
-                    (false, Some(0b10))
-                } else {
-                    (true, Some(0b00))
-                }
-            }) {
+            if self
+                .0
+                .as_ref()
+                .state
+                .fetch_update_action(|curr| (curr & 0b010 != 0, Some(0b001 | curr)))
+            {
                 drop(Box::from_raw(self.0.as_ptr()));
             }
         }

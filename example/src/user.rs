@@ -41,7 +41,7 @@ pub struct DemoResponse {
 // It can be defined in 2 styles: sync and async.
 // If the golang side is purely calculation logic, and not very heavy, use sync can be more efficient.
 // Otherwise, use async style:
-// Both `async fn`` and `impl Future` styles are supported.
+// Both `async fn` and `impl Future` styles are supported.
 //
 // If you want to use your own binding mod name, use:
 // `#[rust2go::r2g(binding)]`

@@ -2,19 +2,21 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
 use syn::{
-    Error, File, FnArg, Ident, Item, ItemTrait, Pat, Path, PathSegment, Result, ReturnType, Token,
-    TraitItem, Type,
+    Error, File, FnArg, Ident, Item, ItemTrait, Meta, Pat, Path, PathSegment, Result, ReturnType,
+    Token, TraitItem, Type,
 };
 
+#[macro_export]
 macro_rules! serr {
     ($msg:expr) => {
-        Error::new(Span::call_site(), $msg)
+        ::syn::Error::new(::proc_macro2::Span::call_site(), $msg)
     };
 }
 
+#[macro_export]
 macro_rules! sbail {
     ($msg:expr) => {
-        return Err(Error::new(Span::call_site(), $msg))
+        return Err(::syn::Error::new(::proc_macro2::Span::call_site(), $msg))
     };
 }
 
@@ -207,11 +209,44 @@ impl TryFrom<&ItemTrait> for TraitRepr {
             if is_async && ret.is_none() {
                 sbail!("async function must have a return value")
             }
+
+            // on async mode, parse attributes to check it's drop safe setting.
+            let mut drop_safe = false;
+            let mut drop_safe_ret_params = false;
+            if is_async
+                && fn_item
+                    .attrs
+                    .iter()
+                    .any(|attr|
+                        matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe")))
+                    )
+            {
+                drop_safe = true;
+            }
+
+            if is_async
+                && fn_item
+                    .attrs
+                    .iter()
+                    .any(|attr|
+                        matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe_ret")))
+                    )
+            {
+                drop_safe_ret_params = true;
+            }
+
+            if (drop_safe || drop_safe_ret_params)
+                && params.iter().any(|param| param.ty.is_reference)
+            {
+                sbail!("drop_safe function cannot have reference parameters")
+            }
+
             fns.push(FnRepr {
                 name: fn_name,
                 is_async,
                 params,
                 ret,
+                drop_safe_ret_params,
             });
         }
         Ok(TraitRepr {
@@ -226,11 +261,25 @@ pub struct FnRepr {
     is_async: bool,
     params: Vec<Param>,
     ret: Option<ParamType>,
+    drop_safe_ret_params: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropSafe {
+    ThreadLocal,
+    Global,
+    None,
 }
 
 pub struct Param {
     name: Ident,
     ty: ParamType,
+}
+
+impl Param {
+    pub fn ty(&self) -> &ParamType {
+        &self.ty
+    }
 }
 
 pub struct ParamType {
@@ -329,6 +378,10 @@ impl ParamType {
 }
 
 impl TraitRepr {
+    pub fn fns(&self) -> &[FnRepr] {
+        &self.fns
+    }
+
     // Generate c callbacks used in golang import "C".
     pub fn generate_c_callbacks(&self) -> String {
         let name = self.name.to_string();
@@ -375,6 +428,22 @@ impl TraitRepr {
 }
 
 impl FnRepr {
+    pub fn name(&self) -> &Ident {
+        &self.name
+    }
+
+    pub fn drop_safe_ret_params(&self) -> bool {
+        self.drop_safe_ret_params
+    }
+
+    pub fn params(&self) -> &[Param] {
+        &self.params
+    }
+
+    pub fn ret(&self) -> Option<&ParamType> {
+        self.ret.as_ref()
+    }
+
     fn to_c_callback(&self, trait_name: &str) -> String {
         let Some(ret) = &self.ret else {
             return String::new();
@@ -534,15 +603,10 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     req: user::DemoRequest,
                 // ) -> impl std::future::Future<Output = user::DemoResponse> {
                 //     ::rust2go::ResponseFuture::Init(
-                //         |waker: std::task::Waker, r: (user::DemoRequest,), slot: *const (), cb: *const ()| {
+                //         |waker: std::task::Waker, r_ref: <(user::DemoRequest,) as ToRef>::Ref, slot: *const (), cb: *const ()| {
                 //             let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);
                 //             std::mem::forget(waker);
                 //
-                //             let size = ::rust2go::ToRef::calc_size(&r);
-                //             let mut buffer = ::std::vec::Vec::<u8>::with_capacity(size);
-                //             let mut writer = unsafe { ::rust2go::Writer::new(buffer.as_ptr() as _) };
-                //             let r_ref = ::rust2go::ToRef::to_ref(&r, &mut writer);
-                //             unsafe { buffer.set_len(size) };
                 //             unsafe {
                 //                 binding::CDemoCall_demo_check_async(
                 //                     ::std::mem::transmute(waker_ref),
@@ -558,18 +622,21 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // }
                 let len = self.params.len();
                 let tuple_ids = (0..len).map(syn::Index::from);
+                let new_fn = match self.drop_safe_ret_params {
+                    false => quote! {::rust2go::ResponseFuture::new_without_req},
+                    true => quote! {::rust2go::ResponseFuture::new},
+                };
+                let ret = match self.drop_safe_ret_params {
+                    false => quote! { #ret },
+                    true => quote! { (#ret, (#(#func_param_types,)*)) },
+                };
                 out.extend(quote! {
                     -> impl ::std::future::Future<Output = #ret> {
-                    ::rust2go::ResponseFuture::Init(
-                        |waker: ::std::task::Waker, r: (#(#func_param_types,)*), slot: *const (), cb: *const ()| {
+                    #new_fn(
+                        |waker: ::std::task::Waker, r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
                             let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);
                             ::std::mem::forget(waker);
 
-                            let size = ::rust2go::ToRef::calc_size(&r);
-                            let mut buffer = ::std::vec::Vec::<u8>::with_capacity(size);
-                            let mut writer = unsafe { ::rust2go::Writer::new(buffer.as_ptr() as _) };
-                            let r_ref = ::rust2go::ToRef::to_ref(&r, &mut writer);
-                            unsafe { buffer.set_len(size) };
                             unsafe {
                                 #path_prefix #c_func_name(
                                     ::std::mem::transmute(waker_ref),
@@ -622,10 +689,11 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                 // }
                 let resp_ref_ty = ret.to_rust_ref();
+                let func_param_types = self.params.iter().map(|p| &p.ty);
                 Ok(quote! {
                     #[no_mangle]
                     unsafe extern "C" fn #fn_name(waker: #path_prefix WakerRef, resp: #path_prefix #resp_ref_ty, slot: *const ()) {
-                        ::rust2go::SlotWriter::<#ret>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                        ::rust2go::SlotWriter::<#ret, ((#(#func_param_types,)*), Vec<u8>)>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                         <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                     }
                 })

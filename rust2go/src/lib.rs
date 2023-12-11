@@ -9,7 +9,7 @@ mod slot;
 pub use slot::{new_atomic_slot, SlotReader, SlotWriter};
 
 mod future;
-pub use future::ResponseFuture;
+pub use future::{ResponseFuture, ResponseFutureWithoutReq};
 
 pub use rust2go_macro::{r2g, R2G};
 

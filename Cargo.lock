@@ -713,6 +713,7 @@ dependencies = [
 name = "rust2go-macro"
 version = "0.0.2"
 dependencies = [
+ "proc-macro2",
  "quote",
  "rust2go-common",
  "syn 2.0.39",

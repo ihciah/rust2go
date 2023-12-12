@@ -1,8 +1,8 @@
 [package]
 name = "rust2go-common"
-version = "0.0.2"
+version = "0.1.0"
 
-description = "rust2go common lib"
+description = "Rust2go common library."
 
 authors.workspace = true
 categories.workspace = true

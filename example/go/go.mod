@@ -1,3 +1,3 @@
-module r2gexample
+module main
 
 go 1.21.4

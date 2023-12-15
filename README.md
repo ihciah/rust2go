@@ -31,7 +31,7 @@ For detailed example, please checkout [the example project](./example).
 - [x] Support user passing references
 - [x] More elegant code generation implementation
 - [ ] Better build cache control
-- [ ] Golang interface support(separate user code from generated code)
+- [x] Golang interface support(separate user code from generated code)
 - [x] Dynamic linking support
 - [ ] Golang helper library
 

@@ -88,6 +88,7 @@ impl Builder<PathBuf> {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
+            .env("GO111MODULE", "off")
             .arg("build")
             .arg(if link == LinkType::Static {
                 "-buildmode=c-archive"

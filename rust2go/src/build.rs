@@ -89,6 +89,8 @@ impl Builder<PathBuf> {
         let mut go_build = Command::new("go");
         go_build
             .env("GO111MODULE", "off")
+            // Why add GODEBUG=cgocheck=0: https://pkg.go.dev/cmd/cgo#hdr-Passing_pointers
+            .env("GODEBUG", "cgocheck=0")
             .arg("build")
             .arg(if link == LinkType::Static {
                 "-buildmode=c-archive"

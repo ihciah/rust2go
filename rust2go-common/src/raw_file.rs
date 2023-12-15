@@ -32,7 +32,7 @@ impl RawRsFile {
     }
 
     // The returned mapping is struct OriginalType -> RefType.
-    pub fn convert_to_ref(&self) -> Result<(HashMap<Ident, Ident>, TokenStream)> {
+    pub fn convert_structs_to_ref(&self) -> Result<(HashMap<Ident, Ident>, TokenStream)> {
         let mut name_mapping = HashMap::new();
 
         // Add these to generated code to make golang have C structs of waker and string.
@@ -105,6 +105,113 @@ impl RawRsFile {
             }
         }
         Ok((name_mapping, out))
+    }
+
+    // go structs define and newStruct/refStruct function impl.
+    pub fn convert_structs_to_go(&self) -> Result<String> {
+        let mut out = r#"
+        func newString(_param_ref C.StringRef) string {
+            return unsafe.String((*byte)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
+        }
+        func newSlice[T any](_param_ref C.ListRef) []T {
+            return unsafe.Slice((*T)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
+        }
+        func refString(_param string) C.StringRef {
+            return C.StringRef{
+                ptr: (*C.uint8_t)(unsafe.StringData(_param)),
+                len: C.uintptr_t(len(_param)),
+            }
+        }
+        func refSlice[T any](_param []T) C.ListRef {
+            return C.ListRef{
+                ptr: unsafe.Pointer(unsafe.SliceData(_param)),
+                len: C.uintptr_t(len(_param)),
+            }
+        }
+        func mapping[T1, T2 any](input []T1, f func(T1) T2) []T2 {
+            output := make([]T2, len(input))
+            for i, v := range input {
+                output[i] = f(v)
+            }
+            return output
+        }
+        func list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+            return func(x C.ListRef) []T2 {
+                return mapping(newSlice[T1](x), f)
+            }
+        }
+        "#
+        .to_string();
+        for item in self.file.items.iter() {
+            match item {
+                // for example, convert
+                // pub struct DemoRequest {
+                //     pub name: String,
+                //     pub age: u8,
+                // }
+                // to
+                // type DemoRequest struct {
+                //     name String
+                //     age uint8
+                // }
+                // func newDemoRequest(p C.DemoRequestRef) DemoRequest {
+                //     return DemoRequest {
+                //         name: newString(p.name),
+                //         age: uint8(p.age),
+                //     }
+                // }
+                // func refDemoRequest(p DemoRequest) C.DemoRequestRef {
+                //     return C.DemoRequestRef {
+                //         name: refString(p.name),
+                //         age: C.uint8_t(p.age),
+                //     }
+                // }
+                Item::Struct(s) => {
+                    let struct_name = s.ident.to_string();
+                    out.push_str(&format!("type {} struct {{\n", struct_name));
+                    for field in s.fields.iter() {
+                        let field_name = field
+                            .ident
+                            .as_ref()
+                            .ok_or_else(|| serr!("only named fields are supported"))?
+                            .to_string();
+                        let field_type = ParamType::try_from(&field.ty)?;
+                        out.push_str(&format!("    {} {}\n", field_name, field_type.to_go()));
+                    }
+                    out.push_str("}\n");
+
+                    // newStruct
+                    out.push_str(&format!(
+                        "func new{struct_name}(p C.{struct_name}Ref) {struct_name}{{\nreturn {struct_name}{{\n"
+                    ));
+                    for field in s.fields.iter() {
+                        let field_name = field.ident.as_ref().unwrap().to_string();
+                        let field_type = ParamType::try_from(&field.ty)?;
+                        out.push_str(&format!(
+                            "{field_name}: {}(p.{field_name}),\n",
+                            field_type.to_c_go_field_converter()
+                        ));
+                    }
+                    out.push_str("}\n}\n");
+
+                    // refStruct
+                    out.push_str(&format!(
+                        "func ref{struct_name}(p {struct_name}) C.{struct_name}Ref{{\nreturn C.{struct_name}Ref{{\n"
+                    ));
+                    for field in s.fields.iter() {
+                        let field_name = field.ident.as_ref().unwrap().to_string();
+                        let field_type = ParamType::try_from(&field.ty)?;
+                        out.push_str(&format!(
+                            "{field_name}: {}(p.{field_name}),\n",
+                            field_type.to_go_c_field_converter()
+                        ));
+                    }
+                    out.push_str("}\n}\n");
+                }
+                _ => continue,
+            }
+        }
+        Ok(out)
     }
 
     pub fn convert_trait(&self) -> Result<Vec<TraitRepr>> {
@@ -368,6 +475,137 @@ impl ParamType {
         }
     }
 
+    fn to_go(&self) -> String {
+        match &self.inner {
+            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
+                "u8" => "uint8",
+                "u16" => "uint16",
+                "u32" => "uint32",
+                "u64" => "uint64",
+                "i8" => "int8",
+                "i16" => "int16",
+                "i32" => "int32",
+                "i64" => "int64",
+                "bool" => "bool",
+                "char" => "rune",
+                "usize" => "uint",
+                "isize" => "int",
+                "f32" => "float32",
+                "f64" => "float64",
+                _ => panic!("unreconigzed rust primitive type {name}"),
+            }
+            .to_string(),
+            ParamTypeInner::Custom(c) => {
+                let s = c.to_string();
+                match s.as_str() {
+                    "String" => "string".to_string(),
+                    _ => s,
+                }
+            }
+            ParamTypeInner::List(inner) => {
+                let seg = type_to_segment(inner).unwrap();
+                let inside = match &seg.arguments {
+                    syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                        syn::GenericArgument::Type(ty) => ty,
+                        _ => panic!("list generic must be a type"),
+                    },
+                    _ => panic!("list type must have angle bracketed arguments"),
+                };
+                format!(
+                    "[]{}",
+                    ParamType::try_from(inside)
+                        .expect("unable to convert list type")
+                        .to_go()
+                )
+            }
+        }
+    }
+
+    // f: StructRef -> Struct
+    fn to_c_go_field_converter(&self) -> String {
+        match &self.inner {
+            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
+                "u8" => "uint8",
+                "u16" => "uint16",
+                "u32" => "uint32",
+                "u64" => "uint64",
+                "i8" => "int8",
+                "i16" => "int16",
+                "i32" => "int32",
+                "i64" => "int64",
+                "bool" => "bool",
+                "char" => "rune",
+                "usize" => "uint",
+                "isize" => "int",
+                "f32" => "float32",
+                "f64" => "float64",
+                _ => panic!("unreconigzed rust primitive type {name}"),
+            }
+            .to_string(),
+            ParamTypeInner::Custom(c) => format!("new{}", c.to_string().as_str()),
+            ParamTypeInner::List(inner) => {
+                let seg = type_to_segment(inner).unwrap();
+                let inside = match &seg.arguments {
+                    syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                        syn::GenericArgument::Type(ty) => ty,
+                        _ => panic!("list generic must be a type"),
+                    },
+                    _ => panic!("list type must have angle bracketed arguments"),
+                };
+                format!(
+                    "list_mapper({})",
+                    ParamType::try_from(inside)
+                        .expect("unable to convert list type")
+                        .to_c_go_field_converter()
+                )
+            }
+        }
+    }
+
+    // f: Struct -> StructRef
+    fn to_go_c_field_converter(&self) -> String {
+        match &self.inner {
+            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
+                "u8" => "C.uint8_t",
+                "u16" => "C.uint16_t",
+                "u32" => "C.uint32_t",
+                "u64" => "C.uint64_t",
+                "i8" => "C.int8_t",
+                "i16" => "C.int16_t",
+                "i32" => "C.int32_t",
+                "i64" => "C.int64_t",
+                "bool" => "C.bool",
+                "char" => "C.uint",
+                "usize" => "C.uintptr_t",
+                "isize" => "C.intptr_t",
+                "f32" => "C.float",
+                "f64" => "C.double",
+                _ => panic!("unreconigzed rust primitive type {name}"),
+            }
+            .to_string(),
+            ParamTypeInner::Custom(c) => format!("ref{}", c.to_string().as_str()),
+            ParamTypeInner::List(inner) => {
+                // TODO: fix! Must generate a recursive to_ref impl.
+
+                // let seg = type_to_segment(inner).unwrap();
+                // let inside = match &seg.arguments {
+                //     syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                //         syn::GenericArgument::Type(ty) => ty,
+                //         _ => panic!("list generic must be a type"),
+                //     },
+                //     _ => panic!("list type must have angle bracketed arguments"),
+                // };
+                format!(
+                    // "list_mapper({})",
+                    // ParamType::try_from(inside)
+                    //     .expect("unable to convert list type")
+                    //     .to_go_c_field_converter()
+                    "refSlice"
+                )
+            }
+        }
+    }
+
     fn to_rust_ref(&self) -> Ident {
         match &self.inner {
             ParamTypeInner::Primitive(name) => name.clone(),
@@ -392,6 +630,28 @@ impl TraitRepr {
     pub fn generate_go_exports(&self) -> String {
         let name = self.name.to_string();
         self.fns.iter().map(|f| f.to_go_export(&name)).collect()
+    }
+
+    // Generate golang interface.
+    pub fn generate_go_interface(&self) -> String {
+        // var DemoCallImpl DemoCall
+        // type DemoCall interface {
+        //     demo_oneway(req DemoUser)
+        //     demo_check(req DemoComplicatedRequest) DemoResponse
+        //     demo_check_async(req DemoComplicatedRequest) DemoResponse
+        // }
+        let name = self.name.to_string();
+        let fns = self.fns.iter().map(|f| f.to_go_interface_method());
+
+        let mut out = String::new();
+        out.push_str(&format!("var {name}Impl {name}\n"));
+        out.push_str(&format!("type {name} interface {{\n"));
+        for f in fns {
+            out.push_str(&f);
+            out.push('\n');
+        }
+        out.push_str("}\n");
+        out
     }
 
     // Generate rust impl, callbacks and binding mod include.
@@ -483,61 +743,108 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),
             (false, None) => {
-                // //export CDemoCheck
-                // func CDemoCheck(_ C.DemoRequestRef) {
-                //     // user logic
+                // //export CDemoCall_demo_oneway
+                // func CDemoCall_demo_oneway(req C.DemoUserRef) {
+                //     DemoCallImpl.demo_oneway(newDemoUser(req))
                 // }
                 out.push('(');
                 self.params
                     .iter()
-                    .for_each(|p| out.push_str(&format!("_ C.{}, ", p.ty.to_c(false))));
-                out.push_str(") {\n    // user logic\n}\n");
-            }
-            (false, Some(ret)) => {
-                // //export CDemoCheck
-                // func CDemoCheck(_ C.DemoRequestRef, slot *C.void, cb *C.void) {
-                //     // user logic
-                //     resp := C.DemoResponseRef {}
-                //     C.demo_check_cb(unsafe.Pointer(cb), resp, unsafe.Pointer(slot))
-                // }
-                out.push('(');
-                self.params
-                    .iter()
-                    .for_each(|p| out.push_str(&format!("_ C.{}, ", p.ty.to_c(false))));
-
-                out.push_str("slot *C.void, cb *C.void) {\n    // user logic\n");
-                out.push_str(&format!("    resp := C.{}{{}}\n", ret.to_c(false)));
+                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
+                out.push_str(") {\n");
                 out.push_str(&format!(
-                    "    C.{callback}(unsafe.Pointer(cb), resp, unsafe.Pointer(slot))\n"
+                    "    {trait_name}Impl.{fn_name}({params})\n",
+                    fn_name = self.name,
+                    params = self
+                        .params
+                        .iter()
+                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
                 out.push_str("}\n");
             }
+            (false, Some(ret)) => {
+                // //export CDemoCall_demo_check
+                // func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+                //     resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
+                //     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), refDemoResponse(resp), unsafe.Pointer(slot))
+                //     runtime.KeepAlive(resp)
+                // }
+                out.push('(');
+                self.params
+                    .iter()
+                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
+
+                out.push_str("slot *C.void, cb *C.void) {\n");
+                out.push_str(&format!(
+                    "    resp := {trait_name}Impl.{fn_name}({params})\n",
+                    fn_name = self.name,
+                    params = self
+                        .params
+                        .iter()
+                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                out.push_str(&format!(
+                    "    C.{callback}(unsafe.Pointer(cb), {}(resp), unsafe.Pointer(slot))\n",
+                    ret.to_go_c_field_converter(),
+                ));
+                out.push_str("    runtime.KeepAlive(resp)\n");
+                out.push_str("}\n");
+            }
             (true, Some(ret)) => {
-                // //export CDemoCheckAsync
-                // func CDemoCheckAsync(w C.WakerRef, r C.DemoRequestRef, slot *C.void, cb *C.void) {
-                //     go func() {
-                //       // user logic
-                //       resp := C.DemoResponseRef {}
-                //       C.demo_check_async_cb(unsafe.Pointer(cb), w, resp, unsafe.Pointer(slot))
+                // //export CDemoCall_demo_check_async
+                // func CDemoCall_demo_check_async(w C.WakerRef, req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+                // 	   go func() {
+                //         resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
+                // 	       C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, refDemoResponse(resp), unsafe.Pointer(slot))
+                // 	       runtime.KeepAlive(resp)
                 //     }()
                 // }
                 out.push_str("(w C.WakerRef, ");
                 self.params
                     .iter()
-                    .for_each(|p| out.push_str(&format!("_ C.{}, ", p.ty.to_c(false))));
+                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
 
                 out.push_str("slot *C.void, cb *C.void) {\n");
                 out.push_str("    go func() {\n");
-                out.push_str("        // user logic\n");
-                out.push_str(&format!("    resp := C.{}{{}}\n", ret.to_c(false)));
                 out.push_str(&format!(
-                    "        C.{callback}(unsafe.Pointer(cb), w, resp, unsafe.Pointer(slot))\n"
+                    "        resp := {trait_name}Impl.{fn_name}({params})\n",
+                    fn_name = self.name,
+                    params = self
+                        .params
+                        .iter()
+                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
+                out.push_str(&format!(
+                    "        C.{callback}(unsafe.Pointer(cb), w, {}(resp), unsafe.Pointer(slot))\n",
+                    ret.to_go_c_field_converter(),
+                ));
+                out.push_str("        runtime.KeepAlive(resp)\n");
                 out.push_str("    }()\n");
                 out.push_str("}\n");
             }
         }
         out
+    }
+
+    fn to_go_interface_method(&self) -> String {
+        // demo_oneway(req DemoUser)
+        // demo_check(req DemoComplicatedRequest) DemoResponse
+        format!(
+            "{}({}) {}",
+            self.name,
+            self.params
+                .iter()
+                .map(|p| format!("{} {}", p.name, p.ty.to_go()))
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.ret.as_ref().map(|p| p.to_go()).unwrap_or_default()
+        )
     }
 
     fn to_rs_impl(&self, trait_name: &Ident, path_prefix: &TokenStream) -> Result<TokenStream> {
@@ -717,4 +1024,32 @@ fn type_to_segment(ty: &Type) -> Result<&PathSegment> {
         sbail!("types with multiple segments are not supported");
     }
     Ok(path.segments.first().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        let raw = r#"
+        pub struct DemoRequest {
+            pub name: String,
+            pub age: u8,
+        }
+        pub struct DemoResponse {
+            pub pass: bool,
+        }
+        pub trait DemoCall {
+            fn demo_check(req: DemoRequest) -> DemoResponse;
+            fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
+        }
+        "#;
+        let raw_file = super::RawRsFile::new(raw);
+        let traits = raw_file.convert_trait().unwrap();
+
+        println!("structs gen: {}", raw_file.convert_structs_to_go().unwrap());
+        for trait_ in traits {
+            println!("if gen: {}", trait_.generate_go_interface());
+            println!("go export gen: {}", trait_.generate_go_exports());
+        }
+    }
 }

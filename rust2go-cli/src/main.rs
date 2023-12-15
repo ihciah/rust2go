@@ -23,7 +23,9 @@ fn main() {
     let raw_file = RawRsFile::new(file_content);
 
     // Convert to Ref structs and write to output file.
-    let (name_mapping, ref_content) = raw_file.convert_to_ref().expect("Unable to convert to ref");
+    let (name_mapping, ref_content) = raw_file
+        .convert_structs_to_ref()
+        .expect("Unable to convert to ref");
     std::fs::write(&args.dst, ref_content.to_string()).expect("Unable to write file");
 
     // Convert output file with cbindgen.
@@ -48,11 +50,18 @@ fn main() {
         .iter()
         .for_each(|t| output.push_str(&t.generate_c_callbacks()));
 
-    let mut go_content =
-        format!("package main\n\n/*\n{output}*/\nimport \"C\"\nimport \"unsafe\"\n\n");
-    traits
-        .iter()
-        .for_each(|t| go_content.push_str(&t.generate_go_exports()));
+    let mut go_content = format!(
+        "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n\"runtime\"\n)\n"
+    );
+    traits.iter().for_each(|t| {
+        go_content.push_str(&t.generate_go_interface());
+        go_content.push_str(&t.generate_go_exports());
+    });
+    go_content.push_str(
+        &raw_file
+            .convert_structs_to_go()
+            .expect("Unable to generate go structs"),
+    );
     go_content.push_str("func main() {}\n");
 
     // TODO:

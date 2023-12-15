@@ -13,16 +13,6 @@ typedef struct StringRef {
   uintptr_t len;
 } StringRef;
 
-typedef struct DemoUserRef {
-  struct StringRef name;
-  uint8_t age;
-} DemoUserRef;
-
-typedef struct WakerRef {
-  const void *ptr;
-  const void *vtable;
-} WakerRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -32,45 +22,143 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef users;
 } DemoComplicatedRequestRef;
 
+typedef struct WakerRef {
+  const void *ptr;
+  const void *vtable;
+} WakerRef;
+
 typedef struct DemoResponseRef {
   bool pass;
 } DemoResponseRef;
 
+typedef struct DemoUserRef {
+  struct StringRef name;
+  uint8_t age;
+} DemoUserRef;
+
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
 inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-    ((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
 inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct WakerRef waker, struct DemoResponseRef resp, const void *slot) {
-    ((void (*)(struct WakerRef, struct DemoResponseRef, const void*))f_ptr)(waker, resp, slot);
+((void (*)(struct WakerRef, struct DemoResponseRef, const void*))f_ptr)(waker, resp, slot);
 }
 */
 import "C"
 import (
-	"time"
+	"runtime"
 	"unsafe"
 )
 
+var DemoCallImpl DemoCall
+
+type DemoCall interface {
+	demo_oneway(req DemoUser)
+	demo_check(req DemoComplicatedRequest) DemoResponse
+	demo_check_async(req DemoComplicatedRequest) DemoResponse
+}
+
 //export CDemoCall_demo_oneway
-func CDemoCall_demo_oneway(_ C.DemoUserRef, ) {
-    // user logic
+func CDemoCall_demo_oneway(req C.DemoUserRef) {
+	DemoCallImpl.demo_oneway(newDemoUser(req))
 }
+
 //export CDemoCall_demo_check
-func CDemoCall_demo_check(_ C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
-    // user logic
-    resp := C.DemoResponseRef{pass: true}
-    C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp, unsafe.Pointer(slot))
+func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+	resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
+	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), refDemoResponse(resp), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp)
 }
+
 //export CDemoCall_demo_check_async
-func CDemoCall_demo_check_async(w C.WakerRef, _ C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
-    go func() {
-        // user logic
-        resp := C.DemoResponseRef{pass: true}
-        time.Sleep(time.Duration(3) * time.Second)
-        C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, resp, unsafe.Pointer(slot))
-    }()
+func CDemoCall_demo_check_async(w C.WakerRef, req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+	go func() {
+		resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
+		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, refDemoResponse(resp), unsafe.Pointer(slot))
+		runtime.KeepAlive(resp)
+	}()
+}
+
+func newString(_param_ref C.StringRef) string {
+	return unsafe.String((*byte)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
+}
+func newSlice[T any](_param_ref C.ListRef) []T {
+	return unsafe.Slice((*T)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
+}
+func refString(_param string) C.StringRef {
+	return C.StringRef{
+		ptr: (*C.uint8_t)(unsafe.StringData(_param)),
+		len: C.uintptr_t(len(_param)),
+	}
+}
+func refSlice[T any](_param []T) C.ListRef {
+	return C.ListRef{
+		ptr: unsafe.Pointer(unsafe.SliceData(_param)),
+		len: C.uintptr_t(len(_param)),
+	}
+}
+func mapping[T1, T2 any](input []T1, f func(T1) T2) []T2 {
+	output := make([]T2, len(input))
+	for i, v := range input {
+		output[i] = f(v)
+	}
+	return output
+}
+func list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+	return func(x C.ListRef) []T2 {
+		return mapping(newSlice[T1](x), f)
+	}
+}
+
+type DemoUser struct {
+	name string
+	age  uint8
+}
+
+func newDemoUser(p C.DemoUserRef) DemoUser {
+	return DemoUser{
+		name: newString(p.name),
+		age:  uint8(p.age),
+	}
+}
+func refDemoUser(p DemoUser) C.DemoUserRef {
+	return C.DemoUserRef{
+		name: refString(p.name),
+		age:  C.uint8_t(p.age),
+	}
+}
+
+type DemoComplicatedRequest struct {
+	users []DemoUser
+}
+
+func newDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedRequest {
+	return DemoComplicatedRequest{
+		users: list_mapper(newDemoUser)(p.users),
+	}
+}
+func refDemoComplicatedRequest(p DemoComplicatedRequest) C.DemoComplicatedRequestRef {
+	return C.DemoComplicatedRequestRef{
+		users: refSlice(p.users),
+	}
+}
+
+type DemoResponse struct {
+	pass bool
+}
+
+func newDemoResponse(p C.DemoResponseRef) DemoResponse {
+	return DemoResponse{
+		pass: bool(p.pass),
+	}
+}
+func refDemoResponse(p DemoResponse) C.DemoResponseRef {
+	return C.DemoResponseRef{
+		pass: C.bool(p.pass),
+	}
 }
 func main() {}

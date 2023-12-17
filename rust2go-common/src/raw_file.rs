@@ -342,10 +342,14 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 drop_safe_ret_params = true;
             }
 
-            if (drop_safe || drop_safe_ret_params)
-                && params.iter().any(|param| param.ty.is_reference)
-            {
+            let mut safe = true;
+            let has_reference = params.iter().any(|param| param.ty.is_reference);
+
+            if (drop_safe || drop_safe_ret_params) && has_reference {
                 sbail!("drop_safe function cannot have reference parameters")
+            }
+            if is_async && !drop_safe && !drop_safe_ret_params {
+                safe = false;
             }
 
             fns.push(FnRepr {
@@ -353,6 +357,7 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 is_async,
                 params,
                 ret,
+                safe,
                 drop_safe_ret_params,
             });
         }
@@ -368,6 +373,7 @@ pub struct FnRepr {
     is_async: bool,
     params: Vec<Param>,
     ret: Option<ParamType>,
+    safe: bool,
     drop_safe_ret_params: bool,
 }
 
@@ -696,6 +702,10 @@ impl FnRepr {
         self.drop_safe_ret_params
     }
 
+    pub fn safe(&self) -> bool {
+        self.safe
+    }
+
     pub fn params(&self) -> &[Param] {
         &self.params
     }
@@ -853,8 +863,9 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         let func_name = &self.name;
         let func_param_names: Vec<_> = self.params.iter().map(|p| &p.name).collect();
         let func_param_types: Vec<_> = self.params.iter().map(|p| &p.ty).collect();
+        let unsafe_marker = (!self.safe).then(syn::token::Unsafe::default);
         out.extend(quote! {
-            fn #func_name(#(#func_param_names: #func_param_types)*)
+            #unsafe_marker fn #func_name(#(#func_param_names: #func_param_types)*)
         });
 
         let ref_marks = self.params.iter().map(|p| {

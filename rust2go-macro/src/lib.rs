@@ -155,6 +155,21 @@ fn r2g_trait(
         }
     }
 
+    // for all functions with safe=false, add unsafe
+    for (_, trat_fn) in trat_repr
+        .fns()
+        .iter()
+        .zip(trat.items.iter_mut())
+        .filter(|(fn_repr, _)| !fn_repr.safe())
+    {
+        match trat_fn {
+            syn::TraitItem::Fn(f) => {
+                f.sig.unsafety = Some(syn::token::Unsafe::default());
+            }
+            _ => sbail!("only fn is supported"),
+        }
+    }
+
     let mut out = quote! {#trat};
     out.extend(trat_repr.generate_rs(binding_path.as_ref())?);
     Ok(out.into())

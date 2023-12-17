@@ -35,7 +35,7 @@ async fn async_call() {
         }],
     };
     let call = Instant::now();
-    let pass = DemoCallImpl::demo_check_async(&req).await.pass;
+    let pass = unsafe { DemoCallImpl::demo_check_async(&req).await }.pass;
     println!(
         "[async] User pass: {pass}, time cost: {}sec",
         call.elapsed().as_secs()

@@ -1,9 +1,8 @@
 // Now the feature I rely on has not been stableized.
 #![feature(waker_getters)]
 
-mod user;
+use example::user::{DemoCall, DemoCallImpl, DemoComplicatedRequest, DemoUser};
 use monoio::time::Instant;
-use user::{DemoCall, DemoCallImpl, DemoComplicatedRequest, DemoUser};
 
 #[monoio::main]
 async fn main() {

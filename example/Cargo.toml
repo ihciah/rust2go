@@ -19,7 +19,6 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "example"
-build = "build.rs"
 path = "src/main.rs"
 
 [[bench]]

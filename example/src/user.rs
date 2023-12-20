@@ -29,6 +29,7 @@ pub struct DemoUser {
 #[derive(rust2go::R2G, Clone)]
 pub struct DemoComplicatedRequest {
     pub users: Vec<DemoUser>,
+    pub balabala: Vec<u8>,
 }
 
 // Define your own structs. You must derive `rust2go::R2G` for each struct.
@@ -51,5 +52,9 @@ pub trait DemoCall {
     fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
     fn demo_check_async(
         req: &DemoComplicatedRequest,
+    ) -> impl std::future::Future<Output = DemoResponse>;
+    #[drop_safe]
+    fn demo_check_async_safe(
+        req: DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;
 }

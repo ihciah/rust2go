@@ -108,38 +108,123 @@ impl RawRsFile {
     }
 
     // go structs define and newStruct/refStruct function impl.
-    pub fn convert_structs_to_go(&self) -> Result<String> {
+    pub fn convert_structs_to_go(&self, levels: &HashMap<Ident, u8>) -> Result<String> {
         let mut out = r#"
-        func newString(_param_ref C.StringRef) string {
-            return unsafe.String((*byte)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
+        func newString(s_ref C.StringRef) string {
+            return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
         }
-        func newSlice[T any](_param_ref C.ListRef) []T {
-            return unsafe.Slice((*T)(unsafe.Pointer(_param_ref.ptr)), _param_ref.len)
-        }
-        func refString(_param string) C.StringRef {
+        func cntString(s *string, cnt *uint) {}
+        func refString(s *string, _buffer *[]byte) C.StringRef {
             return C.StringRef{
-                ptr: (*C.uint8_t)(unsafe.StringData(_param)),
-                len: C.uintptr_t(len(_param)),
+                ptr: (*C.uint8_t)(unsafe.StringData(*s)),
+                len: C.uintptr_t(len(*s)),
             }
         }
-        func refSlice[T any](_param []T) C.ListRef {
-            return C.ListRef{
-                ptr: unsafe.Pointer(unsafe.SliceData(_param)),
-                len: C.uintptr_t(len(_param)),
-            }
-        }
-        func mapping[T1, T2 any](input []T1, f func(T1) T2) []T2 {
-            output := make([]T2, len(input))
-            for i, v := range input {
-                output[i] = f(v)
-            }
-            return output
-        }
-        func list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+        func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
-                return mapping(newSlice[T1](x), f)
+                input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
+                output := make([]T2, len(input))
+                for i, v := range input {
+                    output[i] = f(v)
+                }
+                return output
             }
         }
+        // only handle non-primitive type T
+        func cnt_list_mapper[T any](f func(s *T, cnt *uint)) func(s *[]T, cnt *uint) {
+            return func(s *[]T, cnt *uint) {
+                for _, v := range *s {
+                    f(&v, cnt)
+                }
+                *cnt += uint(len(*s)) * size_of[C.ListRef]()
+            }
+        }
+        // only handle primitive type T
+        func cnt_list_mapper_primitive[T any](f func(s *T, cnt *uint)) func(s *[]T, cnt *uint) {
+            return func(s *[]T, cnt *uint) {}
+        }
+        // only handle non-primitive type T
+        func ref_list_mapper[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
+            return func(s *[]T, buffer *[]byte) C.ListRef {
+                ret := C.ListRef{
+                    ptr: unsafe.Pointer(&(*buffer)[0]),
+                    len: C.uintptr_t(len(*s)),
+                }
+                children_bytes := int(size_of[R]()) * len(*s)
+                children := (*buffer)[:children_bytes]
+                *buffer = (*buffer)[children_bytes:]
+                for _, v := range *s {
+                    child := f(&v, buffer)
+                    len := unsafe.Sizeof(child)
+                    copy(children, unsafe.Slice((*byte)(unsafe.Pointer(&child)), len))
+                    children = children[len:]
+                }
+                return ret
+            }
+        }
+        // only handle primitive type T
+        func ref_list_mapper_primitive[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
+            return func(s *[]T, buffer *[]byte) C.ListRef {
+                return C.ListRef{
+                    ptr: unsafe.Pointer(&(*s)[0]),
+                    len: C.uintptr_t(len(*s)),
+                }
+            }
+        }
+        func size_of[T any]() uint {
+            var t T
+            return uint(unsafe.Sizeof(t))
+        }
+        func cvt_ref[R, CR any](cnt_f func(s *R, cnt *uint), ref_f func(p *R, buffer *[]byte) CR) func(p *R) (CR, []byte) {
+            return func(p *R) (CR, []byte) {
+                var cnt uint
+                cnt_f(p, &cnt)
+                buffer := make([]byte, cnt)
+                return ref_f(p, &buffer), buffer
+            }
+        }
+
+        func newC_uint8_t(n C.uint8_t) uint8    { return uint8(n) }
+        func newC_uint16_t(n C.uint16_t) uint16 { return uint16(n) }
+        func newC_uint32_t(n C.uint32_t) uint32 { return uint32(n) }
+        func newC_uint64_t(n C.uint64_t) uint64 { return uint64(n) }
+        func newC_int8_t(n C.int8_t) int8       { return int8(n) }
+        func newC_int16_t(n C.int16_t) int16    { return int16(n) }
+        func newC_int32_t(n C.int32_t) int32    { return int32(n) }
+        func newC_int64_t(n C.int64_t) int64    { return int64(n) }
+        func newC_bool(n C.bool) bool           { return bool(n) }
+        func newC_uintptr_t(n C.uintptr_t) uint { return uint(n) }
+        func newC_intptr_t(n C.intptr_t) int    { return int(n) }
+        func newC_float(n C.float) float32      { return float32(n) }
+        func newC_double(n C.double) float64    { return float64(n) }
+
+        func cntC_uint8_t(s *uint8, cnt *uint)   {}
+        func cntC_uint16_t(s *uint16, cnt *uint) {}
+        func cntC_uint32_t(s *uint32, cnt *uint) {}
+        func cntC_uint64_t(s *uint64, cnt *uint) {}
+        func cntC_int8_t(s *int8, cnt *uint)     {}
+        func cntC_int16_t(s *int16, cnt *uint)   {}
+        func cntC_int32_t(s *int32, cnt *uint)   {}
+        func cntC_int64_t(s *int64, cnt *uint)   {}
+        func cntC_bool(s *bool, cnt *uint)       {}
+        func cntC_uintptr_t(s *uint, cnt *uint)  {}
+        func cntC_intptr_t(s *int, cnt *uint)    {}
+        func cntC_float(s *float32, cnt *uint)   {}
+        func cntC_double(s *float64, cnt *uint)  {}
+
+        func refC_uint8_t(p *uint8, buffer *[]byte) C.uint8_t    { return C.uint8_t(*p) }
+        func refC_uint16_t(p *uint16, buffer *[]byte) C.uint16_t { return C.uint16_t(*p) }
+        func refC_uint32_t(p *uint32, buffer *[]byte) C.uint32_t { return C.uint32_t(*p) }
+        func refC_uint64_t(p *uint64, buffer *[]byte) C.uint64_t { return C.uint64_t(*p) }
+        func refC_int8_t(p *int8, buffer *[]byte) C.int8_t       { return C.int8_t(*p) }
+        func refC_int16_t(p *int16, buffer *[]byte) C.int16_t    { return C.int16_t(*p) }
+        func refC_int32_t(p *int32, buffer *[]byte) C.int32_t    { return C.int32_t(*p) }
+        func refC_int64_t(p *int64, buffer *[]byte) C.int64_t    { return C.int64_t(*p) }
+        func refC_bool(p *bool, buffer *[]byte) C.bool           { return C.bool(*p) }
+        func refC_uintptr_t(p *uint, buffer *[]byte) C.uintptr_t { return C.uintptr_t(*p) }
+        func refC_intptr_t(p *int, buffer *[]byte) C.intptr_t    { return C.intptr_t(*p) }
+        func refC_float(p *float32, buffer *[]byte) C.float      { return C.float(*p) }
+        func refC_double(p *float64, buffer *[]byte) C.double    { return C.double(*p) }
         "#
         .to_string();
         for item in self.file.items.iter() {
@@ -189,21 +274,39 @@ impl RawRsFile {
                         let field_type = ParamType::try_from(&field.ty)?;
                         out.push_str(&format!(
                             "{field_name}: {}(p.{field_name}),\n",
-                            field_type.to_c_go_field_converter()
+                            field_type.c_to_go_field_converter()
                         ));
                     }
                     out.push_str("}\n}\n");
 
+                    let level = *levels.get(&s.ident).unwrap();
+
+                    // cntStruct
+                    out.push_str(&format!(
+                        "func cnt{struct_name}(s *{struct_name}, cnt *uint) {{\n"
+                    ));
+                    if level == 2 {
+                        for field in s.fields.iter() {
+                            let field_name = field.ident.as_ref().unwrap().to_string();
+                            let field_type = ParamType::try_from(&field.ty)?;
+                            let (counter_f, level) = field_type.go_to_c_field_counter(levels);
+                            if level == 2 {
+                                out.push_str(&format!("{counter_f}(&s.{field_name}, cnt)\n"));
+                            }
+                        }
+                    }
+                    out.push_str("}\n");
+
                     // refStruct
                     out.push_str(&format!(
-                        "func ref{struct_name}(p {struct_name}) C.{struct_name}Ref{{\nreturn C.{struct_name}Ref{{\n"
+                        "func ref{struct_name}(p *{struct_name}, buffer *[]byte) C.{struct_name}Ref{{\nreturn C.{struct_name}Ref{{\n"
                     ));
                     for field in s.fields.iter() {
                         let field_name = field.ident.as_ref().unwrap().to_string();
                         let field_type = ParamType::try_from(&field.ty)?;
+                        let (ref_f, _) = field_type.go_to_c_field_converter(levels);
                         out.push_str(&format!(
-                            "{field_name}: {}(p.{field_name}),\n",
-                            field_type.to_go_c_field_converter()
+                            "{field_name}: {ref_f}(&p.{field_name}, buffer),\n",
                         ));
                     }
                     out.push_str("}\n}\n");
@@ -225,6 +328,85 @@ impl RawRsFile {
             })
             .map(|trat| trat.try_into())
             .collect::<Result<Vec<TraitRepr>>>()?;
+        Ok(out)
+    }
+
+    // 0->Primitive
+    // 1->SimpleWrapper
+    // 2->Complex
+    pub fn convert_structs_levels(&self) -> Result<HashMap<Ident, u8>> {
+        enum Node {
+            List(Box<Node>),
+            NamedStruct(Ident),
+            Primitive,
+        }
+        fn type_to_node(ty: &Type) -> Result<Node> {
+            let seg = type_to_segment(ty)?;
+            match seg.ident.to_string().as_str() {
+                "Vec" => {
+                    let inside = match &seg.arguments {
+                        syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                            syn::GenericArgument::Type(ty) => ty,
+                            _ => panic!("list generic must be a type"),
+                        },
+                        _ => panic!("list type must have angle bracketed arguments"),
+                    };
+                    Ok(Node::List(Box::new(type_to_node(inside)?)))
+                }
+                "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "bool" | "char" => {
+                    Ok(Node::Primitive)
+                }
+                _ => Ok(Node::NamedStruct(seg.ident.clone())),
+            }
+        }
+        fn node_level(
+            node: &Node,
+            items: &HashMap<Ident, Vec<Node>>,
+            out: &mut HashMap<Ident, u8>,
+        ) -> u8 {
+            match node {
+                Node::List(inner) => (1 + node_level(inner, items, out)).min(2),
+                Node::NamedStruct(ident) if ident.to_string().as_str() == "String" => 1,
+                Node::NamedStruct(name) => {
+                    if let Some(lv) = out.get(name) {
+                        return *lv;
+                    }
+                    let lv = items
+                        .get(name)
+                        .map(|nodes| {
+                            nodes
+                                .iter()
+                                .map(|n| node_level(n, items, out))
+                                .max()
+                                .unwrap_or(0)
+                        })
+                        .unwrap();
+                    out.insert(name.clone(), lv);
+                    lv
+                }
+                Node::Primitive => 0,
+            }
+        }
+        let mut items = HashMap::<Ident, Vec<Node>>::new();
+        for item in self.file.items.iter() {
+            match item {
+                Item::Struct(s) => {
+                    let mut fields = Vec::new();
+                    for field in &s.fields {
+                        fields.push(type_to_node(&field.ty)?);
+                    }
+                    items.insert(s.ident.clone(), fields);
+                }
+                _ => continue,
+            }
+        }
+
+        let mut out = HashMap::new();
+        for name in items.keys() {
+            let lv = node_level(&Node::NamedStruct(name.clone()), &items, &mut out);
+            out.insert(name.clone(), lv);
+        }
+        out.insert(Ident::new("String", Span::call_site()), 1);
         Ok(out)
     }
 }
@@ -528,23 +710,22 @@ impl ParamType {
     }
 
     // f: StructRef -> Struct
-    fn to_c_go_field_converter(&self) -> String {
+    fn c_to_go_field_converter(&self) -> String {
         match &self.inner {
             ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "uint8",
-                "u16" => "uint16",
-                "u32" => "uint32",
-                "u64" => "uint64",
-                "i8" => "int8",
-                "i16" => "int16",
-                "i32" => "int32",
-                "i64" => "int64",
-                "bool" => "bool",
-                "char" => "rune",
-                "usize" => "uint",
-                "isize" => "int",
-                "f32" => "float32",
-                "f64" => "float64",
+                "u8" => "newC_uint8_t",
+                "u16" => "newC_uint16_t",
+                "u32" => "newC_uint32_t",
+                "u64" => "newC_uint64_t",
+                "i8" => "newC_int8_t",
+                "i16" => "newC_int16_t",
+                "i32" => "newC_int32_t",
+                "i64" => "newC_int64_t",
+                "bool" => "newC_bool",
+                "usize" => "newC_uintptr_t",
+                "isize" => "newC_intptr_t",
+                "f32" => "newC_float",
+                "f64" => "newC_double",
                 _ => panic!("unreconigzed rust primitive type {name}"),
             }
             .to_string(),
@@ -559,55 +740,106 @@ impl ParamType {
                     _ => panic!("list type must have angle bracketed arguments"),
                 };
                 format!(
-                    "list_mapper({})",
+                    "new_list_mapper({})",
                     ParamType::try_from(inside)
                         .expect("unable to convert list type")
-                        .to_c_go_field_converter()
+                        .c_to_go_field_converter()
                 )
             }
         }
     }
 
-    // f: Struct -> StructRef
-    fn to_go_c_field_converter(&self) -> String {
+    fn go_to_c_field_counter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
         match &self.inner {
-            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "C.uint8_t",
-                "u16" => "C.uint16_t",
-                "u32" => "C.uint32_t",
-                "u64" => "C.uint64_t",
-                "i8" => "C.int8_t",
-                "i16" => "C.int16_t",
-                "i32" => "C.int32_t",
-                "i64" => "C.int64_t",
-                "bool" => "C.bool",
-                "char" => "C.uint",
-                "usize" => "C.uintptr_t",
-                "isize" => "C.intptr_t",
-                "f32" => "C.float",
-                "f64" => "C.double",
-                _ => panic!("unreconigzed rust primitive type {name}"),
-            }
-            .to_string(),
-            ParamTypeInner::Custom(c) => format!("ref{}", c.to_string().as_str()),
+            ParamTypeInner::Primitive(name) => (
+                match name.to_string().as_str() {
+                    "u8" => "cntC_uint8_t",
+                    "u16" => "cntC_uint16_t",
+                    "u32" => "cntC_uint32_t",
+                    "u64" => "cntC_uint64_t",
+                    "i8" => "cntC_int8_t",
+                    "i16" => "cntC_int16_t",
+                    "i32" => "cntC_int32_t",
+                    "i64" => "cntC_int64_t",
+                    "bool" => "cntC_bool",
+                    "usize" => "cntC_uintptr_t",
+                    "isize" => "cntC_intptr_t",
+                    "f32" => "cntC_float",
+                    "f64" => "cntC_double",
+                    _ => panic!("unreconigzed rust primitive type {name}"),
+                }
+                .to_string(),
+                0,
+            ),
+            ParamTypeInner::Custom(c) => (
+                format!("cnt{}", c.to_string().as_str()),
+                *mapping.get(c).unwrap(),
+            ),
             ParamTypeInner::List(inner) => {
-                // TODO: fix! Must generate a recursive to_ref impl.
+                let seg = type_to_segment(inner).unwrap();
+                let inside = match &seg.arguments {
+                    syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                        syn::GenericArgument::Type(ty) => ty,
+                        _ => panic!("list generic must be a type"),
+                    },
+                    _ => panic!("list type must have angle bracketed arguments"),
+                };
+                let (inner, inner_level) = ParamType::try_from(inside)
+                    .expect("unable to convert list type")
+                    .go_to_c_field_counter(mapping);
+                if inner_level == 0 {
+                    (format!("cnt_list_mapper_primitive({inner})"), 1)
+                } else {
+                    (format!("cnt_list_mapper({inner})"), 2.min(inner_level + 1))
+                }
+            }
+        }
+    }
 
-                // let seg = type_to_segment(inner).unwrap();
-                // let inside = match &seg.arguments {
-                //     syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
-                //         syn::GenericArgument::Type(ty) => ty,
-                //         _ => panic!("list generic must be a type"),
-                //     },
-                //     _ => panic!("list type must have angle bracketed arguments"),
-                // };
-                format!(
-                    // "list_mapper({})",
-                    // ParamType::try_from(inside)
-                    //     .expect("unable to convert list type")
-                    //     .to_go_c_field_converter()
-                    "refSlice"
-                )
+    // f: Struct -> StructRef
+    fn go_to_c_field_converter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
+        match &self.inner {
+            ParamTypeInner::Primitive(name) => (
+                match name.to_string().as_str() {
+                    "u8" => "refC_uint8_t",
+                    "u16" => "refC_uint16_t",
+                    "u32" => "refC_uint32_t",
+                    "u64" => "refC_uint64_t",
+                    "i8" => "refC_int8_t",
+                    "i16" => "refC_int16_t",
+                    "i32" => "refC_int32_t",
+                    "i64" => "refC_int64_t",
+                    "bool" => "refC_bool",
+                    "usize" => "refC_uintptr_t",
+                    "isize" => "refC_intptr_t",
+                    "f32" => "refC_float",
+                    "f64" => "refC_double",
+                    _ => panic!("unreconigzed rust primitive type {name}"),
+                }
+                .to_string(),
+                0,
+            ),
+            ParamTypeInner::Custom(c) => (
+                format!("ref{}", c.to_string().as_str()),
+                *mapping.get(c).unwrap(),
+            ),
+            ParamTypeInner::List(inner) => {
+                let seg = type_to_segment(inner).unwrap();
+                let inside = match &seg.arguments {
+                    syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
+                        syn::GenericArgument::Type(ty) => ty,
+                        _ => panic!("list generic must be a type"),
+                    },
+                    _ => panic!("list type must have angle bracketed arguments"),
+                };
+                let (inner, inner_level) = ParamType::try_from(inside)
+                    .expect("unable to convert list type")
+                    .go_to_c_field_converter(mapping);
+                if inner_level == 0 {
+                    (format!("ref_list_mapper_primitive({inner})"), 1)
+                } else {
+                    (format!("ref_list_mapper({inner})"), 2.min(inner_level + 1))
+                }
             }
         }
     }
@@ -633,9 +865,12 @@ impl TraitRepr {
     }
 
     // Generate golang exports.
-    pub fn generate_go_exports(&self) -> String {
+    pub fn generate_go_exports(&self, levels: &HashMap<Ident, u8>) -> String {
         let name = self.name.to_string();
-        self.fns.iter().map(|f| f.to_go_export(&name)).collect()
+        self.fns
+            .iter()
+            .map(|f| f.to_go_export(&name, levels))
+            .collect()
     }
 
     // Generate golang interface.
@@ -744,7 +979,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         }
     }
 
-    fn to_go_export(&self, trait_name: &str) -> String {
+    fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {
         let mut out = String::new();
         let fn_name = format!("C{}_{}", trait_name, self.name);
         let callback = format!("{}_{}_cb", trait_name, self.name);
@@ -768,7 +1003,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     params = self
                         .params
                         .iter()
-                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
@@ -778,8 +1013,10 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // //export CDemoCall_demo_check
                 // func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
                 //     resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
-                //     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), refDemoResponse(resp), unsafe.Pointer(slot))
+                //     resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
+                //     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
                 //     runtime.KeepAlive(resp)
+                //     runtime.KeepAlive(buffer)
                 // }
                 out.push('(');
                 self.params
@@ -788,29 +1025,37 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
 
                 out.push_str("slot *C.void, cb *C.void) {\n");
                 out.push_str(&format!(
-                    "    resp := {trait_name}Impl.{fn_name}({params})\n",
+                    "resp := {trait_name}Impl.{fn_name}({params})\n",
                     fn_name = self.name,
                     params = self
                         .params
                         .iter()
-                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
+                let (g2c_cnt, g2c_cvt) = (
+                    ret.go_to_c_field_counter(levels).0,
+                    ret.go_to_c_field_converter(levels).0,
+                );
                 out.push_str(&format!(
-                    "    C.{callback}(unsafe.Pointer(cb), {}(resp), unsafe.Pointer(slot))\n",
-                    ret.to_go_c_field_converter(),
+                    "resp_ref, buffer := cvt_ref({g2c_cnt}, {g2c_cvt})(&resp)\n"
                 ));
-                out.push_str("    runtime.KeepAlive(resp)\n");
+                out.push_str(&format!(
+                    "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
+                ));
+                out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
                 out.push_str("}\n");
             }
             (true, Some(ret)) => {
                 // //export CDemoCall_demo_check_async
                 // func CDemoCall_demo_check_async(w C.WakerRef, req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
-                // 	   go func() {
+                //     go func() {
                 //         resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
-                // 	       C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, refDemoResponse(resp), unsafe.Pointer(slot))
-                // 	       runtime.KeepAlive(resp)
+                //         resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
+                //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, resp_ref, unsafe.Pointer(slot))
+                //         runtime.KeepAlive(resp)
+                //         runtime.KeepAlive(buffer)
                 //     }()
                 // }
                 out.push_str("(w C.WakerRef, ");
@@ -821,22 +1066,27 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 out.push_str("slot *C.void, cb *C.void) {\n");
                 out.push_str("    go func() {\n");
                 out.push_str(&format!(
-                    "        resp := {trait_name}Impl.{fn_name}({params})\n",
+                    "resp := {trait_name}Impl.{fn_name}({params})\n",
                     fn_name = self.name,
                     params = self
                         .params
                         .iter()
-                        .map(|p| format!("{}({})", p.ty.to_c_go_field_converter(), p.name))
+                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
+                let (g2c_cnt, g2c_cvt) = (
+                    ret.go_to_c_field_counter(levels).0,
+                    ret.go_to_c_field_converter(levels).0,
+                );
                 out.push_str(&format!(
-                    "        C.{callback}(unsafe.Pointer(cb), w, {}(resp), unsafe.Pointer(slot))\n",
-                    ret.to_go_c_field_converter(),
+                    "resp_ref, buffer := cvt_ref({g2c_cnt}, {g2c_cvt})(&resp)\n"
                 ));
-                out.push_str("        runtime.KeepAlive(resp)\n");
-                out.push_str("    }()\n");
-                out.push_str("}\n");
+                out.push_str(&format!(
+                    "C.{callback}(unsafe.Pointer(cb), w, resp_ref, unsafe.Pointer(slot))\n",
+                ));
+                out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
+                out.push_str("}()\n}\n");
             }
         }
         out
@@ -1056,11 +1306,17 @@ mod tests {
         "#;
         let raw_file = super::RawRsFile::new(raw);
         let traits = raw_file.convert_trait().unwrap();
+        let levels = raw_file.convert_structs_levels().unwrap();
 
-        println!("structs gen: {}", raw_file.convert_structs_to_go().unwrap());
+        println!(
+            "structs gen: {}",
+            raw_file.convert_structs_to_go(&levels).unwrap()
+        );
         for trait_ in traits {
             println!("if gen: {}", trait_.generate_go_interface());
-            println!("go export gen: {}", trait_.generate_go_exports());
+            println!("go export gen: {}", trait_.generate_go_exports(&levels));
         }
+        let levels = raw_file.convert_structs_levels().unwrap();
+        levels.iter().for_each(|f| println!("{}: {}", f.0, f.1));
     }
 }

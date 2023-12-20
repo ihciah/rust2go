@@ -64,13 +64,13 @@ pub trait ToRef {
     const MEM_TYPE: MemType;
 
     type Ref;
-    fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize);
+    fn to_size(&self, acc: &mut usize);
     fn to_ref(&self, buffer: &mut Writer) -> Self::Ref;
 
     #[inline]
     fn calc_size(&self) -> usize {
         let mut size = 0;
-        self.to_size::<false>(&mut size);
+        self.to_size(&mut size);
         size
     }
     #[inline]
@@ -94,8 +94,8 @@ impl<T: ToRef> ToRef for &T {
     type Ref = T::Ref;
 
     #[inline]
-    fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-        (**self).to_size::<INCLUDE_SELF>(acc)
+    fn to_size(&self, acc: &mut usize) {
+        (**self).to_size(acc)
     }
 
     #[inline]
@@ -126,20 +126,10 @@ impl<T: ToRef> ToRef for Vec<T> {
     const MEM_TYPE: MemType = T::MEM_TYPE.next();
     type Ref = ListRef;
 
-    fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-        match Self::MEM_TYPE {
-            MemType::Primitive => (),
-            MemType::SimpleWrapper => {
-                if INCLUDE_SELF {
-                    *acc += std::mem::size_of::<Self::Ref>();
-                }
-            }
-            MemType::Complex => {
-                if INCLUDE_SELF {
-                    *acc += std::mem::size_of::<Self::Ref>();
-                }
-                self.iter().for_each(|elem| elem.to_size::<true>(acc));
-            }
+    fn to_size(&self, acc: &mut usize) {
+        if !matches!(Self::MEM_TYPE, MemType::Primitive) {
+            *acc += self.len() * std::mem::size_of::<T::Ref>();
+            self.iter().for_each(|elem| elem.to_size(acc));
         }
     }
 
@@ -149,10 +139,10 @@ impl<T: ToRef> ToRef for Vec<T> {
             len: self.len(),
         });
 
-        if matches!(Self::MEM_TYPE, MemType::Complex) {
+        if !matches!(Self::MEM_TYPE, MemType::Primitive) {
             data.0.ptr = writer.as_ptr().cast();
             unsafe {
-                let mut children = writer.reserve(self.len() * std::mem::size_of::<ListRef>());
+                let mut children = writer.reserve(self.len() * std::mem::size_of::<T::Ref>());
                 self.iter()
                     .for_each(|elem| children.put(ToRef::to_ref(elem, writer)));
             }
@@ -179,11 +169,7 @@ impl ToRef for String {
     type Ref = StringRef;
 
     #[inline]
-    fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-        if INCLUDE_SELF {
-            *acc += std::mem::size_of::<StringRef>();
-        }
-    }
+    fn to_size(&self, _: &mut usize) {}
 
     #[inline]
     fn to_ref(&self, _: &mut Writer) -> Self::Ref {
@@ -215,11 +201,7 @@ impl ToRef for std::task::Waker {
     type Ref = WakerRef;
 
     #[inline]
-    fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-        if INCLUDE_SELF {
-            *acc += std::mem::size_of::<Self::Ref>();
-        }
-    }
+    fn to_size(&self, _: &mut usize) {}
 
     #[inline]
     fn to_ref(&self, _: &mut Writer) -> Self::Ref {
@@ -248,7 +230,7 @@ macro_rules! primitive_impl {
                 type Ref = $ty;
 
                 #[inline]
-                fn to_size<const INCLUDE_SELF: bool>(&self, _: &mut usize) {}
+                fn to_size(&self, _: &mut usize) {}
 
                 #[inline]
                 fn to_ref(&self, _: &mut Writer) -> Self::Ref {
@@ -282,8 +264,8 @@ macro_rules! tuple_impl {
             const MEM_TYPE: MemType = MemType::Primitive$(.max($ty::MEM_TYPE))*;
             type Ref = ($($ty::Ref,)*);
 
-            fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-                $(self.$name.to_size::<INCLUDE_SELF>(acc);)*
+            fn to_size(&self, acc: &mut usize) {
+                $(self.$name.to_size(acc);)*
             }
 
             fn to_ref(&self, buffer: &mut Writer) -> Self::Ref {

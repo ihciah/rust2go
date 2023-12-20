@@ -64,20 +64,9 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
             const MEM_TYPE: ::rust2go::MemType = ::rust2go::max_mem_type!(#(#owned_types),*);
             type Ref = #ref_type_name;
 
-            fn to_size<const INCLUDE_SELF: bool>(&self, acc: &mut usize) {
-                match Self::MEM_TYPE {
-                    ::rust2go::MemType::Primitive => (),
-                    ::rust2go::MemType::SimpleWrapper => {
-                        if INCLUDE_SELF {
-                            *acc += std::mem::size_of::<Self::Ref>();
-                        }
-                    }
-                    ::rust2go::MemType::Complex => {
-                        if INCLUDE_SELF {
-                            *acc += std::mem::size_of::<Self::Ref>();
-                        }
-                        #(self.#owned_names.to_size::<true>(acc);)*
-                    }
+            fn to_size(&self, acc: &mut usize) {
+                if matches!(Self::MEM_TYPE, ::rust2go::MemType::Complex) {
+                    #(self.#owned_names.to_size(acc);)*
                 }
             }
 

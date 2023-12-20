@@ -53,19 +53,17 @@ fn main() {
     let mut go_content = format!(
         "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n\"runtime\"\n)\n"
     );
+    let levels = raw_file.convert_structs_levels().unwrap();
     traits.iter().for_each(|t| {
         go_content.push_str(&t.generate_go_interface());
-        go_content.push_str(&t.generate_go_exports());
+        go_content.push_str(&t.generate_go_exports(&levels));
     });
     go_content.push_str(
         &raw_file
-            .convert_structs_to_go()
+            .convert_structs_to_go(&levels)
             .expect("Unable to generate go structs"),
     );
     go_content.push_str("func main() {}\n");
-
-    // TODO:
-    // generate go interface
 
     std::fs::write(&args.dst, go_content).expect("Unable to write file");
 }

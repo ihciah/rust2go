@@ -12,6 +12,7 @@ fn r2g_sync() {
             name: "chihai".to_string(),
             age: 28,
         }],
+        balabala: vec![1],
     };
     let _resp = DemoCallImpl::demo_check(&req);
 }
@@ -22,6 +23,7 @@ async fn r2g_async() {
             name: "chihai".to_string(),
             age: 28,
         }],
+        balabala: vec![1],
     };
     unsafe {
         let _resp = DemoCallImpl::demo_check_async(&req).await;
@@ -40,13 +42,14 @@ impl DemoCall for R2RDemoCallImpl {
         DemoResponse { pass: true }
     }
 
-    unsafe fn demo_check_async(
-        _req: &DemoComplicatedRequest,
-    ) -> impl std::future::Future<Output = DemoResponse> {
-        async move {
-            // tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-            DemoResponse { pass: true }
-        }
+    async unsafe fn demo_check_async(_req: &DemoComplicatedRequest) -> DemoResponse {
+        // tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+        DemoResponse { pass: true }
+    }
+
+    async fn demo_check_async_safe(_req: DemoComplicatedRequest) -> DemoResponse {
+        // tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+        DemoResponse { pass: true }
     }
 }
 fn r2r_sync() {
@@ -55,6 +58,7 @@ fn r2r_sync() {
             name: "chihai".to_string(),
             age: 28,
         }],
+        balabala: vec![1],
     };
     let _resp = R2RDemoCallImpl::demo_check(&req);
 }
@@ -65,6 +69,7 @@ async fn r2r_async() {
             name: "chihai".to_string(),
             age: 28,
         }],
+        balabala: vec![1],
     };
     unsafe {
         let _resp = R2RDemoCallImpl::demo_check_async(&req).await;
@@ -74,8 +79,8 @@ async fn r2r_async() {
 fn call_sync_bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("Call sync bench");
 
-    group.bench_function("r2r_sync", |b| b.iter(|| r2r_sync()));
-    group.bench_function("r2g_sync", |b| b.iter(|| r2g_sync()));
+    group.bench_function("r2r_sync", |b| b.iter(r2r_sync));
+    group.bench_function("r2g_sync", |b| b.iter(r2g_sync));
     group.finish();
 }
 
@@ -83,8 +88,8 @@ fn call_async_bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("Call async bench");
     let rt = Builder::new_multi_thread().enable_time().build().unwrap();
 
-    group.bench_function("r2r_async", |b| b.to_async(&rt).iter(|| r2r_async()));
-    group.bench_function("r2g_async", |b| b.to_async(&rt).iter(|| r2g_async()));
+    group.bench_function("r2r_async", |b| b.to_async(&rt).iter(r2r_async));
+    group.bench_function("r2g_async", |b| b.to_async(&rt).iter(r2g_async));
     group.finish();
 }
 

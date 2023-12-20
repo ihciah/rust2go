@@ -14,13 +14,6 @@ rust2go = { path = "../rust2go", features = ["build"] }
 criterion = { version = "0.4", features = ["html_reports", "async_tokio"] }
 tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 
-[lib]
-crate-type = ["rlib", "cdylib", "staticlib"]
-
 [[bin]]
 name = "example"
 path = "src/main.rs"
-
-[[bench]]
-name = "r2r_vs_r2g"
-harness = false

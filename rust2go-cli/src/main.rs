@@ -13,6 +13,10 @@ struct Args {
     /// Path of destination go file
     #[arg(short, long)]
     dst: String,
+
+    /// With or without go main function
+    #[arg(long, default_value = "false")]
+    without_main: bool,
 }
 
 fn main() {
@@ -63,7 +67,9 @@ fn main() {
             .convert_structs_to_go(&levels)
             .expect("Unable to generate go structs"),
     );
-    go_content.push_str("func main() {}\n");
+    if !args.without_main {
+        go_content.push_str("func main() {}\n");
+    }
 
     std::fs::write(&args.dst, go_content).expect("Unable to write file");
 }

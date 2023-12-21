@@ -1,6 +1,6 @@
 [package]
 name = "rust2go-cli"
-version = "0.1.0"
+version = "0.2.0"
 
 description = "Rust2go commandline tool."
 
@@ -14,7 +14,7 @@ repository.workspace = true
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 cbindgen = "0.26"
-rust2go-common = { version = "0.1.0", path = "../rust2go-common" }
+rust2go-common = { version = "0.2.0", path = "../rust2go-common" }
 
 [[bin]]
 name = "rust2go-cli"

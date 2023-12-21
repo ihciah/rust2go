@@ -1,9 +1,8 @@
-#![feature(waker_getters)]
 #![recursion_limit = "4096"]
 
 #[macro_use]
 mod convert;
-pub use convert::{DataView, FromRef, ListRef, MemType, StringRef, ToRef, WakerRef, Writer};
+pub use convert::{DataView, FromRef, ListRef, MemType, StringRef, ToRef, Writer};
 
 mod slot;
 pub use slot::{new_atomic_slot, SlotReader, SlotWriter};

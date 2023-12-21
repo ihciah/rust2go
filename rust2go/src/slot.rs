@@ -5,6 +5,7 @@ use std::{
         AtomicU8,
         Ordering::{AcqRel, Acquire},
     },
+    task::Waker,
 };
 
 /// Create a pair of SlotReader and SlotWriter.
@@ -22,6 +23,7 @@ struct SlotInner<T, A = ()> {
     state: State,
     data: MaybeUninit<T>,
     attachment: Option<A>,
+    waker: Option<Waker>,
 }
 
 impl<T, A> Drop for SlotInner<T, A> {
@@ -29,6 +31,7 @@ impl<T, A> Drop for SlotInner<T, A> {
         if self.state.load() & 0b100 != 0 {
             unsafe { self.data.assume_init_drop() };
         }
+        println!("AAA");
     }
 }
 
@@ -73,6 +76,7 @@ impl<T, A> SlotInner<T, A> {
             state: State(AtomicU8::new(0)),
             data: MaybeUninit::uninit(),
             attachment: None,
+            waker: None,
         }
     }
 
@@ -162,7 +166,11 @@ unsafe impl<T: Send, A: Send> Sync for SlotWriter<T, A> {}
 impl<T, A> SlotWriter<T, A> {
     #[inline]
     pub fn write(mut self, data: T) {
-        unsafe { self.0.as_mut() }.write(data);
+        if unsafe { self.0.as_mut() }.write(data).is_none() {
+            if let Some(waker) = unsafe { self.0.as_mut().waker.take() } {
+                waker.wake();
+            }
+        }
     }
 
     #[inline]
@@ -182,6 +190,11 @@ impl<T, A> SlotWriter<T, A> {
     #[inline]
     pub(crate) fn attach(&mut self, attachment: A) -> &mut A {
         unsafe { self.0.as_mut() }.attachment.insert(attachment)
+    }
+
+    #[inline]
+    pub(crate) fn set_waker(&mut self, waker: Waker) {
+        unsafe { self.0.as_mut().waker = Some(waker) };
     }
 }
 

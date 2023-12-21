@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 
 use crate::SlotReader;
 
@@ -28,9 +28,9 @@ pub enum ResponseFuture<Req, Resp, Exec> {
 
 impl<Req, Resp, Exec> Future for ResponseFuture<Req, Resp, Exec>
 where
-    // (Waker, Req, *SlotWriter<Resp>, Callback)
+    // Exec: FnOnce(Req, *SlotWriter<Resp>, Callback)
     // Note: Req is usually a tuple.
-    Exec: FnOnce(Waker, Req::Ref, *const (), *const ()) + Unpin,
+    Exec: FnOnce(Req::Ref, *const (), *const ()) + Unpin,
     Req: Unpin + crate::ToRef,
 {
     type Output = (Resp, Req);
@@ -57,11 +57,11 @@ where
 
                 let (buf, req_ref) = req.calc_ref();
                 writer.attach((req, buf));
+                writer.set_waker(cx.waker().clone());
 
-                // convert waker and execute the ffi function
-                let waker = cx.waker().clone();
+                // execute the ffi function
                 let w_ptr = writer.into_ptr();
-                (exec)(waker, req_ref, w_ptr, cb);
+                (exec)(req_ref, w_ptr, cb);
             }
             Self::Fused => {
                 panic!("Future polled after ready");

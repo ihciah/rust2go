@@ -35,13 +35,8 @@ impl RawRsFile {
     pub fn convert_structs_to_ref(&self) -> Result<(HashMap<Ident, Ident>, TokenStream)> {
         let mut name_mapping = HashMap::new();
 
-        // Add these to generated code to make golang have C structs of waker and string.
+        // Add these to generated code to make golang have C structs of string.
         let mut out = quote! {
-            #[repr(C)]
-            pub struct WakerRef {
-                pub ptr: *const (),
-                pub vtable: *const (),
-            }
             #[repr(C)]
             pub struct StringRef {
                 pub ptr: *const u8,
@@ -53,10 +48,6 @@ impl RawRsFile {
                 pub len: usize,
             }
         };
-        name_mapping.insert(
-            Ident::new("Waker", Span::call_site()),
-            Ident::new("WakerRef", Span::call_site()),
-        );
         name_mapping.insert(
             Ident::new("String", Span::call_site()),
             Ident::new("StringRef", Span::call_site()),
@@ -962,8 +953,8 @@ impl FnRepr {
                 r#"
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void {fn_name}_cb(const void *f_ptr, struct WakerRef waker, {c_resp_type} resp, const void *slot) {{
-((void (*)(struct WakerRef, {c_resp_type}, const void*))f_ptr)(waker, resp, slot);
+inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot) {{
+((void (*)({c_resp_type}, const void*))f_ptr)(resp, slot);
 }}
 "#,
             ),
@@ -983,7 +974,10 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         let mut out = String::new();
         let fn_name = format!("C{}_{}", trait_name, self.name);
         let callback = format!("{}_{}_cb", trait_name, self.name);
-        out.push_str(&format!("//export {fn_name}\nfunc {fn_name}"));
+        out.push_str(&format!("//export {fn_name}\nfunc {fn_name}("));
+        self.params
+            .iter()
+            .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
 
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),
@@ -992,10 +986,6 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // func CDemoCall_demo_oneway(req C.DemoUserRef) {
                 //     DemoCallImpl.demo_oneway(newDemoUser(req))
                 // }
-                out.push('(');
-                self.params
-                    .iter()
-                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
                 out.push_str(") {\n");
                 out.push_str(&format!(
                     "    {trait_name}Impl.{fn_name}({params})\n",
@@ -1018,11 +1008,6 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     runtime.KeepAlive(resp)
                 //     runtime.KeepAlive(buffer)
                 // }
-                out.push('(');
-                self.params
-                    .iter()
-                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
-
                 out.push_str("slot *C.void, cb *C.void) {\n");
                 out.push_str(&format!(
                     "resp := {trait_name}Impl.{fn_name}({params})\n",
@@ -1049,20 +1034,15 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
             }
             (true, Some(ret)) => {
                 // //export CDemoCall_demo_check_async
-                // func CDemoCall_demo_check_async(w C.WakerRef, req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+                // func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
                 //     go func() {
                 //         resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
                 //         resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-                //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), w, resp_ref, unsafe.Pointer(slot))
+                //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
                 //         runtime.KeepAlive(resp)
                 //         runtime.KeepAlive(buffer)
                 //     }()
                 // }
-                out.push_str("(w C.WakerRef, ");
-                self.params
-                    .iter()
-                    .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
-
                 out.push_str("slot *C.void, cb *C.void) {\n");
                 out.push_str("    go func() {\n");
                 out.push_str(&format!(
@@ -1083,7 +1063,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     "resp_ref, buffer := cvt_ref({g2c_cnt}, {g2c_cvt})(&resp)\n"
                 ));
                 out.push_str(&format!(
-                    "C.{callback}(unsafe.Pointer(cb), w, resp_ref, unsafe.Pointer(slot))\n",
+                    "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
                 ));
                 out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
                 out.push_str("}()\n}\n");
@@ -1111,6 +1091,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         let mut out = TokenStream::default();
 
         let func_name = &self.name;
+        let callback_name = format_ident!("{func_name}_cb");
         let func_param_names: Vec<_> = self.params.iter().map(|p| &p.name).collect();
         let func_param_types: Vec<_> = self.params.iter().map(|p| &p.ty).collect();
         let unsafe_marker = (!self.safe).then(syn::token::Unsafe::default);
@@ -1154,7 +1135,6 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     slot.take().unwrap()
                 // }
 
-                let callback_name = format_ident!("{func_name}_cb");
                 out.extend(quote!{
                     -> #ret {
                         let mut slot = None;
@@ -1171,13 +1151,9 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     req: user::DemoRequest,
                 // ) -> impl std::future::Future<Output = user::DemoResponse> {
                 //     ::rust2go::ResponseFuture::Init(
-                //         |waker: std::task::Waker, r_ref: <(user::DemoRequest,) as ToRef>::Ref, slot: *const (), cb: *const ()| {
-                //             let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);
-                //             std::mem::forget(waker);
-                //
+                //         |r_ref: <(user::DemoRequest,) as ToRef>::Ref, slot: *const (), cb: *const ()| {
                 //             unsafe {
                 //                 binding::CDemoCall_demo_check_async(
-                //                     ::std::mem::transmute(waker_ref),
                 //                     ::std::mem::transmute(r_ref.0),
                 //                     slot as *const _ as *mut _,
                 //                     cb as *const _ as *mut _,
@@ -1201,13 +1177,9 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 out.extend(quote! {
                     -> impl ::std::future::Future<Output = #ret> {
                     #new_fn(
-                        |waker: ::std::task::Waker, r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
-                            let (_, waker_ref) = ::rust2go::ToRef::calc_ref(&waker);
-                            ::std::mem::forget(waker);
-
+                        |r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
                             unsafe {
                                 #path_prefix #c_func_name(
-                                    ::std::mem::transmute(waker_ref),
                                     #(::std::mem::transmute(r_ref.#tuple_ids),)*
                                     slot as *const _ as *mut _,
                                     cb as *const _ as *mut _,
@@ -1215,7 +1187,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                             };
                         },
                         #((#func_param_names,))*,
-                        Self::demo_check_async_cb as *const (),
+                        Self::#callback_name as *const (),
                     )
                     }
                 });
@@ -1249,20 +1221,17 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
             (true, Some(ret)) => {
                 // #[no_mangle]
                 // unsafe extern "C" fn demo_check_async_cb(
-                //     waker: binding::WakerRef,
                 //     resp: binding::DemoResponseRef,
                 //     slot: *const (),
                 // ) {
                 //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
-                //     <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                 // }
                 let resp_ref_ty = ret.to_rust_ref();
                 let func_param_types = self.params.iter().map(|p| &p.ty);
                 Ok(quote! {
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(waker: #path_prefix WakerRef, resp: #path_prefix #resp_ref_ty, slot: *const ()) {
+                    unsafe extern "C" fn #fn_name(resp: #path_prefix #resp_ref_ty, slot: *const ()) {
                         ::rust2go::SlotWriter::<#ret, ((#(#func_param_types,)*), Vec<u8>)>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
-                        <::std::task::Waker as ::rust2go::FromRef>::from_ref(::std::mem::transmute(&waker)).wake();
                     }
                 })
             }

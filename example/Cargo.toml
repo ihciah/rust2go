@@ -2,6 +2,7 @@
 name = "example"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 rust2go = { path = "../rust2go" }
@@ -9,10 +10,6 @@ monoio = { version = "0.2", features = ["sync"] }
 
 [build-dependencies]
 rust2go = { path = "../rust2go", features = ["build"] }
-
-[dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports", "async_tokio"] }
-tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 
 [[bin]]
 name = "example"

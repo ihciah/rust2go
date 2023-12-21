@@ -12,9 +12,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-cbindgen = "0.26"
 rust2go-common = { version = "0.2.0", path = "../rust2go-common" }
+
+clap = { version = "4", features = ["derive"] }
+cbindgen = { version = "0.26", default-features = false }
 
 [[bin]]
 name = "rust2go-cli"

@@ -1,6 +1,3 @@
-// Now the feature I rely on has not been stableized.
-#![feature(waker_getters)]
-
 mod user;
 use std::future::{poll_fn, Future};
 

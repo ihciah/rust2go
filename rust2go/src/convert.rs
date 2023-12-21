@@ -189,39 +189,6 @@ impl FromRef for String {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub struct WakerRef {
-    ptr: *const (),
-    vtable: *const (),
-}
-
-impl ToRef for std::task::Waker {
-    const MEM_TYPE: MemType = MemType::Primitive;
-    type Ref = WakerRef;
-
-    #[inline]
-    fn to_size(&self, _: &mut usize) {}
-
-    #[inline]
-    fn to_ref(&self, _: &mut Writer) -> Self::Ref {
-        WakerRef {
-            ptr: self.as_raw().data() as *const _,
-            vtable: self.as_raw().vtable() as *const _ as *const _,
-        }
-    }
-}
-
-impl FromRef for std::task::Waker {
-    type Ref = WakerRef;
-
-    fn from_ref(ref_: &Self::Ref) -> Self {
-        let vtable = unsafe { &*(ref_.vtable as *const std::task::RawWakerVTable) };
-        let raw = std::task::RawWaker::new(ref_.ptr as *const _, vtable);
-        unsafe { std::task::Waker::from_raw(raw) }
-    }
-}
-
 macro_rules! primitive_impl {
     ($($ty:ty),*) => {
         $(

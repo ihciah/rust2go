@@ -31,7 +31,6 @@ impl<T, A> Drop for SlotInner<T, A> {
         if self.state.load() & 0b100 != 0 {
             unsafe { self.data.assume_init_drop() };
         }
-        println!("AAA");
     }
 }
 

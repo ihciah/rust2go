@@ -17,6 +17,10 @@ struct Args {
     /// With or without go main function
     #[arg(long, default_value = "false")]
     without_main: bool,
+
+    /// Go 1.18 compatible
+    #[arg(long, default_value = "false")]
+    go118: bool,
 }
 
 fn main() {
@@ -54,8 +58,9 @@ fn main() {
         .iter()
         .for_each(|t| output.push_str(&t.generate_c_callbacks()));
 
+    let import_reflect = if args.go118 { "\n\"reflect\"" } else { "" };
     let mut go_content = format!(
-        "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n\"runtime\"\n)\n"
+        "package main\n\n/*\n{output}*/\nimport \"C\"\nimport ({import_reflect}\n\"unsafe\"\n\"runtime\"\n)\n"
     );
     let levels = raw_file.convert_structs_levels().unwrap();
     traits.iter().for_each(|t| {
@@ -64,7 +69,7 @@ fn main() {
     });
     go_content.push_str(
         &raw_file
-            .convert_structs_to_go(&levels)
+            .convert_structs_to_go(&levels, args.go118)
             .expect("Unable to generate go structs"),
     );
     if !args.without_main {

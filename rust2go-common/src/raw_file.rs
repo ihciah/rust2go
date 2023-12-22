@@ -99,18 +99,55 @@ impl RawRsFile {
     }
 
     // go structs define and newStruct/refStruct function impl.
-    pub fn convert_structs_to_go(&self, levels: &HashMap<Ident, u8>) -> Result<String> {
-        let mut out = r#"
+    pub fn convert_structs_to_go(
+        &self,
+        levels: &HashMap<Ident, u8>,
+        go118: bool,
+    ) -> Result<String> {
+        const GO118CODE: &str = r#"
+        // An alternative impl of unsafe.String for go1.18
+        func unsafeString(ptr *byte, length int) string {
+            sliceHeader := &reflect.SliceHeader{
+                Data: uintptr(unsafe.Pointer(ptr)),
+                Len:  length,
+                Cap:  length,
+            }
+            return *(*string)(unsafe.Pointer(sliceHeader))
+        }
+
+        // An alternative impl of unsafe.StringData for go1.18
+        func unsafeStringData(s string) *byte {
+            return (*byte)(unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data))
+        }
+        func newString(s_ref C.StringRef) string {
+            return unsafeString((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len))
+        }
+        func refString(s *string, _buffer *[]byte) C.StringRef {
+            return C.StringRef{
+                ptr: (*C.uint8_t)(unsafeStringData(*s)),
+                len: C.uintptr_t(len(*s)),
+            }
+        }
+        "#;
+
+        const GO121CODE: &str = r#"
         func newString(s_ref C.StringRef) string {
             return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
         }
-        func cntString(s *string, cnt *uint) {}
         func refString(s *string, _buffer *[]byte) C.StringRef {
             return C.StringRef{
                 ptr: (*C.uint8_t)(unsafe.StringData(*s)),
                 len: C.uintptr_t(len(*s)),
             }
         }
+        "#;
+
+        let mut out = if go118 {
+            GO118CODE.to_string()
+        } else {
+            GO121CODE.to_string()
+        } + r#"
+        func cntString(s *string, cnt *uint) {}
         func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
                 input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
@@ -216,8 +253,7 @@ impl RawRsFile {
         func refC_intptr_t(p *int, buffer *[]byte) C.intptr_t    { return C.intptr_t(*p) }
         func refC_float(p *float32, buffer *[]byte) C.float      { return C.float(*p) }
         func refC_double(p *float64, buffer *[]byte) C.double    { return C.double(*p) }
-        "#
-        .to_string();
+        "#;
         for item in self.file.items.iter() {
             match item {
                 // for example, convert
@@ -1279,7 +1315,7 @@ mod tests {
 
         println!(
             "structs gen: {}",
-            raw_file.convert_structs_to_go(&levels).unwrap()
+            raw_file.convert_structs_to_go(&levels, false).unwrap()
         );
         for trait_ in traits {
             println!("if gen: {}", trait_.generate_go_interface());

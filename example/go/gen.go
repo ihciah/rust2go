@@ -8,16 +8,6 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct ListRef {
-  const void *ptr;
-  uintptr_t len;
-} ListRef;
-
-typedef struct DemoComplicatedRequestRef {
-  struct ListRef users;
-  struct ListRef balabala;
-} DemoComplicatedRequestRef;
-
 typedef struct StringRef {
   const uint8_t *ptr;
   uintptr_t len;
@@ -27,6 +17,16 @@ typedef struct DemoUserRef {
   struct StringRef name;
   uint8_t age;
 } DemoUserRef;
+
+typedef struct ListRef {
+  const void *ptr;
+  uintptr_t len;
+} ListRef;
+
+typedef struct DemoComplicatedRequestRef {
+  struct ListRef users;
+  struct ListRef balabala;
+} DemoComplicatedRequestRef;
 
 typedef struct DemoResponseRef {
   bool pass;
@@ -52,7 +52,6 @@ inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResp
 */
 import "C"
 import (
-	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -96,26 +95,23 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 	go func() {
 		resp := DemoCallImpl.demo_check_async_safe(newDemoComplicatedRequest(req))
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-		fmt.Println("A")
 		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
-		fmt.Println("B")
 		runtime.KeepAlive(resp)
-		fmt.Println("C")
 		runtime.KeepAlive(buffer)
-		fmt.Println("D")
 	}()
 }
 
 func newString(s_ref C.StringRef) string {
 	return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
 }
-func cntString(s *string, cnt *uint) {}
 func refString(s *string, _buffer *[]byte) C.StringRef {
 	return C.StringRef{
 		ptr: (*C.uint8_t)(unsafe.StringData(*s)),
 		len: C.uintptr_t(len(*s)),
 	}
 }
+
+func cntString(s *string, cnt *uint) {}
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)

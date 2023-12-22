@@ -26,6 +26,9 @@ pub enum ResponseFuture<Req, Resp, Exec> {
     Fused,
 }
 
+unsafe impl<Req: Send, Resp: Send, Exec> Send for ResponseFuture<Req, Resp, Exec> {}
+unsafe impl<Req: Sync, Resp: Sync, Exec> Sync for ResponseFuture<Req, Resp, Exec> {}
+
 impl<Req, Resp, Exec> Future for ResponseFuture<Req, Resp, Exec>
 where
     // Exec: FnOnce(Req, *SlotWriter<Resp>, Callback)

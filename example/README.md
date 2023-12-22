@@ -4,10 +4,10 @@
 1. Add dependency and build-dependency to `Cargo.toml`:
 ```toml
 [dependencies]
-rust2go = { version = "0.3.1" }
+rust2go = { version = "0.3.2" }
 
 [build-dependencies]
-rust2go = { version = "0.3.1", features = ["build"] }
+rust2go = { version = "0.3.2", features = ["build"] }
 ```
 
     And also install commandline tool:

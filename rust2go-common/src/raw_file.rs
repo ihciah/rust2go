@@ -527,38 +527,38 @@ impl TryFrom<&ItemTrait> for TraitRepr {
             }
 
             // on async mode, parse attributes to check it's drop safe setting.
-            let mut drop_safe = false;
             let mut drop_safe_ret_params = false;
-            if is_async
-                && fn_item
-                    .attrs
-                    .iter()
-                    .any(|attr|
-                        matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe")))
-                    )
-            {
-                drop_safe = true;
-            }
-
-            if is_async
-                && fn_item
-                    .attrs
-                    .iter()
-                    .any(|attr|
-                        matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe_ret")))
-                    )
-            {
-                drop_safe_ret_params = true;
-            }
+            let mut ret_send = false;
 
             let mut safe = true;
             let has_reference = params.iter().any(|param| param.ty.is_reference);
 
-            if (drop_safe || drop_safe_ret_params) && has_reference {
-                sbail!("drop_safe function cannot have reference parameters")
-            }
-            if is_async && !drop_safe && !drop_safe_ret_params {
-                safe = false;
+            if is_async {
+                let drop_safe = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe")))
+                );
+                drop_safe_ret_params = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("drop_safe_ret")))
+                );
+                ret_send = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("send")))
+                );
+
+                if !drop_safe && !drop_safe_ret_params {
+                    safe = false;
+                }
+                if (drop_safe || drop_safe_ret_params) && has_reference {
+                    sbail!("drop_safe function cannot have reference parameters")
+                }
             }
 
             fns.push(FnRepr {
@@ -568,6 +568,8 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 ret,
                 safe,
                 drop_safe_ret_params,
+                ret_send,
+                ret_static: !has_reference,
             });
         }
         Ok(TraitRepr {
@@ -584,6 +586,8 @@ pub struct FnRepr {
     ret: Option<ParamType>,
     safe: bool,
     drop_safe_ret_params: bool,
+    ret_send: bool,
+    ret_static: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -960,6 +964,10 @@ impl FnRepr {
         &self.name
     }
 
+    pub fn is_async(&self) -> bool {
+        self.is_async
+    }
+
     pub fn drop_safe_ret_params(&self) -> bool {
         self.drop_safe_ret_params
     }
@@ -974,6 +982,14 @@ impl FnRepr {
 
     pub fn ret(&self) -> Option<&ParamType> {
         self.ret.as_ref()
+    }
+
+    pub fn ret_send(&self) -> bool {
+        self.ret_send
+    }
+
+    pub fn ret_static(&self) -> bool {
+        self.ret_static
     }
 
     fn to_c_callback(&self, trait_name: &str) -> String {

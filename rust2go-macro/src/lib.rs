@@ -111,49 +111,38 @@ fn r2g_trait(
 ) -> syn::Result<TokenStream> {
     let trat_repr = TraitRepr::try_from(&trat)?;
 
-    // remove attributes of all functions
-    trat.items
-        .iter_mut()
-        .filter_map(|trat_fn| match trat_fn {
-            syn::TraitItem::Fn(f) => Some(f),
-            _ => None,
-        })
-        .for_each(|f| {
-            f.attrs.clear();
-        });
-
-    // for all functions with #[drop_safe_ret], change the return type.
-    for (fn_repr, trat_fn) in trat_repr
-        .fns()
-        .iter()
-        .zip(trat.items.iter_mut())
-        .filter(|(fn_repr, _)| fn_repr.drop_safe_ret_params())
-    {
+    for (fn_repr, trat_fn) in trat_repr.fns().iter().zip(trat.items.iter_mut()) {
         match trat_fn {
             syn::TraitItem::Fn(f) => {
-                let orig = match fn_repr.ret() {
-                    None => quote! { () },
-                    Some(ret) => quote! { #ret },
-                };
-                let tys = fn_repr.params().iter().map(|p| p.ty());
+                // remove attributes of all functions
+                f.attrs.clear();
 
-                f.sig.asyncness = None;
-                f.sig.output = syn::parse_quote! { -> impl ::std::future::Future<Output = (#orig, (#(#tys,)*))> };
-            }
-            _ => sbail!("only fn is supported"),
-        }
-    }
+                // convert async fn return impl future
+                if fn_repr.is_async() {
+                    let orig = match fn_repr.ret() {
+                        None => quote! { () },
+                        Some(ret) => quote! { #ret },
+                    };
+                    let auto_t = match (fn_repr.ret_send(), fn_repr.ret_static()) {
+                        (true, true) => quote!( + Send + Sync + 'static),
+                        (true, false) => quote!( + Send + Sync),
+                        (false, true) => quote!( + 'static),
+                        (false, false) => quote!(),
+                    };
+                    f.sig.asyncness = None;
+                    if fn_repr.drop_safe_ret_params() {
+                        // for all functions with #[drop_safe_ret], change the return type.
+                        let tys = fn_repr.params().iter().map(|p| p.ty());
+                        f.sig.output = syn::parse_quote! { -> impl ::std::future::Future<Output = (#orig, (#(#tys,)*))> #auto_t };
+                    } else {
+                        f.sig.output = syn::parse_quote! { -> impl ::std::future::Future<Output = #orig> #auto_t };
+                    }
 
-    // for all functions with safe=false, add unsafe
-    for (_, trat_fn) in trat_repr
-        .fns()
-        .iter()
-        .zip(trat.items.iter_mut())
-        .filter(|(fn_repr, _)| !fn_repr.safe())
-    {
-        match trat_fn {
-            syn::TraitItem::Fn(f) => {
-                f.sig.unsafety = Some(syn::token::Unsafe::default());
+                    // for all functions with safe=false, add unsafe
+                    if !fn_repr.safe() {
+                        f.sig.unsafety = Some(syn::token::Unsafe::default());
+                    }
+                }
             }
             _ => sbail!("only fn is supported"),
         }

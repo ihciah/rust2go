@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, format_ident};
 use rust2go_common::{raw_file::TraitRepr, sbail};
 use syn::{parse_macro_input, DeriveInput, Ident};
 
@@ -40,8 +40,8 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
             | "f32" | "f64" | "bool" | "char" => {
                 ref_fields.push(quote! {#name: #ty});
             }
-            _ => {
-                let ref_type = Ident::new(&format!("{name}Ref"), first_seg.ident.span());
+            ty => {
+                let ref_type = format_ident!("{ty}Ref");
                 ref_fields.push(quote! {#name: #ref_type});
             }
         }

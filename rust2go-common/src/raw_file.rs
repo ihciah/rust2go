@@ -174,6 +174,12 @@ impl RawRsFile {
         // only handle non-primitive type T
         func ref_list_mapper[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
             return func(s *[]T, buffer *[]byte) C.ListRef {
+                if len(*buffer) == 0 {
+                    return C.ListRef{
+                        ptr: unsafe.Pointer(nil),
+                        len: C.uintptr_t(len(*s)),
+                    }
+                }
                 ret := C.ListRef{
                     ptr: unsafe.Pointer(&(*buffer)[0]),
                     len: C.uintptr_t(len(*s)),
@@ -193,6 +199,12 @@ impl RawRsFile {
         // only handle primitive type T
         func ref_list_mapper_primitive[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
             return func(s *[]T, buffer *[]byte) C.ListRef {
+                if len(*s) == 0 {
+                    return C.ListRef{
+                        ptr: unsafe.Pointer(nil),
+                        len: C.uintptr_t(0),
+                    }
+                }
                 return C.ListRef{
                     ptr: unsafe.Pointer(&(*s)[0]),
                     len: C.uintptr_t(len(*s)),

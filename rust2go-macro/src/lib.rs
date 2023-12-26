@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
 use rust2go_common::{raw_file::TraitRepr, sbail};
 use syn::{parse_macro_input, DeriveInput, Ident};
 

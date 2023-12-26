@@ -797,6 +797,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "test"
+version = "0.1.0"
+dependencies = [
+ "monoio",
+ "rust2go",
+]
+
+[[package]]
 name = "threadpool"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

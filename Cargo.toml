@@ -5,6 +5,7 @@ members = [
     "rust2go-macro",
     "rust2go-common",
     "example",
+    "test",
 ]
 resolver = "2"
 

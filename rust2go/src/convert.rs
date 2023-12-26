@@ -127,7 +127,7 @@ impl<T: ToRef> ToRef for Vec<T> {
     type Ref = ListRef;
 
     fn to_size(&self, acc: &mut usize) {
-        if !matches!(Self::MEM_TYPE, MemType::Primitive) {
+        if matches!(Self::MEM_TYPE, MemType::Complex) {
             *acc += self.len() * std::mem::size_of::<T::Ref>();
             self.iter().for_each(|elem| elem.to_size(acc));
         }
@@ -139,7 +139,7 @@ impl<T: ToRef> ToRef for Vec<T> {
             len: self.len(),
         });
 
-        if !matches!(Self::MEM_TYPE, MemType::Primitive) {
+        if matches!(Self::MEM_TYPE, MemType::Complex) {
             data.0.ptr = writer.as_ptr().cast();
             unsafe {
                 let mut children = writer.reserve(self.len() * std::mem::size_of::<T::Ref>());

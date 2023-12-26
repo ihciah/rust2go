@@ -1108,8 +1108,9 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
             (true, Some(ret)) => {
                 // //export CDemoCall_demo_check_async
                 // func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+                //     _new_req := newDemoComplicatedRequest(req)
                 //     go func() {
-                //         resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
+                //         resp := DemoCallImpl.demo_check_async(_new_req)
                 //         resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
                 //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
                 //         runtime.KeepAlive(resp)
@@ -1117,16 +1118,20 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     }()
                 // }
                 out.push_str("slot *C.void, cb *C.void) {\n");
+
+                let mut new_names = Vec::new();
+                for p in self.params.iter() {
+                    let new_name = format_ident!("_new_{}", p.name);
+                    let cvt = p.ty.c_to_go_field_converter();
+                    out.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
+                    new_names.push(new_name.to_string());
+                }
+
                 out.push_str("    go func() {\n");
                 out.push_str(&format!(
                     "resp := {trait_name}Impl.{fn_name}({params})\n",
                     fn_name = self.name,
-                    params = self
-                        .params
-                        .iter()
-                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    params = new_names.join(", ")
                 ));
                 let (g2c_cnt, g2c_cvt) = (
                     ret.go_to_c_field_counter(levels).0,

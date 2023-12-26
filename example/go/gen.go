@@ -8,16 +8,6 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
-
-typedef struct DemoUserRef {
-  struct StringRef name;
-  uint8_t age;
-} DemoUserRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -27,6 +17,16 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef users;
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
+
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
+typedef struct DemoUserRef {
+  struct StringRef name;
+  uint8_t age;
+} DemoUserRef;
 
 typedef struct DemoResponseRef {
   bool pass;
@@ -111,7 +111,7 @@ func refString(s *string, _buffer *[]byte) C.StringRef {
 	}
 }
 
-func cntString(s *string, cnt *uint) {}
+func cntString(s *string, cnt *uint) []C.StringRef { return []C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
@@ -124,23 +124,30 @@ func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 }
 
 // only handle non-primitive type T
-func cnt_list_mapper[T any](f func(s *T, cnt *uint)) func(s *[]T, cnt *uint) {
-	return func(s *[]T, cnt *uint) {
+func cnt_list_mapper[T, R any](f func(s *T, cnt *uint) [0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
+	return func(s *[]T, cnt *uint) [0]C.ListRef {
 		for _, v := range *s {
 			f(&v, cnt)
 		}
-		*cnt += uint(len(*s)) * size_of[C.ListRef]()
+		*cnt += uint(len(*s)) * size_of[R]()
+		return [0]C.ListRef{}
 	}
 }
 
 // only handle primitive type T
-func cnt_list_mapper_primitive[T any](f func(s *T, cnt *uint)) func(s *[]T, cnt *uint) {
-	return func(s *[]T, cnt *uint) {}
+func cnt_list_mapper_primitive[T, R any](f func(s *T, cnt *uint) [0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
+	return func(s *[]T, cnt *uint) [0]C.ListRef { return [0]C.ListRef{} }
 }
 
 // only handle non-primitive type T
 func ref_list_mapper[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
 	return func(s *[]T, buffer *[]byte) C.ListRef {
+		if len(*buffer) == 0 {
+			return C.ListRef{
+				ptr: unsafe.Pointer(nil),
+				len: C.uintptr_t(len(*s)),
+			}
+		}
 		ret := C.ListRef{
 			ptr: unsafe.Pointer(&(*buffer)[0]),
 			len: C.uintptr_t(len(*s)),
@@ -161,6 +168,12 @@ func ref_list_mapper[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buff
 // only handle primitive type T
 func ref_list_mapper_primitive[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
 	return func(s *[]T, buffer *[]byte) C.ListRef {
+		if len(*s) == 0 {
+			return C.ListRef{
+				ptr: unsafe.Pointer(nil),
+				len: C.uintptr_t(0),
+			}
+		}
 		return C.ListRef{
 			ptr: unsafe.Pointer(&(*s)[0]),
 			len: C.uintptr_t(len(*s)),
@@ -171,7 +184,7 @@ func size_of[T any]() uint {
 	var t T
 	return uint(unsafe.Sizeof(t))
 }
-func cvt_ref[R, CR any](cnt_f func(s *R, cnt *uint), ref_f func(p *R, buffer *[]byte) CR) func(p *R) (CR, []byte) {
+func cvt_ref[R, CR any](cnt_f func(s *R, cnt *uint) [0]CR, ref_f func(p *R, buffer *[]byte) CR) func(p *R) (CR, []byte) {
 	return func(p *R) (CR, []byte) {
 		var cnt uint
 		cnt_f(p, &cnt)
@@ -194,19 +207,19 @@ func newC_intptr_t(n C.intptr_t) int    { return int(n) }
 func newC_float(n C.float) float32      { return float32(n) }
 func newC_double(n C.double) float64    { return float64(n) }
 
-func cntC_uint8_t(s *uint8, cnt *uint)   {}
-func cntC_uint16_t(s *uint16, cnt *uint) {}
-func cntC_uint32_t(s *uint32, cnt *uint) {}
-func cntC_uint64_t(s *uint64, cnt *uint) {}
-func cntC_int8_t(s *int8, cnt *uint)     {}
-func cntC_int16_t(s *int16, cnt *uint)   {}
-func cntC_int32_t(s *int32, cnt *uint)   {}
-func cntC_int64_t(s *int64, cnt *uint)   {}
-func cntC_bool(s *bool, cnt *uint)       {}
-func cntC_uintptr_t(s *uint, cnt *uint)  {}
-func cntC_intptr_t(s *int, cnt *uint)    {}
-func cntC_float(s *float32, cnt *uint)   {}
-func cntC_double(s *float64, cnt *uint)  {}
+func cntC_uint8_t(s *uint8, cnt *uint) [0]C.uint8_t    { return [0]C.uint8_t{} }
+func cntC_uint16_t(s *uint16, cnt *uint) [0]C.uint16_t { return [0]C.uint16_t{} }
+func cntC_uint32_t(s *uint32, cnt *uint) [0]C.uint32_t { return [0]C.uint32_t{} }
+func cntC_uint64_t(s *uint64, cnt *uint) [0]C.uint64_t { return [0]C.uint64_t{} }
+func cntC_int8_t(s *int8, cnt *uint) [0]C.int8_t       { return [0]C.int8_t{} }
+func cntC_int16_t(s *int16, cnt *uint) [0]C.int16_t    { return [0]C.int16_t{} }
+func cntC_int32_t(s *int32, cnt *uint) [0]C.int32_t    { return [0]C.int32_t{} }
+func cntC_int64_t(s *int64, cnt *uint) [0]C.int64_t    { return [0]C.int64_t{} }
+func cntC_bool(s *bool, cnt *uint) [0]C.bool           { return [0]C.bool{} }
+func cntC_uintptr_t(s *uint, cnt *uint) [0]C.uintptr_t { return [0]C.uintptr_t{} }
+func cntC_intptr_t(s *int, cnt *uint) [0]C.intptr_t    { return [0]C.intptr_t{} }
+func cntC_float(s *float32, cnt *uint) [0]C.float      { return [0]C.float{} }
+func cntC_double(s *float64, cnt *uint) [0]C.double    { return [0]C.double{} }
 
 func refC_uint8_t(p *uint8, buffer *[]byte) C.uint8_t    { return C.uint8_t(*p) }
 func refC_uint16_t(p *uint16, buffer *[]byte) C.uint16_t { return C.uint16_t(*p) }
@@ -233,7 +246,8 @@ func newDemoUser(p C.DemoUserRef) DemoUser {
 		age:  newC_uint8_t(p.age),
 	}
 }
-func cntDemoUser(s *DemoUser, cnt *uint) {
+func cntDemoUser(s *DemoUser, cnt *uint) [0]C.DemoUserRef {
+	return [0]C.DemoUserRef{}
 }
 func refDemoUser(p *DemoUser, buffer *[]byte) C.DemoUserRef {
 	return C.DemoUserRef{
@@ -253,8 +267,9 @@ func newDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedReq
 		balabala: new_list_mapper(newC_uint8_t)(p.balabala),
 	}
 }
-func cntDemoComplicatedRequest(s *DemoComplicatedRequest, cnt *uint) {
+func cntDemoComplicatedRequest(s *DemoComplicatedRequest, cnt *uint) [0]C.DemoComplicatedRequestRef {
 	cnt_list_mapper(cntDemoUser)(&s.users, cnt)
+	return [0]C.DemoComplicatedRequestRef{}
 }
 func refDemoComplicatedRequest(p *DemoComplicatedRequest, buffer *[]byte) C.DemoComplicatedRequestRef {
 	return C.DemoComplicatedRequestRef{
@@ -272,7 +287,8 @@ func newDemoResponse(p C.DemoResponseRef) DemoResponse {
 		pass: newC_bool(p.pass),
 	}
 }
-func cntDemoResponse(s *DemoResponse, cnt *uint) {
+func cntDemoResponse(s *DemoResponse, cnt *uint) [0]C.DemoResponseRef {
+	return [0]C.DemoResponseRef{}
 }
 func refDemoResponse(p *DemoResponse, buffer *[]byte) C.DemoResponseRef {
 	return C.DemoResponseRef{

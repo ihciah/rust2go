@@ -83,7 +83,7 @@ impl RawRsFile {
                             .ok_or_else(|| serr!("only named fields are supported"))?;
                         let field_type = ParamType::try_from(&field.ty)?;
                         field_names.push(field_name);
-                        field_types.push(field_type.to_rust_ref());
+                        field_types.push(field_type.to_rust_ref(None));
                     }
                     out.extend(quote! {
                         #[repr(C)]
@@ -336,9 +336,7 @@ impl RawRsFile {
                             }
                         }
                     }
-                    out.push_str(&format!(
-                        "return [0]C.{struct_name}Ref{{}}\n"
-                    ));
+                    out.push_str(&format!("return [0]C.{struct_name}Ref{{}}\n"));
                     out.push_str("}\n");
 
                     // refStruct
@@ -662,8 +660,8 @@ impl TryFrom<&Type> for ParamType {
         // TypePath -> ParamType
         let seg = type_to_segment(ty)?;
         let param_type_inner = match seg.ident.to_string().as_str() {
-            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "bool" | "char"
-            | "f32" => {
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize"
+            | "bool" | "char" | "f32" => {
                 if !seg.arguments.is_none() {
                     sbail!("primitive types with arguments are not supported")
                 }
@@ -892,11 +890,17 @@ impl ParamType {
         }
     }
 
-    fn to_rust_ref(&self) -> Ident {
+    fn to_rust_ref(&self, prefix: Option<&TokenStream>) -> TokenStream {
         match &self.inner {
-            ParamTypeInner::Primitive(name) => name.clone(),
-            ParamTypeInner::Custom(name) => format_ident!("{}Ref", name),
-            ParamTypeInner::List(_) => format_ident!("ListRef"),
+            ParamTypeInner::Primitive(name) => quote!(#name),
+            ParamTypeInner::Custom(name) => {
+                let ident = format_ident!("{}Ref", name);
+                quote!(#prefix #ident)
+            }
+            ParamTypeInner::List(_) => {
+                let ident = format_ident!("ListRef");
+                quote!(#prefix #ident)
+            }
         }
     }
 }
@@ -1279,10 +1283,11 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // unsafe extern "C" fn demo_check_cb(resp: binding::DemoResponseRef, slot: *const ()) {
                 //     *(slot as *mut Option<DemoResponse>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                 // }
-                let resp_ref_ty = ret.to_rust_ref();
+                let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 Ok(quote! {
+                    #[allow(clippy::useless_transmute)]
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(resp: #path_prefix #resp_ref_ty, slot: *const ()) {
+                    unsafe extern "C" fn #fn_name(resp: #resp_ref_ty, slot: *const ()) {
                         *(slot as *mut Option<#ret>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                     }
                 })
@@ -1295,11 +1300,12 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // ) {
                 //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                 // }
-                let resp_ref_ty = ret.to_rust_ref();
+                let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 let func_param_types = self.params.iter().map(|p| &p.ty);
                 Ok(quote! {
+                    #[allow(clippy::useless_transmute)]
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(resp: #path_prefix #resp_ref_ty, slot: *const ()) {
+                    unsafe extern "C" fn #fn_name(resp: #resp_ref_ty, slot: *const ()) {
                         ::rust2go::SlotWriter::<#ret, ((#(#func_param_types,)*), Vec<u8>)>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
                     }
                 })

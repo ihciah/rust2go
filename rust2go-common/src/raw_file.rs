@@ -158,6 +158,11 @@ impl RawRsFile {
                 return output
             }
         }
+        func new_list_mapper_primitive[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+            return func(x C.ListRef) []T2 {
+                return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
+            }
+        }
         // only handle non-primitive type T
         func cnt_list_mapper[T, R any](f func(s *T, cnt *uint)[0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
             return func(s *[]T, cnt *uint) [0]C.ListRef {
@@ -313,10 +318,8 @@ impl RawRsFile {
                     for field in s.fields.iter() {
                         let field_name = field.ident.as_ref().unwrap().to_string();
                         let field_type = ParamType::try_from(&field.ty)?;
-                        out.push_str(&format!(
-                            "{field_name}: {}(p.{field_name}),\n",
-                            field_type.c_to_go_field_converter()
-                        ));
+                        let (new_f, _) = field_type.c_to_go_field_converter(levels);
+                        out.push_str(&format!("{field_name}: {new_f}(p.{field_name}),\n",));
                     }
                     out.push_str("}\n}\n");
 
@@ -756,26 +759,32 @@ impl ParamType {
     }
 
     // f: StructRef -> Struct
-    fn c_to_go_field_converter(&self) -> String {
+    fn c_to_go_field_converter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
         match &self.inner {
-            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "newC_uint8_t",
-                "u16" => "newC_uint16_t",
-                "u32" => "newC_uint32_t",
-                "u64" => "newC_uint64_t",
-                "i8" => "newC_int8_t",
-                "i16" => "newC_int16_t",
-                "i32" => "newC_int32_t",
-                "i64" => "newC_int64_t",
-                "bool" => "newC_bool",
-                "usize" => "newC_uintptr_t",
-                "isize" => "newC_intptr_t",
-                "f32" => "newC_float",
-                "f64" => "newC_double",
-                _ => panic!("unreconigzed rust primitive type {name}"),
-            }
-            .to_string(),
-            ParamTypeInner::Custom(c) => format!("new{}", c.to_string().as_str()),
+            ParamTypeInner::Primitive(name) => (
+                match name.to_string().as_str() {
+                    "u8" => "newC_uint8_t",
+                    "u16" => "newC_uint16_t",
+                    "u32" => "newC_uint32_t",
+                    "u64" => "newC_uint64_t",
+                    "i8" => "newC_int8_t",
+                    "i16" => "newC_int16_t",
+                    "i32" => "newC_int32_t",
+                    "i64" => "newC_int64_t",
+                    "bool" => "newC_bool",
+                    "usize" => "newC_uintptr_t",
+                    "isize" => "newC_intptr_t",
+                    "f32" => "newC_float",
+                    "f64" => "newC_double",
+                    _ => panic!("unrecognized rust primitive type {name}"),
+                }
+                .to_string(),
+                0,
+            ),
+            ParamTypeInner::Custom(c) => (
+                format!("new{}", c.to_string().as_str()),
+                *mapping.get(c).unwrap(),
+            ),
             ParamTypeInner::List(inner) => {
                 let seg = type_to_segment(inner).unwrap();
                 let inside = match &seg.arguments {
@@ -785,12 +794,14 @@ impl ParamType {
                     },
                     _ => panic!("list type must have angle bracketed arguments"),
                 };
-                format!(
-                    "new_list_mapper({})",
-                    ParamType::try_from(inside)
-                        .expect("unable to convert list type")
-                        .c_to_go_field_converter()
-                )
+                let (inner, inner_level) = ParamType::try_from(inside)
+                    .expect("unable to convert list type")
+                    .c_to_go_field_converter(mapping);
+                if inner_level == 0 {
+                    (format!("new_list_mapper_primitive({inner})"), 1)
+                } else {
+                    (format!("new_list_mapper({inner})"), 2.min(inner_level + 1))
+                }
             }
         }
     }
@@ -812,7 +823,7 @@ impl ParamType {
                     "isize" => "cntC_intptr_t",
                     "f32" => "cntC_float",
                     "f64" => "cntC_double",
-                    _ => panic!("unreconigzed rust primitive type {name}"),
+                    _ => panic!("unrecognized rust primitive type {name}"),
                 }
                 .to_string(),
                 0,
@@ -1066,7 +1077,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     params = self
                         .params
                         .iter()
-                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
+                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
@@ -1088,7 +1099,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     params = self
                         .params
                         .iter()
-                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(), p.name))
+                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
@@ -1122,7 +1133,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 let mut new_names = Vec::new();
                 for p in self.params.iter() {
                     let new_name = format_ident!("_new_{}", p.name);
-                    let cvt = p.ty.c_to_go_field_converter();
+                    let cvt = p.ty.c_to_go_field_converter(levels).0;
                     out.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
                     new_names.push(new_name.to_string());
                 }

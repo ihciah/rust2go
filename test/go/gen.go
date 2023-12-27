@@ -8,46 +8,10 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct ListRef {
-  const void *ptr;
-  uintptr_t len;
-} ListRef;
-
 typedef struct StringRef {
   const uint8_t *ptr;
   uintptr_t len;
 } StringRef;
-
-typedef struct PMFriendRequestRef {
-  uint32_t user_id;
-  struct ListRef token;
-  struct StringRef message;
-} PMFriendRequestRef;
-
-typedef struct LogoutRequestRef {
-  struct ListRef token;
-  struct ListRef user_ids;
-} LogoutRequestRef;
-
-typedef struct PMFriendResponseRef {
-  bool succ;
-  struct StringRef message;
-} PMFriendResponseRef;
-
-typedef struct LoginResponseRef {
-  bool succ;
-  struct StringRef message;
-  struct ListRef token;
-} LoginResponseRef;
-
-typedef struct FriendsListResponseRef {
-  struct ListRef users;
-} FriendsListResponseRef;
-
-typedef struct FriendsListRequestRef {
-  struct ListRef token;
-  struct ListRef user_ids;
-} FriendsListRequestRef;
 
 typedef struct UserRef {
   uint32_t id;
@@ -55,10 +19,46 @@ typedef struct UserRef {
   uint8_t age;
 } UserRef;
 
+typedef struct ListRef {
+  const void *ptr;
+  uintptr_t len;
+} ListRef;
+
 typedef struct LoginRequestRef {
   struct UserRef user;
   struct StringRef password;
 } LoginRequestRef;
+
+typedef struct LoginResponseRef {
+  bool succ;
+  struct StringRef message;
+  struct ListRef token;
+} LoginResponseRef;
+
+typedef struct FriendsListRequestRef {
+  struct ListRef token;
+  struct ListRef user_ids;
+} FriendsListRequestRef;
+
+typedef struct LogoutRequestRef {
+  struct ListRef token;
+  struct ListRef user_ids;
+} LogoutRequestRef;
+
+typedef struct FriendsListResponseRef {
+  struct ListRef users;
+} FriendsListResponseRef;
+
+typedef struct PMFriendRequestRef {
+  uint32_t user_id;
+  struct ListRef token;
+  struct StringRef message;
+} PMFriendRequestRef;
+
+typedef struct PMFriendResponseRef {
+  bool succ;
+  struct StringRef message;
+} PMFriendResponseRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
@@ -185,6 +185,11 @@ func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 			output[i] = f(v)
 		}
 		return output
+	}
+}
+func new_list_mapper_primitive[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+	return func(x C.ListRef) []T2 {
+		return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
 	}
 }
 
@@ -355,7 +360,7 @@ func newLoginResponse(p C.LoginResponseRef) LoginResponse {
 	return LoginResponse{
 		succ:    newC_bool(p.succ),
 		message: newString(p.message),
-		token:   new_list_mapper(newC_uint8_t)(p.token),
+		token:   new_list_mapper_primitive(newC_uint8_t)(p.token),
 	}
 }
 func cntLoginResponse(s *LoginResponse, cnt *uint) [0]C.LoginResponseRef {
@@ -376,8 +381,8 @@ type LogoutRequest struct {
 
 func newLogoutRequest(p C.LogoutRequestRef) LogoutRequest {
 	return LogoutRequest{
-		token:    new_list_mapper(newC_uint8_t)(p.token),
-		user_ids: new_list_mapper(newC_uint32_t)(p.user_ids),
+		token:    new_list_mapper_primitive(newC_uint8_t)(p.token),
+		user_ids: new_list_mapper_primitive(newC_uint32_t)(p.user_ids),
 	}
 }
 func cntLogoutRequest(s *LogoutRequest, cnt *uint) [0]C.LogoutRequestRef {
@@ -397,8 +402,8 @@ type FriendsListRequest struct {
 
 func newFriendsListRequest(p C.FriendsListRequestRef) FriendsListRequest {
 	return FriendsListRequest{
-		token:    new_list_mapper(newC_uint8_t)(p.token),
-		user_ids: new_list_mapper(newC_uint32_t)(p.user_ids),
+		token:    new_list_mapper_primitive(newC_uint8_t)(p.token),
+		user_ids: new_list_mapper_primitive(newC_uint32_t)(p.user_ids),
 	}
 }
 func cntFriendsListRequest(s *FriendsListRequest, cnt *uint) [0]C.FriendsListRequestRef {
@@ -439,7 +444,7 @@ type PMFriendRequest struct {
 func newPMFriendRequest(p C.PMFriendRequestRef) PMFriendRequest {
 	return PMFriendRequest{
 		user_id: newC_uint32_t(p.user_id),
-		token:   new_list_mapper(newC_uint8_t)(p.token),
+		token:   new_list_mapper_primitive(newC_uint8_t)(p.token),
 		message: newString(p.message),
 	}
 }

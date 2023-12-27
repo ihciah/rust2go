@@ -18,6 +18,10 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
 
+typedef struct DemoResponseRef {
+  bool pass;
+} DemoResponseRef;
+
 typedef struct StringRef {
   const uint8_t *ptr;
   uintptr_t len;
@@ -27,10 +31,6 @@ typedef struct DemoUserRef {
   struct StringRef name;
   uint8_t age;
 } DemoUserRef;
-
-typedef struct DemoResponseRef {
-  bool pass;
-} DemoResponseRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
@@ -81,8 +81,9 @@ func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.v
 
 //export CDemoCall_demo_check_async
 func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+	_new_req := newDemoComplicatedRequest(req)
 	go func() {
-		resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
+		resp := DemoCallImpl.demo_check_async(_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
 		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 		runtime.KeepAlive(resp)
@@ -92,8 +93,9 @@ func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, c
 
 //export CDemoCall_demo_check_async_safe
 func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
+	_new_req := newDemoComplicatedRequest(req)
 	go func() {
-		resp := DemoCallImpl.demo_check_async_safe(newDemoComplicatedRequest(req))
+		resp := DemoCallImpl.demo_check_async_safe(_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
 		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 		runtime.KeepAlive(resp)
@@ -120,6 +122,11 @@ func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 			output[i] = f(v)
 		}
 		return output
+	}
+}
+func new_list_mapper_primitive[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+	return func(x C.ListRef) []T2 {
+		return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
 	}
 }
 
@@ -264,7 +271,7 @@ type DemoComplicatedRequest struct {
 func newDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedRequest {
 	return DemoComplicatedRequest{
 		users:    new_list_mapper(newDemoUser)(p.users),
-		balabala: new_list_mapper(newC_uint8_t)(p.balabala),
+		balabala: new_list_mapper_primitive(newC_uint8_t)(p.balabala),
 	}
 }
 func cntDemoComplicatedRequest(s *DemoComplicatedRequest, cnt *uint) [0]C.DemoComplicatedRequestRef {

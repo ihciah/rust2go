@@ -633,16 +633,17 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
 name = "rust2go"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bindgen",
+ "rust2go-cli",
  "rust2go-macro",
  "syn 2.0.42",
 ]
 
 [[package]]
 name = "rust2go-cli"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "cbindgen",
  "clap",
@@ -651,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-common"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -660,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-macro"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -13,21 +13,10 @@ typedef struct StringRef {
   uintptr_t len;
 } StringRef;
 
-typedef struct UserRef {
-  uint32_t id;
-  struct StringRef name;
-  uint8_t age;
-} UserRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
 } ListRef;
-
-typedef struct LoginRequestRef {
-  struct UserRef user;
-  struct StringRef password;
-} LoginRequestRef;
 
 typedef struct LoginResponseRef {
   bool succ;
@@ -35,19 +24,25 @@ typedef struct LoginResponseRef {
   struct ListRef token;
 } LoginResponseRef;
 
-typedef struct FriendsListRequestRef {
-  struct ListRef token;
-  struct ListRef user_ids;
-} FriendsListRequestRef;
+typedef struct UserRef {
+  uint32_t id;
+  struct StringRef name;
+  uint8_t age;
+} UserRef;
 
-typedef struct LogoutRequestRef {
-  struct ListRef token;
-  struct ListRef user_ids;
-} LogoutRequestRef;
+typedef struct LoginRequestRef {
+  struct UserRef user;
+  struct StringRef password;
+} LoginRequestRef;
 
 typedef struct FriendsListResponseRef {
   struct ListRef users;
 } FriendsListResponseRef;
+
+typedef struct FriendsListRequestRef {
+  struct ListRef token;
+  struct ListRef user_ids;
+} FriendsListRequestRef;
 
 typedef struct PMFriendRequestRef {
   uint32_t user_id;
@@ -59,6 +54,11 @@ typedef struct PMFriendResponseRef {
   bool succ;
   struct StringRef message;
 } PMFriendResponseRef;
+
+typedef struct LogoutRequestRef {
+  struct ListRef token;
+  struct ListRef user_ids;
+} LogoutRequestRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))

@@ -1208,6 +1208,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                         #(
                             let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
                         )*
+                        #[allow(clippy::useless_transmute)]
                         unsafe {#path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*)}
                     }
                 });
@@ -1230,6 +1231,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                         #(
                             let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
                         )*
+                        #[allow(clippy::useless_transmute)]
                         unsafe { #path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*, &slot as *const _ as *const () as *mut _, Self::#callback_name as *const () as *mut _) };
                         slot.take().unwrap()
                     }
@@ -1267,6 +1269,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     -> impl ::std::future::Future<Output = #ret> {
                     #new_fn(
                         |r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
+                            #[allow(clippy::useless_transmute)]
                             unsafe {
                                 #path_prefix #c_func_name(
                                     #(::std::mem::transmute(r_ref.#tuple_ids),)*

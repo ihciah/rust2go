@@ -88,7 +88,8 @@ impl Builder<PathBuf> {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
-            .env("GO111MODULE", "off")
+            .env("GO111MODULE", "on")
+            .current_dir(go_src)
             .arg("build")
             .arg(if link == LinkType::Static {
                 "-buildmode=c-archive"
@@ -101,7 +102,7 @@ impl Builder<PathBuf> {
             } else {
                 "libgo.so"
             }))
-            .arg(go_src);
+            .arg(".");
 
         go_build.status().expect("Go build failed");
 

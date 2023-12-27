@@ -106,6 +106,14 @@ impl Builder<PathBuf> {
 
         go_build.status().expect("Go build failed");
 
+        // Copy .so file to CARGO_TARGET_DIR
+        if link == LinkType::Dynamic {
+            let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap());
+            let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+            std::fs::copy(out_dir.join("libgo.so"), target_dir.join("libgo.so"))
+                .expect("unable to copy dynamic library");
+        }
+
         let bindings = bindgen::Builder::default()
             .header(out_dir.join("libgo.h").to_str().unwrap())
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))

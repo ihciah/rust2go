@@ -122,9 +122,27 @@ impl Builder<PathBuf> {
 
         go_build.status().expect("Go build failed");
 
-        // Copy .so file to CARGO_TARGET_DIR
+        // Copy .so file to target dir.
         if link == LinkType::Dynamic {
-            let target_dir = PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap());
+            // A workaround to get target dir.
+            // From https://github.com/rust-lang/cargo/issues/9661#issuecomment-1722358176
+            fn get_cargo_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+                let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+                let profile = env::var("PROFILE")?;
+                let mut target_dir = None;
+                let mut sub_path = out_dir.as_path();
+                while let Some(parent) = sub_path.parent() {
+                    if parent.ends_with(&profile) {
+                        target_dir = Some(parent);
+                        break;
+                    }
+                    sub_path = parent;
+                }
+                let target_dir = target_dir.ok_or("not found")?;
+                Ok(target_dir.to_path_buf())
+            }
+
+            let target_dir = get_cargo_target_dir().unwrap();
             let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
             std::fs::copy(out_dir.join("libgo.so"), target_dir.join("libgo.so"))
                 .expect("unable to copy dynamic library");

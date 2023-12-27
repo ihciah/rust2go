@@ -4,6 +4,8 @@ use std::{
     process::Command,
 };
 
+use rust2go_cli::Args;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkType {
     Static,
@@ -16,6 +18,7 @@ pub struct Builder<GOSRC = ()> {
     out_name: Option<String>,
     binding_name: Option<String>,
     link: LinkType,
+    regen_arg: Args,
 }
 
 impl Default for Builder {
@@ -32,6 +35,7 @@ impl Builder {
             out_name: None,
             binding_name: None,
             link: LinkType::Static,
+            regen_arg: Args::default(),
         }
     }
 }
@@ -44,31 +48,39 @@ impl<GOSRC> Builder<GOSRC> {
             out_dir: self.out_dir,
             binding_name: self.binding_name,
             link: self.link,
+            regen_arg: self.regen_arg,
         }
     }
 
     /// Default binding name is "_go_bindings.rs".
     /// Use with_binding to set it.
-    pub fn with_binding(self, out_name: &str) -> Self {
-        Builder {
-            go_src: self.go_src,
-            out_name: Some(out_name.to_string()),
-            out_dir: self.out_dir,
-            binding_name: self.binding_name,
-            link: self.link,
-        }
+    pub fn with_binding(mut self, out_name: &str) -> Self {
+        self.out_name = Some(out_name.to_string());
+        self
     }
 
     /// Default link type is static linking.
     /// Use with_link to set it.
-    pub fn with_link(self, link: LinkType) -> Self {
-        Builder {
-            go_src: self.go_src,
-            out_name: self.out_name,
-            out_dir: self.out_dir,
-            binding_name: self.binding_name,
-            link,
-        }
+    pub fn with_link(mut self, link: LinkType) -> Self {
+        self.link = link;
+        self
+    }
+
+    /// Regenerate go code.
+    /// Note: you should generate go code before build with rust2go-cli.
+    /// This function is to make sure the go code is updated.
+    pub fn with_regen(mut self, src: &str, dst: &str) -> Self {
+        self.regen_arg.src = src.to_string();
+        self.regen_arg.dst = dst.to_string();
+        self
+    }
+
+    /// Regenerate go code.
+    /// Note: you should generate go code before build with rust2go-cli.
+    /// This function is to make sure the go code is updated.
+    pub fn with_regen_arg(mut self, arg: Args) -> Self {
+        self.regen_arg = arg;
+        self
     }
 }
 
@@ -81,6 +93,10 @@ impl Builder<PathBuf> {
             .binding_name
             .as_deref()
             .unwrap_or(crate::DEFAULT_BINDING_FILE);
+        // Regenerate go code.
+        if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
+            rust2go_cli::generate(&self.regen_arg);
+        }
         Self::build_go(&self.go_src, binding_name, self.link);
     }
 

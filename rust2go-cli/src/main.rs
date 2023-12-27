@@ -21,6 +21,10 @@ struct Args {
     /// Go 1.18 compatible
     #[arg(long, default_value = "false")]
     go118: bool,
+
+    /// Disable auto format go file
+    #[arg(long, default_value = "false")]
+    no_fmt: bool,
 }
 
 fn main() {
@@ -77,4 +81,12 @@ fn main() {
     }
 
     std::fs::write(&args.dst, go_content).expect("Unable to write file");
+
+    if !args.no_fmt {
+        std::process::Command::new("go")
+            .arg("fmt")
+            .arg(&args.dst)
+            .status()
+            .unwrap();
+    }
 }

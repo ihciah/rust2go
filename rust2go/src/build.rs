@@ -19,6 +19,14 @@ pub struct Builder<GOSRC = ()> {
     binding_name: Option<String>,
     link: LinkType,
     regen_arg: Args,
+    copy_lib: CopyLib,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CopyLib {
+    Disabled,
+    DefaultPath,
+    CustomPath(PathBuf),
 }
 
 impl Default for Builder {
@@ -36,6 +44,7 @@ impl Builder {
             binding_name: None,
             link: LinkType::Static,
             regen_arg: Args::default(),
+            copy_lib: CopyLib::Disabled,
         }
     }
 }
@@ -49,6 +58,7 @@ impl<GOSRC> Builder<GOSRC> {
             binding_name: self.binding_name,
             link: self.link,
             regen_arg: self.regen_arg,
+            copy_lib: self.copy_lib,
         }
     }
 
@@ -82,6 +92,12 @@ impl<GOSRC> Builder<GOSRC> {
         self.regen_arg = arg;
         self
     }
+
+    /// Copy libgo.so to target dir.
+    pub fn with_copy_lib(mut self, copy_lib: CopyLib) -> Self {
+        self.copy_lib = copy_lib;
+        self
+    }
 }
 
 impl Builder<PathBuf> {
@@ -97,10 +113,10 @@ impl Builder<PathBuf> {
         if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
             rust2go_cli::generate(&self.regen_arg);
         }
-        Self::build_go(&self.go_src, binding_name, self.link);
+        Self::build_go(&self.go_src, binding_name, self.link, &self.copy_lib);
     }
 
-    fn build_go(go_src: &Path, binding_name: &str, link: LinkType) {
+    fn build_go(go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
@@ -142,10 +158,19 @@ impl Builder<PathBuf> {
                 Ok(target_dir.to_path_buf())
             }
 
-            let target_dir = get_cargo_target_dir().unwrap();
-            let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-            std::fs::copy(out_dir.join("libgo.so"), target_dir.join("libgo.so"))
-                .expect("unable to copy dynamic library");
+            match copy_lib {
+                CopyLib::Disabled => (),
+                CopyLib::DefaultPath => {
+                    let target_dir = get_cargo_target_dir().unwrap();
+                    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+                    std::fs::copy(out_dir.join("libgo.so"), target_dir.join("libgo.so"))
+                        .expect("unable to copy dynamic library");
+                }
+                CopyLib::CustomPath(p) => {
+                    std::fs::copy(out_dir.join("libgo.so"), p.join("libgo.so"))
+                        .expect("unable to copy dynamic library");
+                }
+            }
         }
 
         let bindings = bindgen::Builder::default()

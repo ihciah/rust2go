@@ -26,6 +26,6 @@ macro_rules! r2g_include_binding {
 #[cfg(feature = "build")]
 mod build;
 #[cfg(feature = "build")]
-pub use build::{Builder, LinkType};
+pub use build::{Builder, CopyLib, LinkType};
 #[cfg(feature = "build")]
 pub use rust2go_cli::Args as RegenArgs;

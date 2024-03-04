@@ -155,6 +155,9 @@ impl<T: FromRef> FromRef for Vec<T> {
     type Ref = ListRef;
 
     fn from_ref(ref_: &Self::Ref) -> Self {
+        if ref_.0.len == 0 {
+            return Vec::new();
+        }
         let slice = unsafe { std::slice::from_raw_parts(ref_.0.ptr.cast(), ref_.0.len) };
         slice.iter().map(FromRef::from_ref).collect()
     }
@@ -184,6 +187,9 @@ impl FromRef for String {
     type Ref = StringRef;
 
     fn from_ref(ref_: &Self::Ref) -> Self {
+        if ref_.0.len == 0 {
+            return String::new();
+        }
         let slice = unsafe { std::slice::from_raw_parts(ref_.0.ptr.cast(), ref_.0.len) };
         String::from_utf8_lossy(slice).into_owned()
     }

@@ -176,7 +176,7 @@ func refString(s *string, _buffer *[]byte) C.StringRef {
 	}
 }
 
-func cntString(s *string, cnt *uint) []C.StringRef { return []C.StringRef{} }
+func cntString(s *string, cnt *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)

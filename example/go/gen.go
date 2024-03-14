@@ -8,6 +8,16 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
+typedef struct DemoUserRef {
+  struct StringRef name;
+  uint8_t age;
+} DemoUserRef;
+
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -21,16 +31,6 @@ typedef struct DemoComplicatedRequestRef {
 typedef struct DemoResponseRef {
   bool pass;
 } DemoResponseRef;
-
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
-
-typedef struct DemoUserRef {
-  struct StringRef name;
-  uint8_t age;
-} DemoUserRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
@@ -52,6 +52,7 @@ inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResp
 */
 import "C"
 import (
+	"reflect"
 	"runtime"
 	"unsafe"
 )
@@ -103,17 +104,31 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 	}()
 }
 
+// An alternative impl of unsafe.String for go1.18
+func unsafeString(ptr *byte, length int) string {
+	sliceHeader := &reflect.SliceHeader{
+		Data: uintptr(unsafe.Pointer(ptr)),
+		Len:  length,
+		Cap:  length,
+	}
+	return *(*string)(unsafe.Pointer(sliceHeader))
+}
+
+// An alternative impl of unsafe.StringData for go1.18
+func unsafeStringData(s string) *byte {
+	return (*byte)(unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data))
+}
 func newString(s_ref C.StringRef) string {
-	return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
+	return unsafeString((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len))
 }
 func refString(s *string, _buffer *[]byte) C.StringRef {
 	return C.StringRef{
-		ptr: (*C.uint8_t)(unsafe.StringData(*s)),
+		ptr: (*C.uint8_t)(unsafeStringData(*s)),
 		len: C.uintptr_t(len(*s)),
 	}
 }
 
-func cntString(s *string, cnt *uint) []C.StringRef { return []C.StringRef{} }
+func cntString(s *string, cnt *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)

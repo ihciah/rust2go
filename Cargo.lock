@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-cli"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "cbindgen",
  "clap",
@@ -652,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-common"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "proc-macro2",
  "quote",

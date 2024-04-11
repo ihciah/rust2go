@@ -167,6 +167,7 @@ impl<T, A> SlotWriter<T, A> {
     pub fn write(mut self, data: T) {
         if unsafe { self.0.as_mut() }.write(data).is_none() {
             if let Some(waker) = unsafe { self.0.as_mut().waker.take() } {
+                drop(self);
                 waker.wake();
             }
         }

@@ -1184,7 +1184,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         let func_param_types: Vec<_> = self.params.iter().map(|p| &p.ty).collect();
         let unsafe_marker = (!self.safe).then(syn::token::Unsafe::default);
         out.extend(quote! {
-            #unsafe_marker fn #func_name(#(#func_param_names: #func_param_types)*)
+            #unsafe_marker fn #func_name(#(#func_param_names: #func_param_types),*)
         });
 
         let ref_marks = self.params.iter().map(|p| {

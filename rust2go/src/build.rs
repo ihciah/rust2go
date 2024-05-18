@@ -12,7 +12,7 @@ pub enum LinkType {
     Dynamic,
 }
 
-pub struct Builder<GOSRC = ()> {
+pub struct Builder<GOSRC = (), GOC = DefaultGoCompiler> {
     go_src: GOSRC,
     out_dir: Option<PathBuf>,
     out_name: Option<String>,
@@ -20,6 +20,7 @@ pub struct Builder<GOSRC = ()> {
     link: LinkType,
     regen_arg: Args,
     copy_lib: CopyLib,
+    go_comp: GOC,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -45,12 +46,13 @@ impl Builder {
             link: LinkType::Static,
             regen_arg: Args::default(),
             copy_lib: CopyLib::Disabled,
+            go_comp: DefaultGoCompiler,
         }
     }
 }
 
-impl<GOSRC> Builder<GOSRC> {
-    pub fn with_go_src<S: Into<PathBuf>>(self, go_src: S) -> Builder<PathBuf> {
+impl<GOSRC, GOC> Builder<GOSRC, GOC> {
+    pub fn with_go_src<S: Into<PathBuf>>(self, go_src: S) -> Builder<PathBuf, GOC> {
         Builder {
             go_src: go_src.into(),
             out_name: self.out_name,
@@ -59,6 +61,20 @@ impl<GOSRC> Builder<GOSRC> {
             link: self.link,
             regen_arg: self.regen_arg,
             copy_lib: self.copy_lib,
+            go_comp: self.go_comp,
+        }
+    }
+
+    pub fn with_go_compiler<GOC2>(self, go_comp: GOC2) -> Builder<GOSRC, GOC2> {
+        Builder {
+            go_src: self.go_src,
+            out_name: self.out_name,
+            out_dir: self.out_dir,
+            binding_name: self.binding_name,
+            link: self.link,
+            regen_arg: self.regen_arg,
+            copy_lib: self.copy_lib,
+            go_comp,
         }
     }
 
@@ -100,23 +116,14 @@ impl<GOSRC> Builder<GOSRC> {
     }
 }
 
-impl Builder<PathBuf> {
-    pub fn build(self) {
-        // Golang -> $OUT_DIR/_go_bindings.rs
-        // This file must be in OUT_DIR, not user specified
-        // File name can be specified by users
-        let binding_name = self
-            .binding_name
-            .as_deref()
-            .unwrap_or(crate::DEFAULT_BINDING_FILE);
-        // Regenerate go code.
-        if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
-            rust2go_cli::generate(&self.regen_arg);
-        }
-        Self::build_go(&self.go_src, binding_name, self.link, &self.copy_lib);
-    }
+pub trait GoCompiler {
+    fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib);
+}
 
-    fn build_go(go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
+#[derive(Debug, Clone, Copy)]
+pub struct DefaultGoCompiler;
+impl GoCompiler for DefaultGoCompiler {
+    fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let mut go_build = Command::new("go");
         go_build
@@ -193,5 +200,23 @@ impl Builder<PathBuf> {
         } else {
             println!("cargo:rustc-link-lib=dylib=go");
         }
+    }
+}
+
+impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
+    pub fn build(self) {
+        // Golang -> $OUT_DIR/_go_bindings.rs
+        // This file must be in OUT_DIR, not user specified
+        // File name can be specified by users
+        let binding_name = self
+            .binding_name
+            .as_deref()
+            .unwrap_or(crate::DEFAULT_BINDING_FILE);
+        // Regenerate go code.
+        if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
+            rust2go_cli::generate(&self.regen_arg);
+        }
+        self.go_comp
+            .build(&self.go_src, binding_name, self.link, &self.copy_lib);
     }
 }

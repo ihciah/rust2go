@@ -93,16 +93,23 @@ impl<T> ReadQueue<T> {
         mut handler: impl FnMut(T),
         mut tx: Sender<()>,
     ) {
+        const YIELD_CNT: u8 = 3;
         let mut exit = std::pin::pin!(tx.closed());
-        loop {
-            self.queue.mark_working();
+        self.queue.mark_working();
+
+        'p: loop {
             while let Some(item) = self.pop() {
                 handler(item);
             }
 
-            yield_now().await;
+            for _ in 0..YIELD_CNT {
+                yield_now().await;
+                if !self.queue.is_empty() {
+                    continue 'p;
+                }
+            }
 
-            if !self.queue.is_empty() || !self.queue.mark_unworking() {
+            if !self.queue.mark_unworking() {
                 continue;
             }
 
@@ -112,6 +119,7 @@ impl<T> ReadQueue<T> {
                     return;
                 }
             }
+            self.queue.mark_working();
         }
     }
 
@@ -124,16 +132,23 @@ impl<T> ReadQueue<T> {
     ) where
         T: Send,
     {
+        const YIELD_CNT: u8 = 3;
         let mut exit = std::pin::pin!(tx.closed());
-        loop {
-            self.queue.mark_working();
+        self.queue.mark_working();
+
+        'p: loop {
             while let Some(item) = self.pop() {
                 handler(item);
             }
 
-            yield_now().await;
+            for _ in 0..YIELD_CNT {
+                yield_now().await;
+                if !self.queue.is_empty() {
+                    continue 'p;
+                }
+            }
 
-            if !self.queue.is_empty() || !self.queue.mark_unworking() {
+            if !self.queue.mark_unworking() {
                 continue;
             }
 
@@ -143,6 +158,7 @@ impl<T> ReadQueue<T> {
                     return;
                 }
             }
+            self.queue.mark_working();
         }
     }
 }

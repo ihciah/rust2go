@@ -1,6 +1,6 @@
 [package]
 name = "mem-ring"
-version = "0.1.0"
+version = "0.1.1"
 description = "Across-thread queue based on shared memory"
 
 authors.workspace = true

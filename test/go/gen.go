@@ -92,6 +92,7 @@ inline void TestCall_pm_friend_cb(const void *f_ptr, struct PMFriendResponseRef 
 */
 import "C"
 import (
+	"reflect"
 	"runtime"
 	"unsafe"
 )
@@ -166,12 +167,26 @@ func CTestCall_pm_friend(req C.PMFriendRequestRef, slot *C.void, cb *C.void) {
 	}()
 }
 
-func newString(s_ref C.StringRef) string {
-	return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
+// An alternative impl of unsafe.String for go1.18
+func unsafeString(ptr *byte, length int) string {
+	sliceHeader := &reflect.SliceHeader{
+		Data: uintptr(unsafe.Pointer(ptr)),
+		Len:  length,
+		Cap:  length,
+	}
+	return *(*string)(unsafe.Pointer(sliceHeader))
 }
-func refString(s *string, _buffer *[]byte) C.StringRef {
+
+// An alternative impl of unsafe.StringData for go1.18
+func unsafeStringData(s string) *byte {
+	return (*byte)(unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data))
+}
+func newString(s_ref C.StringRef) string {
+	return unsafeString((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len))
+}
+func refString(s *string, _ *[]byte) C.StringRef {
 	return C.StringRef{
-		ptr: (*C.uint8_t)(unsafe.StringData(*s)),
+		ptr: (*C.uint8_t)(unsafeStringData(*s)),
 		len: C.uintptr_t(len(*s)),
 	}
 }

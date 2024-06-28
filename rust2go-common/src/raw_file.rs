@@ -31,6 +31,109 @@ impl RawRsFile {
         RawRsFile { file: syntax }
     }
 
+    pub fn go_shm_include() -> &'static str {
+        r#"
+typedef struct QueueMeta {
+    uintptr_t buffer_ptr;
+    uintptr_t buffer_len;
+    uintptr_t head_ptr;
+    uintptr_t tail_ptr;
+    uintptr_t working_ptr;
+    uintptr_t stuck_ptr;
+    int32_t working_fd;
+    int32_t unstuck_fd;
+    } QueueMeta;
+        "#
+    }
+
+    pub fn go_shm_ring_init() -> &'static str {
+        r#"
+        func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}, []byte, uint)) {
+            const MULTIPOOL_SIZE = 8
+            const SIZE_PER_POOL = -1
+
+            type Storage struct {
+                resp   interface{}
+                buffer []byte
+            }
+
+            type Payload struct {
+                Ptr          uint
+                UserData     uint
+                NextUserData uint
+                CallId       uint32
+                Flag         uint32
+            }
+
+            const CALL = 0b0101
+            const REPLY = 0b1110
+            const DROP = 0b1000
+
+            queueMetaCvt := func(cq C.QueueMeta) mem_ring.QueueMeta {
+                return mem_ring.QueueMeta{
+                    BufferPtr:  uintptr(cq.buffer_ptr),
+                    BufferLen:  uintptr(cq.buffer_len),
+                    HeadPtr:    uintptr(cq.head_ptr),
+                    TailPtr:    uintptr(cq.tail_ptr),
+                    WorkingPtr: uintptr(cq.working_ptr),
+                    StuckPtr:   uintptr(cq.stuck_ptr),
+                    WorkingFd:  int32(cq.working_fd),
+                    UnstuckFd:  int32(cq.unstuck_fd),
+                }
+            }
+
+            rr := queueMetaCvt(crr)
+            rw := queueMetaCvt(crw)
+
+            rrq := mem_ring.NewQueue[Payload](rr)
+            rwq := mem_ring.NewQueue[Payload](rw)
+
+            gr := rwq.Read()
+            gw := rrq.Write()
+
+            slab := mem_ring.NewSlab[Storage]()
+            pool, _ := ants.NewMultiPool(MULTIPOOL_SIZE, SIZE_PER_POOL, ants.RoundRobin)
+
+            gr.RunHandler(func(p Payload) {
+                if p.Flag == CALL {
+                    // handle request
+                    pool.Submit(func() {
+                        resp, buffer, offset := fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)))
+                        if resp == nil {
+                            payload := Payload{
+                                Ptr:          0,
+                                UserData:     p.UserData,
+                                NextUserData: 0,
+                                CallId:       p.CallId,
+                                Flag:         DROP,
+                            }
+                            gw.Push(payload)
+                            return
+                        }
+
+                        // Use slab to hold reference of resp and buffer
+                        sid := slab.Push(Storage{
+                            resp,
+                            buffer,
+                        })
+                        payload := Payload{
+                            Ptr:          uint(uintptr(unsafe.Pointer(&buffer[offset]))),
+                            UserData:     p.UserData,
+                            NextUserData: sid,
+                            CallId:       p.CallId,
+                            Flag:         REPLY,
+                        }
+                        gw.Push(payload)
+                    })
+                } else if p.Flag == DROP {
+                    // drop memory instantly
+                    slab.Pop(p.UserData)
+                }
+            })
+        }
+        "#
+    }
+
     // The returned mapping is struct OriginalType -> RefType.
     pub fn convert_structs_to_ref(&self) -> Result<(HashMap<Ident, Ident>, TokenStream)> {
         let mut name_mapping = HashMap::new();
@@ -122,7 +225,7 @@ impl RawRsFile {
         func newString(s_ref C.StringRef) string {
             return unsafeString((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len))
         }
-        func refString(s *string, _buffer *[]byte) C.StringRef {
+        func refString(s *string, _ *[]byte) C.StringRef {
             return C.StringRef{
                 ptr: (*C.uint8_t)(unsafeStringData(*s)),
                 len: C.uintptr_t(len(*s)),
@@ -134,7 +237,7 @@ impl RawRsFile {
         func newString(s_ref C.StringRef) string {
             return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
         }
-        func refString(s *string, _buffer *[]byte) C.StringRef {
+        func refString(s *string, _ *[]byte) C.StringRef {
             return C.StringRef{
                 ptr: (*C.uint8_t)(unsafe.StringData(*s)),
                 len: C.uintptr_t(len(*s)),
@@ -147,7 +250,7 @@ impl RawRsFile {
         } else {
             GO121CODE.to_string()
         } + r#"
-        func cntString(s *string, cnt *uint) [0]C.StringRef { return [0]C.StringRef{} }
+        func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
         func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
                 input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
@@ -158,7 +261,7 @@ impl RawRsFile {
                 return output
             }
         }
-        func new_list_mapper_primitive[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+        func new_list_mapper_primitive[T1, T2 any](_ func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
                 return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
             }
@@ -175,7 +278,7 @@ impl RawRsFile {
         }
 
         // only handle primitive type T
-        func cnt_list_mapper_primitive[T, R any](f func(s *T, cnt *uint)[0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
+        func cnt_list_mapper_primitive[T, R any](_ func(s *T, cnt *uint)[0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
             return func(s *[]T, cnt *uint) [0]C.ListRef {return [0]C.ListRef{}}
         }
         // only handle non-primitive type T
@@ -204,7 +307,7 @@ impl RawRsFile {
             }
         }
         // only handle primitive type T
-        func ref_list_mapper_primitive[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
+        func ref_list_mapper_primitive[T, R any](_ func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
             return func(s *[]T, buffer *[]byte) C.ListRef {
                 if len(*s) == 0 {
                     return C.ListRef{
@@ -230,6 +333,14 @@ impl RawRsFile {
                 return ref_f(p, &buffer), buffer
             }
         }
+        func cvt_ref_cap[R, CR any](cnt_f func(s *R, cnt *uint) [0]CR, ref_f func(p *R, buffer *[]byte) CR, add_cap uint) func(p *R) (CR, []byte) {
+            return func(p *R) (CR, []byte) {
+                var cnt uint
+                cnt_f(p, &cnt)
+                buffer := make([]byte, cnt, cnt + add_cap)
+                return ref_f(p, &buffer), buffer
+            }
+        }
 
         func newC_uint8_t(n C.uint8_t) uint8    { return uint8(n) }
         func newC_uint16_t(n C.uint16_t) uint16 { return uint16(n) }
@@ -245,33 +356,33 @@ impl RawRsFile {
         func newC_float(n C.float) float32      { return float32(n) }
         func newC_double(n C.double) float64    { return float64(n) }
 
-        func cntC_uint8_t(s *uint8, cnt *uint) [0]C.uint8_t    { return [0]C.uint8_t{} }
-        func cntC_uint16_t(s *uint16, cnt *uint) [0]C.uint16_t { return [0]C.uint16_t{} }
-        func cntC_uint32_t(s *uint32, cnt *uint) [0]C.uint32_t { return [0]C.uint32_t{} }
-        func cntC_uint64_t(s *uint64, cnt *uint) [0]C.uint64_t { return [0]C.uint64_t{} }
-        func cntC_int8_t(s *int8, cnt *uint) [0]C.int8_t       { return [0]C.int8_t{} }
-        func cntC_int16_t(s *int16, cnt *uint) [0]C.int16_t    { return [0]C.int16_t{} }
-        func cntC_int32_t(s *int32, cnt *uint) [0]C.int32_t    { return [0]C.int32_t{} }
-        func cntC_int64_t(s *int64, cnt *uint) [0]C.int64_t    { return [0]C.int64_t{} }
-        func cntC_bool(s *bool, cnt *uint) [0]C.bool           { return [0]C.bool{} }
-        func cntC_uintptr_t(s *uint, cnt *uint) [0]C.uintptr_t { return [0]C.uintptr_t{} }
-        func cntC_intptr_t(s *int, cnt *uint) [0]C.intptr_t    { return [0]C.intptr_t{} }
-        func cntC_float(s *float32, cnt *uint) [0]C.float      { return [0]C.float{} }
-        func cntC_double(s *float64, cnt *uint) [0]C.double    { return [0]C.double{} }
+        func cntC_uint8_t(_ *uint8, _ *uint) [0]C.uint8_t    { return [0]C.uint8_t{} }
+        func cntC_uint16_t(_ *uint16, _ *uint) [0]C.uint16_t { return [0]C.uint16_t{} }
+        func cntC_uint32_t(_ *uint32, _ *uint) [0]C.uint32_t { return [0]C.uint32_t{} }
+        func cntC_uint64_t(_ *uint64, _ *uint) [0]C.uint64_t { return [0]C.uint64_t{} }
+        func cntC_int8_t(_ *int8, _ *uint) [0]C.int8_t       { return [0]C.int8_t{} }
+        func cntC_int16_t(_ *int16, _ *uint) [0]C.int16_t    { return [0]C.int16_t{} }
+        func cntC_int32_t(_ *int32, _ *uint) [0]C.int32_t    { return [0]C.int32_t{} }
+        func cntC_int64_t(_ *int64, _ *uint) [0]C.int64_t    { return [0]C.int64_t{} }
+        func cntC_bool(_ *bool, _ *uint) [0]C.bool           { return [0]C.bool{} }
+        func cntC_uintptr_t(_ *uint, _ *uint) [0]C.uintptr_t { return [0]C.uintptr_t{} }
+        func cntC_intptr_t(_ *int, _ *uint) [0]C.intptr_t    { return [0]C.intptr_t{} }
+        func cntC_float(_ *float32, _ *uint) [0]C.float      { return [0]C.float{} }
+        func cntC_double(_ *float64, _ *uint) [0]C.double    { return [0]C.double{} }
 
-        func refC_uint8_t(p *uint8, buffer *[]byte) C.uint8_t    { return C.uint8_t(*p) }
-        func refC_uint16_t(p *uint16, buffer *[]byte) C.uint16_t { return C.uint16_t(*p) }
-        func refC_uint32_t(p *uint32, buffer *[]byte) C.uint32_t { return C.uint32_t(*p) }
-        func refC_uint64_t(p *uint64, buffer *[]byte) C.uint64_t { return C.uint64_t(*p) }
-        func refC_int8_t(p *int8, buffer *[]byte) C.int8_t       { return C.int8_t(*p) }
-        func refC_int16_t(p *int16, buffer *[]byte) C.int16_t    { return C.int16_t(*p) }
-        func refC_int32_t(p *int32, buffer *[]byte) C.int32_t    { return C.int32_t(*p) }
-        func refC_int64_t(p *int64, buffer *[]byte) C.int64_t    { return C.int64_t(*p) }
-        func refC_bool(p *bool, buffer *[]byte) C.bool           { return C.bool(*p) }
-        func refC_uintptr_t(p *uint, buffer *[]byte) C.uintptr_t { return C.uintptr_t(*p) }
-        func refC_intptr_t(p *int, buffer *[]byte) C.intptr_t    { return C.intptr_t(*p) }
-        func refC_float(p *float32, buffer *[]byte) C.float      { return C.float(*p) }
-        func refC_double(p *float64, buffer *[]byte) C.double    { return C.double(*p) }
+        func refC_uint8_t(p *uint8, _ *[]byte) C.uint8_t    { return C.uint8_t(*p) }
+        func refC_uint16_t(p *uint16, _ *[]byte) C.uint16_t { return C.uint16_t(*p) }
+        func refC_uint32_t(p *uint32, _ *[]byte) C.uint32_t { return C.uint32_t(*p) }
+        func refC_uint64_t(p *uint64, _ *[]byte) C.uint64_t { return C.uint64_t(*p) }
+        func refC_int8_t(p *int8, _ *[]byte) C.int8_t       { return C.int8_t(*p) }
+        func refC_int16_t(p *int16, _ *[]byte) C.int16_t    { return C.int16_t(*p) }
+        func refC_int32_t(p *int32, _ *[]byte) C.int32_t    { return C.int32_t(*p) }
+        func refC_int64_t(p *int64, _ *[]byte) C.int64_t    { return C.int64_t(*p) }
+        func refC_bool(p *bool, _ *[]byte) C.bool           { return C.bool(*p) }
+        func refC_uintptr_t(p *uint, _ *[]byte) C.uintptr_t { return C.uintptr_t(*p) }
+        func refC_intptr_t(p *int, _ *[]byte) C.intptr_t    { return C.intptr_t(*p) }
+        func refC_float(p *float32, _ *[]byte) C.float      { return C.float(*p) }
+        func refC_double(p *float64, _ *[]byte) C.double    { return C.double(*p) }
         "#;
         for item in self.file.items.iter() {
             match item {
@@ -467,6 +578,7 @@ impl TryFrom<&ItemTrait> for TraitRepr {
         let trait_name = trat.ident.clone();
         let mut fns = Vec::new();
 
+        let mut mem_cnt = 0;
         for item in trat.items.iter() {
             let TraitItem::Fn(fn_item) = item else {
                 sbail!("only fn items are supported");
@@ -578,6 +690,27 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 }
             }
 
+            let using_mem = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("mem")) || p.get_ident() == Some(&format_ident!("shm")))
+                );
+            if using_mem && !is_async {
+                if ret.is_some() {
+                    sbail!("function based on shm must be async or without return value")
+                } else {
+                    safe = false;
+                }
+            }
+            let mem_call_id = if using_mem {
+                let id = mem_cnt;
+                mem_cnt += 1;
+                Some(id)
+            } else {
+                None
+            };
+
             fns.push(FnRepr {
                 name: fn_name,
                 is_async,
@@ -587,6 +720,7 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 drop_safe_ret_params,
                 ret_send,
                 ret_static: !has_reference,
+                mem_call_id,
             });
         }
         Ok(TraitRepr {
@@ -605,6 +739,7 @@ pub struct FnRepr {
     drop_safe_ret_params: bool,
     ret_send: bool,
     ret_static: bool,
+    mem_call_id: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -929,10 +1064,19 @@ impl TraitRepr {
     // Generate golang exports.
     pub fn generate_go_exports(&self, levels: &HashMap<Ident, u8>) -> String {
         let name = self.name.to_string();
-        self.fns
+        let mut out: String = self
+            .fns
             .iter()
             .map(|f| f.to_go_export(&name, levels))
-            .collect()
+            .collect();
+        let shm_cnt = self.fns.iter().filter(|f| f.mem_call_id.is_some()).count();
+        if shm_cnt != 0 {
+            let mem_ffi_handles = (0..shm_cnt)
+                .map(|id| format!("ringHandle{name}{id}"))
+                .collect::<Vec<String>>();
+            out.push_str(&format!("//export RingsInit{name}\nfunc RingsInit{name}(crr, crw C.QueueMeta) {{\nringsInit(crr, crw, []func(ptr unsafe.Pointer) (interface{{}}, []byte, uint){{{}}})\n}}\n", mem_ffi_handles.join(",")));
+        }
+        out
     }
 
     // Generate golang interface.
@@ -978,12 +1122,35 @@ impl TraitRepr {
 
         let trait_name = &self.name;
         let impl_struct_name = format_ident!("{}Impl", trait_name);
+
+        let mem_init_ffi = format_ident!("RingsInit{}", trait_name);
+        let mut shm_init = None;
+        let mut shm_init_extc = None;
+        let mem_cnt = self.fns.iter().filter(|f| f.mem_call_id.is_some()).count();
+        if mem_cnt != 0 {
+            let mem_ffi_handles = (0..mem_cnt).map(|id| format_ident!("mem_ffi_handle{}", id));
+            shm_init = Some(quote! {
+                ::std::thread_local! {
+                    static WS: (::rust2go_mem_ffi::WriteQueue<::rust2go_mem_ffi::Payload>, ::rust2go_mem_ffi::SharedSlab) = {
+                        unsafe {::rust2go_mem_ffi::init_mem_ffi(#mem_init_ffi as *const (), 1024, [#(#impl_struct_name::#mem_ffi_handles),*])}
+                    };
+                }
+            });
+            shm_init_extc = Some(quote! {
+                extern "C" {
+                    fn #mem_init_ffi(rr: ::rust2go_mem_ffi::QueueMeta, rw: ::rust2go_mem_ffi::QueueMeta);
+                }
+            })
+        }
+
         Ok(quote! {
+            #shm_init_extc
             pub struct #impl_struct_name;
             impl #trait_name for #impl_struct_name {
                 #(#fn_trait_impls)*
             }
             impl #impl_struct_name {
+                #shm_init
                 #(#fn_callbacks)*
             }
         })
@@ -1023,6 +1190,10 @@ impl FnRepr {
         self.ret_static
     }
 
+    pub fn mem_call_id(&self) -> Option<usize> {
+        self.mem_call_id
+    }
+
     fn to_c_callback(&self, trait_name: &str) -> String {
         let Some(ret) = &self.ret else {
             return String::new();
@@ -1054,6 +1225,41 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
     }
 
     fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {
+        if let Some(mem_call_id) = self.mem_call_id {
+            let fn_sig = format!("func ringHandle{trait_name}{mem_call_id}(ptr unsafe.Pointer) (interface{{}}, []byte, uint) {{\n");
+            let Some(ret) = &self.ret else {
+                return format!("{fn_sig}return nil, nil, 0\n}}\n");
+            };
+
+            let fn_ending = "return resp, buffer, offset\n}\n";
+            let mut fn_body = String::new();
+            for p in self.params().iter() {
+                fn_body.push_str(&format!("{name}:=*(*C.{ref_type})(ptr)\nptr=unsafe.Pointer(uintptr(ptr)+unsafe.Sizeof({name}))\n", name = p.name, ref_type = p.ty.to_c(false)));
+            }
+
+            fn_body.push_str(&format!(
+                "resp := {trait_name}Impl.{fn_name}({params})\n",
+                fn_name = self.name,
+                params = self
+                    .params
+                    .iter()
+                    .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            fn_body.push_str(&format!(
+                "resp_ref_size := uint(unsafe.Sizeof(C.{}{{}}))\n",
+                ret.to_c(false)
+            ));
+            let (g2c_cnt, g2c_cvt) = (
+                ret.go_to_c_field_counter(levels).0,
+                ret.go_to_c_field_converter(levels).0,
+            );
+            fn_body.push_str(&format!("resp_ref, buffer := cvt_ref_cap({g2c_cnt}, {g2c_cvt}, resp_ref_size)(&resp)\noffset := uint(len(buffer))\nbuffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)\n"));
+
+            return format!("{fn_sig}{fn_body}{fn_ending}");
+        }
+
         let mut out = String::new();
         let fn_name = format!("C{}_{}", trait_name, self.name);
         let callback = format!("{}_{}_cb", trait_name, self.name);
@@ -1198,21 +1404,63 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         match (self.is_async, &self.ret) {
             (true, None) => sbail!("async function must have a return value"),
             (false, None) => {
-                // fn demo_check(r: user::DemoRequest) {
-                //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
-                //     unsafe {binding::CDemoCall_demo_check(::std::mem::transmute(r))}
-                // }
-                out.extend(quote! {
-                    {
-                        #(
-                            let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
-                        )*
-                        #[allow(clippy::useless_transmute)]
-                        unsafe {#path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*)}
-                    }
-                });
+                if let Some(mem_call_id) = self.mem_call_id {
+                    // fn demo_oneway(req: &DemoUser) {
+                    //     const CALL_ID: u32 = 0;
+                    //     let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((&req,)));
+                    //     Self::WS.with(|(wq, slab)| {
+                    //         let slab = unsafe { &mut *slab.get() };
+                    //         let sid = slab.insert(::rust2go_mem_ffi::TaskDesc {
+                    //             buf,
+                    //             params_ptr: 0,
+                    //             slot_ptr: 0,
+                    //         });
+                    //         wq.push(::rust2go_mem_ffi::Payload::new_call(
+                    //             CALL_ID,
+                    //             sid,
+                    //             ptr as usize,
+                    //         ));
+                    //     });
+                    // }
+                    let mem_call_id = mem_call_id as u32;
+                    out.extend(quote! {
+                        {
+                            const CALL_ID: u32 = #mem_call_id;
+                            let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((#(&#func_param_names,)*)));
+                            Self::WS.with(|(wq, sb)| {
+                                let sid = ::rust2go_mem_ffi::push_slab(sb, ::rust2go_mem_ffi::TaskDesc {
+                                    buf,
+                                    params_ptr: 0,
+                                    slot_ptr: 0,
+                                });
+                                wq.push(::rust2go_mem_ffi::Payload::new_call(
+                                    CALL_ID,
+                                    sid,
+                                    ptr as usize,
+                                ));
+                            });
+                        }
+                    });
+                } else {
+                    // fn demo_check(r: user::DemoRequest) {
+                    //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
+                    //     unsafe {binding::CDemoCall_demo_check(::std::mem::transmute(r))}
+                    // }
+                    out.extend(quote! {
+                        {
+                            #(
+                                let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
+                            )*
+                            #[allow(clippy::useless_transmute)]
+                            unsafe {#path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names)),*)}
+                        }
+                    });
+                }
             }
             (false, Some(ret)) => {
+                if self.mem_call_id.is_some() {
+                    sbail!("sync function with return value cannot be shm call")
+                }
                 // fn demo_check(r: user::DemoRequest) -> user::DemoResponse {
                 //     let mut slot = None;
                 //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
@@ -1237,57 +1485,146 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 });
             }
             (true, Some(ret)) => {
-                // fn demo_check_async(
-                //     req: user::DemoRequest,
-                // ) -> impl std::future::Future<Output = user::DemoResponse> {
-                //     ::rust2go::ResponseFuture::Init(
-                //         |r_ref: <(user::DemoRequest,) as ToRef>::Ref, slot: *const (), cb: *const ()| {
-                //             unsafe {
-                //                 binding::CDemoCall_demo_check_async(
-                //                     ::std::mem::transmute(r_ref.0),
-                //                     slot as *const _ as *mut _,
-                //                     cb as *const _ as *mut _,
-                //                 )
-                //             };
-                //         },
-                //         (req,),
-                //         Self::demo_check_async_cb as *const (),
-                //     )
-                // }
-                let len = self.params.len();
-                let tuple_ids = (0..len).map(syn::Index::from);
-                let new_fn = match self.drop_safe_ret_params {
-                    false => quote! {::rust2go::ResponseFuture::new_without_req},
-                    true => quote! {::rust2go::ResponseFuture::new},
-                };
-                let ret = match self.drop_safe_ret_params {
-                    false => quote! { #ret },
-                    true => quote! { (#ret, (#(#func_param_types,)*)) },
-                };
-                out.extend(quote! {
-                    -> impl ::std::future::Future<Output = #ret> {
-                    #new_fn(
-                        |r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
-                            #[allow(clippy::useless_transmute)]
-                            unsafe {
-                                #path_prefix #c_func_name(
-                                    #(::std::mem::transmute(r_ref.#tuple_ids),)*
-                                    slot as *const _ as *mut _,
-                                    cb as *const _ as *mut _,
-                                )
-                            };
-                        },
-                        #((#func_param_names,))*,
-                        Self::#callback_name as *const (),
-                    )
-                    }
-                });
+                if let Some(mem_call_id) = self.mem_call_id {
+                    // const CALL_ID: u32 = 1;
+
+                    // let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((&req,)));
+                    // let slot = ::std::rc::Rc::new(::std::cell::UnsafeCell::new(::rust2go::SlotInner::<
+                    //     DemoResponse,
+                    // >::new()));
+                    // let slot_ptr = ::std::rc::Rc::into_raw(slot.clone()) as usize;
+
+                    // Self::WS.with(|(wq, sb)| {
+                    //     let slab = unsafe { &mut *sb.get() };
+                    //     let sid = slab.insert(::rust2go_mem_ffi::TaskDesc {
+                    //         buf,
+                    //         params_ptr: Box::leak(Box::new((req,))) as *const _ as usize,
+                    //         slot_ptr,
+                    //     });
+                    //     let payload = ::rust2go_mem_ffi::Payload::new_call(CALL_ID, sid, ptr as usize);
+                    //     println!("[Rust] Send payload: {payload:?}");
+                    //     wq.push(payload)
+                    // });
+                    // ::rust2go::LocalFut { slot }
+                    let mem_call_id = mem_call_id as u32;
+                    let fut_output = if self.drop_safe_ret_params {
+                        quote! { (#ret, (#(#func_param_types,)*)) }
+                    } else {
+                        quote! { #ret }
+                    };
+                    out.extend(quote! {
+                        -> impl ::std::future::Future<Output = #fut_output> {
+                            const CALL_ID: u32 = #mem_call_id;
+
+                            let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((#(&#func_param_names,)*)));
+                            let slot = ::rust2go_mem_ffi::new_shared_mut(::rust2go_mem_ffi::SlotInner::<#fut_output>::new());
+                            let slot_ptr = ::rust2go_mem_ffi::Shared::into_raw(slot.clone()) as usize;
+                            Self::WS.with(|(wq, sb)| {
+                                let sid = ::rust2go_mem_ffi::push_slab(sb, ::rust2go_mem_ffi::TaskDesc {
+                                    buf,
+                                    params_ptr: Box::leak(Box::new((#(#func_param_names,)*))) as *const _ as usize,
+                                    slot_ptr,
+                                });
+                                let payload = ::rust2go_mem_ffi::Payload::new_call(CALL_ID, sid, ptr as usize);
+                                wq.push(payload)
+                            });
+                            ::rust2go_mem_ffi::LocalFut { slot }
+                        }
+                    });
+                } else {
+                    // fn demo_check_async(
+                    //     req: user::DemoRequest,
+                    // ) -> impl std::future::Future<Output = user::DemoResponse> {
+                    //     ::rust2go::ResponseFuture::Init(
+                    //         |r_ref: <(user::DemoRequest,) as ToRef>::Ref, slot: *const (), cb: *const ()| {
+                    //             unsafe {
+                    //                 binding::CDemoCall_demo_check_async(
+                    //                     ::std::mem::transmute(r_ref.0),
+                    //                     slot as *const _ as *mut _,
+                    //                     cb as *const _ as *mut _,
+                    //                 )
+                    //             };
+                    //         },
+                    //         (req,),
+                    //         Self::demo_check_async_cb as *const (),
+                    //     )
+                    // }
+                    let len = self.params.len();
+                    let tuple_ids = (0..len).map(syn::Index::from);
+                    let new_fn = match self.drop_safe_ret_params {
+                        false => quote! {::rust2go::ResponseFuture::new_without_req},
+                        true => quote! {::rust2go::ResponseFuture::new},
+                    };
+                    let ret = match self.drop_safe_ret_params {
+                        false => quote! { #ret },
+                        true => quote! { (#ret, (#(#func_param_types,)*)) },
+                    };
+                    out.extend(quote! {
+                        -> impl ::std::future::Future<Output = #ret> {
+                            #new_fn(
+                                |r_ref: <(#(#func_param_types,)*) as ::rust2go::ToRef>::Ref, slot: *const (), cb: *const ()| {
+                                    #[allow(clippy::useless_transmute)]
+                                    unsafe {
+                                        #path_prefix #c_func_name(
+                                            #(::std::mem::transmute(r_ref.#tuple_ids),)*
+                                            slot as *const _ as *mut _,
+                                            cb as *const _ as *mut _,
+                                        )
+                                    };
+                                },
+                                (#(#func_param_names,)*),
+                                Self::#callback_name as *const (),
+                            )
+                        }
+                    });
+                }
             }
         }
         Ok(out)
     }
 
     fn to_rs_callback(&self, path_prefix: &TokenStream) -> Result<TokenStream> {
+        if let Some(mem_call_id) = self.mem_call_id {
+            let fn_name = format_ident!("mem_ffi_handle{}", mem_call_id);
+            let drop = if self.ret.is_some() {
+                quote! { true }
+            } else {
+                quote! { false }
+            };
+
+            let mut body = None;
+            if let Some(ret) = self.ret.as_ref() {
+                let resp_ref_ty = ret.to_rust_ref(None);
+                let reqs_ty = self.params().iter().map(|p| &p.ty);
+                let set_result = if self.drop_safe_ret_params {
+                    quote! {
+                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, (value, _params));
+                    }
+                } else {
+                    quote! {
+                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, value);
+                    }
+                };
+                body = Some(quote! {
+                    let value_ref = unsafe { &*(response_ptr as *const #resp_ref_ty) };
+                    let value: #ret = ::rust2go::FromRef::from_ref(value_ref);
+
+                    let _params = unsafe { Box::from_raw(desc.params_ptr as *mut (#(#reqs_ty,)*)) };
+
+                    let slot = unsafe { ::rust2go_mem_ffi::shared_mut_from_raw(desc.slot_ptr) };
+                    #set_result
+                });
+            }
+
+            return Ok(quote! {
+                #[allow(unused_variables)]
+                fn #fn_name(response_ptr: usize, desc: ::rust2go_mem_ffi::TaskDesc) -> bool {
+                    #body
+                    #drop
+                }
+            });
+        }
+
         let fn_name = format_ident!("{}_cb", self.name);
 
         match (self.is_async, &self.ret) {

@@ -16,7 +16,7 @@ Rust2Go is a project that provides users with a simple and efficient way to call
 3. Write a `build.rs` for you project.
 4. You can then use generated implementation to call golang in your Rust project!
 
-For detailed example, please checkout [the example project](./example).
+For detailed example, please checkout [the example projects](./examples).
 
 ## Key Design
 
@@ -34,7 +34,7 @@ On the Rust side, it is needed to ensure that the slot pointer of the callback f
 
 ## Toolchain Requirements
 - Golang: >=1.18
-  - For >=1.18 && < 1.20: generate golang code with --go118
+  - For >=1.18 && < 1.20: generate golang code with `--go118`
   - For >=1.20: generate golang code normally
 - Rust: >=1.75 if you want to use async
 
@@ -55,6 +55,9 @@ On the Rust side, it is needed to ensure that the slot pointer of the callback f
 - [x] Golang interface support(separate user code from generated code)
 - [x] Dynamic linking support
 - [x] Golang helper library
+
+### Performance Optimization
+- [x] Shared memory based implementation
 
 ### Extended Features
 - [ ] Support calling rust from golang

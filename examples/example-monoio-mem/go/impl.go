@@ -16,7 +16,7 @@ func (Demo) demo_oneway(req DemoUser) {
 }
 
 func (Demo) demo_check(req DemoComplicatedRequest) DemoResponse {
-	fmt.Printf("[Go-call] Golang received req\n")
+	fmt.Printf("[Go-call] Golang received req: %d users\n", len(req.users))
 	fmt.Printf("[Go-call] Golang returned result\n")
 	return DemoResponse{pass: true}
 }

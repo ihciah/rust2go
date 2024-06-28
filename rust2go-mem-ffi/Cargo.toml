@@ -1,0 +1,21 @@
+[package]
+name = "rust2go-mem-ffi"
+version = "0.1.0"
+description = "Across-thread FFI based on shared memory"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+slab = "0.4"
+mem-ring = { version = "0.1.0", path = "../mem-ring", default-features = false }
+rust2go-convert = { version = "0.1.0", path = "../rust2go-convert" }
+
+[features]
+default = ["monoio"]
+monoio = ["mem-ring/monoio"]
+tokio = ["mem-ring/tokio"]

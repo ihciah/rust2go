@@ -1,4 +1,4 @@
-# Rust2Go Example
+# Rust2Go Example for Tokio with Share Memory based Implementation
 
 ## Steps
 1. Add dependency and build-dependency to `Cargo.toml`:

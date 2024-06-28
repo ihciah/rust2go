@@ -117,6 +117,12 @@ fn r2g_trait(
                 // remove attributes of all functions
                 f.attrs.clear();
 
+                // for shm based oneway call, add unsafe
+                if fn_repr.ret().is_none() && !fn_repr.is_async() && fn_repr.mem_call_id().is_some()
+                {
+                    f.sig.unsafety = Some(syn::token::Unsafe::default());
+                }
+
                 // convert async fn return impl future
                 if fn_repr.is_async() {
                     let orig = match fn_repr.ret() {

@@ -13,24 +13,24 @@ typedef struct StringRef {
   uintptr_t len;
 } StringRef;
 
-typedef struct DemoUserRef {
-  struct StringRef name;
-  uint8_t age;
-} DemoUserRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
 } ListRef;
 
-typedef struct DemoComplicatedRequestRef {
-  struct ListRef users;
-  struct ListRef balabala;
-} DemoComplicatedRequestRef;
+typedef struct DemoUserRef {
+  struct StringRef name;
+  uint8_t age;
+} DemoUserRef;
 
 typedef struct DemoResponseRef {
   bool pass;
 } DemoResponseRef;
+
+typedef struct DemoComplicatedRequestRef {
+  struct ListRef users;
+  struct ListRef balabala;
+} DemoComplicatedRequestRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
@@ -121,14 +121,14 @@ func unsafeStringData(s string) *byte {
 func newString(s_ref C.StringRef) string {
 	return unsafeString((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len))
 }
-func refString(s *string, _buffer *[]byte) C.StringRef {
+func refString(s *string, _ *[]byte) C.StringRef {
 	return C.StringRef{
 		ptr: (*C.uint8_t)(unsafeStringData(*s)),
 		len: C.uintptr_t(len(*s)),
 	}
 }
 
-func cntString(s *string, cnt *uint) [0]C.StringRef { return [0]C.StringRef{} }
+func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
@@ -139,7 +139,7 @@ func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 		return output
 	}
 }
-func new_list_mapper_primitive[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+func new_list_mapper_primitive[T1, T2 any](_ func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
 	}
@@ -157,7 +157,7 @@ func cnt_list_mapper[T, R any](f func(s *T, cnt *uint) [0]R) func(s *[]T, cnt *u
 }
 
 // only handle primitive type T
-func cnt_list_mapper_primitive[T, R any](f func(s *T, cnt *uint) [0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
+func cnt_list_mapper_primitive[T, R any](_ func(s *T, cnt *uint) [0]R) func(s *[]T, cnt *uint) [0]C.ListRef {
 	return func(s *[]T, cnt *uint) [0]C.ListRef { return [0]C.ListRef{} }
 }
 
@@ -188,7 +188,7 @@ func ref_list_mapper[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buff
 }
 
 // only handle primitive type T
-func ref_list_mapper_primitive[T, R any](f func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
+func ref_list_mapper_primitive[T, R any](_ func(s *T, buffer *[]byte) R) func(s *[]T, buffer *[]byte) C.ListRef {
 	return func(s *[]T, buffer *[]byte) C.ListRef {
 		if len(*s) == 0 {
 			return C.ListRef{
@@ -214,6 +214,14 @@ func cvt_ref[R, CR any](cnt_f func(s *R, cnt *uint) [0]CR, ref_f func(p *R, buff
 		return ref_f(p, &buffer), buffer
 	}
 }
+func cvt_ref_cap[R, CR any](cnt_f func(s *R, cnt *uint) [0]CR, ref_f func(p *R, buffer *[]byte) CR, add_cap uint) func(p *R) (CR, []byte) {
+	return func(p *R) (CR, []byte) {
+		var cnt uint
+		cnt_f(p, &cnt)
+		buffer := make([]byte, cnt, cnt+add_cap)
+		return ref_f(p, &buffer), buffer
+	}
+}
 
 func newC_uint8_t(n C.uint8_t) uint8    { return uint8(n) }
 func newC_uint16_t(n C.uint16_t) uint16 { return uint16(n) }
@@ -229,33 +237,33 @@ func newC_intptr_t(n C.intptr_t) int    { return int(n) }
 func newC_float(n C.float) float32      { return float32(n) }
 func newC_double(n C.double) float64    { return float64(n) }
 
-func cntC_uint8_t(s *uint8, cnt *uint) [0]C.uint8_t    { return [0]C.uint8_t{} }
-func cntC_uint16_t(s *uint16, cnt *uint) [0]C.uint16_t { return [0]C.uint16_t{} }
-func cntC_uint32_t(s *uint32, cnt *uint) [0]C.uint32_t { return [0]C.uint32_t{} }
-func cntC_uint64_t(s *uint64, cnt *uint) [0]C.uint64_t { return [0]C.uint64_t{} }
-func cntC_int8_t(s *int8, cnt *uint) [0]C.int8_t       { return [0]C.int8_t{} }
-func cntC_int16_t(s *int16, cnt *uint) [0]C.int16_t    { return [0]C.int16_t{} }
-func cntC_int32_t(s *int32, cnt *uint) [0]C.int32_t    { return [0]C.int32_t{} }
-func cntC_int64_t(s *int64, cnt *uint) [0]C.int64_t    { return [0]C.int64_t{} }
-func cntC_bool(s *bool, cnt *uint) [0]C.bool           { return [0]C.bool{} }
-func cntC_uintptr_t(s *uint, cnt *uint) [0]C.uintptr_t { return [0]C.uintptr_t{} }
-func cntC_intptr_t(s *int, cnt *uint) [0]C.intptr_t    { return [0]C.intptr_t{} }
-func cntC_float(s *float32, cnt *uint) [0]C.float      { return [0]C.float{} }
-func cntC_double(s *float64, cnt *uint) [0]C.double    { return [0]C.double{} }
+func cntC_uint8_t(_ *uint8, _ *uint) [0]C.uint8_t    { return [0]C.uint8_t{} }
+func cntC_uint16_t(_ *uint16, _ *uint) [0]C.uint16_t { return [0]C.uint16_t{} }
+func cntC_uint32_t(_ *uint32, _ *uint) [0]C.uint32_t { return [0]C.uint32_t{} }
+func cntC_uint64_t(_ *uint64, _ *uint) [0]C.uint64_t { return [0]C.uint64_t{} }
+func cntC_int8_t(_ *int8, _ *uint) [0]C.int8_t       { return [0]C.int8_t{} }
+func cntC_int16_t(_ *int16, _ *uint) [0]C.int16_t    { return [0]C.int16_t{} }
+func cntC_int32_t(_ *int32, _ *uint) [0]C.int32_t    { return [0]C.int32_t{} }
+func cntC_int64_t(_ *int64, _ *uint) [0]C.int64_t    { return [0]C.int64_t{} }
+func cntC_bool(_ *bool, _ *uint) [0]C.bool           { return [0]C.bool{} }
+func cntC_uintptr_t(_ *uint, _ *uint) [0]C.uintptr_t { return [0]C.uintptr_t{} }
+func cntC_intptr_t(_ *int, _ *uint) [0]C.intptr_t    { return [0]C.intptr_t{} }
+func cntC_float(_ *float32, _ *uint) [0]C.float      { return [0]C.float{} }
+func cntC_double(_ *float64, _ *uint) [0]C.double    { return [0]C.double{} }
 
-func refC_uint8_t(p *uint8, buffer *[]byte) C.uint8_t    { return C.uint8_t(*p) }
-func refC_uint16_t(p *uint16, buffer *[]byte) C.uint16_t { return C.uint16_t(*p) }
-func refC_uint32_t(p *uint32, buffer *[]byte) C.uint32_t { return C.uint32_t(*p) }
-func refC_uint64_t(p *uint64, buffer *[]byte) C.uint64_t { return C.uint64_t(*p) }
-func refC_int8_t(p *int8, buffer *[]byte) C.int8_t       { return C.int8_t(*p) }
-func refC_int16_t(p *int16, buffer *[]byte) C.int16_t    { return C.int16_t(*p) }
-func refC_int32_t(p *int32, buffer *[]byte) C.int32_t    { return C.int32_t(*p) }
-func refC_int64_t(p *int64, buffer *[]byte) C.int64_t    { return C.int64_t(*p) }
-func refC_bool(p *bool, buffer *[]byte) C.bool           { return C.bool(*p) }
-func refC_uintptr_t(p *uint, buffer *[]byte) C.uintptr_t { return C.uintptr_t(*p) }
-func refC_intptr_t(p *int, buffer *[]byte) C.intptr_t    { return C.intptr_t(*p) }
-func refC_float(p *float32, buffer *[]byte) C.float      { return C.float(*p) }
-func refC_double(p *float64, buffer *[]byte) C.double    { return C.double(*p) }
+func refC_uint8_t(p *uint8, _ *[]byte) C.uint8_t    { return C.uint8_t(*p) }
+func refC_uint16_t(p *uint16, _ *[]byte) C.uint16_t { return C.uint16_t(*p) }
+func refC_uint32_t(p *uint32, _ *[]byte) C.uint32_t { return C.uint32_t(*p) }
+func refC_uint64_t(p *uint64, _ *[]byte) C.uint64_t { return C.uint64_t(*p) }
+func refC_int8_t(p *int8, _ *[]byte) C.int8_t       { return C.int8_t(*p) }
+func refC_int16_t(p *int16, _ *[]byte) C.int16_t    { return C.int16_t(*p) }
+func refC_int32_t(p *int32, _ *[]byte) C.int32_t    { return C.int32_t(*p) }
+func refC_int64_t(p *int64, _ *[]byte) C.int64_t    { return C.int64_t(*p) }
+func refC_bool(p *bool, _ *[]byte) C.bool           { return C.bool(*p) }
+func refC_uintptr_t(p *uint, _ *[]byte) C.uintptr_t { return C.uintptr_t(*p) }
+func refC_intptr_t(p *int, _ *[]byte) C.intptr_t    { return C.intptr_t(*p) }
+func refC_float(p *float32, _ *[]byte) C.float      { return C.float(*p) }
+func refC_double(p *float64, _ *[]byte) C.double    { return C.double(*p) }
 
 type DemoUser struct {
 	name string

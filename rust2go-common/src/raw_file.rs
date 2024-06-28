@@ -1102,7 +1102,11 @@ impl TraitRepr {
     }
 
     // Generate rust impl, callbacks and binding mod include.
-    pub fn generate_rs(&self, binding_path: Option<&Path>) -> Result<TokenStream> {
+    pub fn generate_rs(
+        &self,
+        binding_path: Option<&Path>,
+        queue_size: Option<usize>,
+    ) -> Result<TokenStream> {
         const DEFAULT_BINDING_MOD: &str = "binding";
         let path_prefix = match binding_path {
             Some(p) => quote! {#p::},
@@ -1127,12 +1131,13 @@ impl TraitRepr {
         let mut shm_init = None;
         let mut shm_init_extc = None;
         let mem_cnt = self.fns.iter().filter(|f| f.mem_call_id.is_some()).count();
+        let queue_size = queue_size.unwrap_or(4096);
         if mem_cnt != 0 {
             let mem_ffi_handles = (0..mem_cnt).map(|id| format_ident!("mem_ffi_handle{}", id));
             shm_init = Some(quote! {
                 ::std::thread_local! {
                     static WS: (::rust2go_mem_ffi::WriteQueue<::rust2go_mem_ffi::Payload>, ::rust2go_mem_ffi::SharedSlab) = {
-                        unsafe {::rust2go_mem_ffi::init_mem_ffi(#mem_init_ffi as *const (), 1024, [#(#impl_struct_name::#mem_ffi_handles),*])}
+                        unsafe {::rust2go_mem_ffi::init_mem_ffi(#mem_init_ffi as *const (), #queue_size, [#(#impl_struct_name::#mem_ffi_handles),*])}
                     };
                 }
             });

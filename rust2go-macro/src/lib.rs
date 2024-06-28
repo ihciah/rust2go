@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use rust2go_common::{raw_file::TraitRepr, sbail};
-use syn::{parse_macro_input, DeriveInput, Ident};
+use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
 #[proc_macro_derive(R2G)]
 pub fn r2g_derive(input: TokenStream) -> TokenStream {
@@ -91,22 +91,42 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn r2g(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let binding_path = if attr.is_empty() {
-        None
-    } else {
-        match syn::parse::<syn::Path>(attr) {
-            Ok(path) => Some(path),
-            Err(e) => return TokenStream::from(e.to_compile_error()),
+pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let mut binding_path = None;
+    let mut queue_size = None;
+
+    type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
+    if let Ok(attrs) = AttributeArgs::parse_terminated.parse(attrs) {
+        for attr in attrs {
+            match attr {
+                syn::Meta::NameValue(nv) => {
+                    if nv.path.is_ident("binding") {
+                        binding_path = Some(nv.path);
+                    } else if nv.path.is_ident("queue_size") {
+                        if let syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Int(litint),
+                            ..
+                        }) = nv.value
+                        {
+                            queue_size = Some(litint.base10_parse::<usize>().unwrap());
+                        }
+                    }
+                }
+                syn::Meta::Path(p) => {
+                    binding_path = Some(p);
+                }
+                _ => {}
+            }
         }
-    };
+    }
     syn::parse::<syn::ItemTrait>(item)
-        .and_then(|trat| r2g_trait(binding_path, trat))
+        .and_then(|trat| r2g_trait(binding_path, queue_size, trat))
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
 }
 
 fn r2g_trait(
     binding_path: Option<syn::Path>,
+    queue_size: Option<usize>,
     mut trat: syn::ItemTrait,
 ) -> syn::Result<TokenStream> {
     let trat_repr = TraitRepr::try_from(&trat)?;
@@ -155,6 +175,6 @@ fn r2g_trait(
     }
 
     let mut out = quote! {#trat};
-    out.extend(trat_repr.generate_rs(binding_path.as_ref())?);
+    out.extend(trat_repr.generate_rs(binding_path.as_ref(), queue_size)?);
     Ok(out.into())
 }

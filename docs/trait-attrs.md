@@ -8,6 +8,7 @@ Now rust2go supports 3 attributes on trait's async function:
 1. `#[send]`: the function will be generated as `impl Future<Output=..> + Send + Sync`.
 2. `#[drop_safe]`: this makes the function safe, but requires all paramters passing ownership.
 3. `#[drop_safe_ret]`: to make the function safe, it requires passing ownership; this attribute allow users to get the paramters ownership back.
+4. `#[mem]` or `#[shm]`: make this function implemented based on shared memory, whose performance is highly improved(but it requires linux now).
 
 For example, here is the original trait:
 ```rust

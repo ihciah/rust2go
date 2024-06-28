@@ -56,13 +56,29 @@ pub fn generate(args: &Args) {
     let mut output = String::from_utf8(output).expect("Unable to convert to string");
 
     let traits = raw_file.convert_trait().unwrap();
+    let use_shm = traits
+        .iter()
+        .any(|t| t.fns().iter().any(|f| f.mem_call_id().is_some()));
+    let use_cgo = traits
+        .iter()
+        .any(|t| t.fns().iter().any(|f| f.mem_call_id().is_none()));
     traits
         .iter()
         .for_each(|t| output.push_str(&t.generate_c_callbacks()));
+    if use_shm {
+        output.push_str(RawRsFile::go_shm_include());
+    }
 
-    let import_reflect = if args.go118 { "\n\"reflect\"" } else { "" };
+    let import_shm = if use_shm {
+        "mem_ring \"github.com/ihciah/rust2go/mem-ring\"\n\"github.com/panjf2000/ants/v2\"\n"
+    } else {
+        ""
+    };
+    let import_cgo = if use_cgo { "\"runtime\"\n" } else { "" };
+
+    let import_118 = if args.go118 { "\"reflect\"\n" } else { "" };
     let mut go_content = format!(
-    "package main\n\n/*\n{output}*/\nimport \"C\"\nimport ({import_reflect}\n\"unsafe\"\n\"runtime\"\n)\n"
+    "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_cgo}{import_118}{import_shm})\n"
 );
     let levels = raw_file.convert_structs_levels().unwrap();
     traits.iter().for_each(|t| {
@@ -74,6 +90,9 @@ pub fn generate(args: &Args) {
             .convert_structs_to_go(&levels, args.go118)
             .expect("Unable to generate go structs"),
     );
+    if use_shm {
+        go_content.push_str(RawRsFile::go_shm_ring_init());
+    }
     if !args.without_main {
         go_content.push_str("func main() {}\n");
     }

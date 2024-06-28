@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 rust2go = { path = "../rust2go" }
-monoio = { version = "0.2", features = ["sync"] }
+monoio = { workspace = true, features = ["sync"] }
 
 [build-dependencies]
 rust2go = { path = "../rust2go", features = ["build"] }

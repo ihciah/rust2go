@@ -1,0 +1,43 @@
+[package]
+name = "mem-ring"
+version = "0.1.0"
+description = "Across-thread queue based on shared memory"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+parking_lot = "0.12"
+libc = "0.2"
+
+# Monoio
+monoio = { workspace = true, features = ["poll-io"], optional = true }
+local-sync = { version = "0.1", optional = true }
+
+# Tokio
+tokio = { version = "1", features = [
+    "rt",
+    "sync",
+    "net",
+    "macros",
+    "time",
+], default-features = false, optional = true }
+
+[features]
+# How to enable the feature:
+# 1. If you use tokio:
+#   disable default features and only enable tokio
+# 2. If you use monoio but want to produce on multiple threads with one queue:
+#   disable default features and only enable monoio
+# 3. If you use monoio and only access queue on current thread:
+#   which means you have to create queue for each thread that want to procude
+#   enable monoio and tpc which is by default
+# For more comparing, you can refer to the doc.
+default = ["monoio", "tpc"]
+tpc = []
+monoio = ["dep:monoio", "dep:local-sync"]
+tokio = ["dep:tokio"]

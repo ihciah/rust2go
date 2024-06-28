@@ -4,7 +4,13 @@ members = [
     "rust2go-cli",
     "rust2go-macro",
     "rust2go-common",
-    "example",
+    "rust2go-mem-ffi",
+    "rust2go-convert",
+    "mem-ring",
+    "examples/example-monoio",
+    "examples/example-tokio",
+    "examples/example-monoio-mem",
+    "examples/example-tokio-mem",
     "test",
 ]
 resolver = "2"
@@ -17,3 +23,6 @@ edition = "2021"
 keywords = ["ffi", "golang", "go", "async"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/ihciah/rust2go"
+
+[workspace.dependencies]
+monoio = { version = "0.2.4-beta.0" }

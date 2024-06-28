@@ -1,0 +1,16 @@
+[package]
+name = "example-monoio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rust2go = { path = "../../rust2go" }
+monoio = { workspace = true, features = ['sync'] }
+
+[build-dependencies]
+rust2go = { path = "../../rust2go", features = ["build"] }
+
+[[bin]]
+name = "example"
+path = "src/main.rs"

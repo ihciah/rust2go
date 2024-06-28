@@ -48,12 +48,14 @@ pub struct DemoResponse {
 // `#[rust2go::r2g(binding)]`
 #[rust2go::r2g]
 pub trait DemoCall {
+    #[mem]
     fn demo_oneway(req: &DemoUser);
-    fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
+    #[mem]
     fn demo_check_async(
         req: &DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;
-    #[drop_safe]
+    #[drop_safe_ret]
+    #[mem]
     fn demo_check_async_safe(
         req: DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;

@@ -1,0 +1,20 @@
+[package]
+name = "example-tokio-mem"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rust2go = { path = "../../rust2go" }
+rust2go-mem-ffi = { path = "../../rust2go-mem-ffi", default-features = false, features = [
+    "tokio",
+] }
+
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+rust2go = { path = "../../rust2go", features = ["build"] }
+
+[[bin]]
+name = "example"
+path = "src/main.rs"

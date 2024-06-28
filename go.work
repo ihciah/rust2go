@@ -1,6 +1,10 @@
-go 1.21
+go 1.18
 
 use (
-	./example/go
+	.
+	./examples/example-monoio/go
+	./examples/example-tokio/go
+	./examples/example-monoio-mem/go
+	./examples/example-tokio-mem/go
 	./test/go
 )

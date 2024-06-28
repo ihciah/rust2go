@@ -1,8 +1,6 @@
-#![recursion_limit = "4096"]
-
-#[macro_use]
-mod convert;
-pub use convert::{DataView, FromRef, ListRef, MemType, StringRef, ToRef, Writer};
+pub use rust2go_convert::{
+    max_mem_type, CopyStruct, DataView, FromRef, ListRef, MemType, StringRef, ToRef, Writer,
+};
 
 mod slot;
 pub use slot::{new_atomic_slot, SlotReader, SlotWriter};

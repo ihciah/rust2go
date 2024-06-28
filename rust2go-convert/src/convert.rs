@@ -280,3 +280,124 @@ tuple_impl!(
     (T15, 14),
     (T16, 15)
 );
+
+#[inline]
+fn copy_item<T>(buf: &mut Writer, item: T) {
+    unsafe { buf.put(item) };
+}
+
+trait CopyTuple {
+    fn tuple_copy_to(self, buf: &mut Writer);
+}
+
+macro_rules! copy_tuple {
+    (($ty:ident, $name:tt)) => {
+        copy_tuple!(@# ($ty, $name));
+    };
+    ($(($ty:ident, $name:tt)),+) => {
+        copy_tuple!(@# $(($ty, $name)),*);
+        copy_tuple!(@! [$(($ty, $name))*]);
+    };
+    (@# $(($ty:ident, $name:tt)),*) => {
+        impl<$($ty,)*> CopyTuple for ($($ty,)*) {
+            fn tuple_copy_to(self, buf: &mut Writer) {
+                $(copy_item(buf, self.$name);)*
+            }
+        }
+    };
+    (@! [] ($ty_l:ident, $name_l:tt) $(($ty:ident, $name:tt))*) => {
+        copy_tuple!(@~ [$(($ty, $name))*]);
+    };
+    (@! [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        copy_tuple!(@! [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
+    (@~ [] $(($ty:ident, $name:tt))*) => {
+        copy_tuple!($(($ty, $name)),*);
+    };
+    (@~ [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        copy_tuple!(@~ [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
+}
+
+copy_tuple!(
+    (T1, 0),
+    (T2, 1),
+    (T3, 2),
+    (T4, 3),
+    (T5, 4),
+    (T6, 5),
+    (T7, 6),
+    (T8, 7),
+    (T9, 8),
+    (T10, 9),
+    (T11, 10),
+    (T12, 11),
+    (T13, 12),
+    (T14, 13),
+    (T15, 14),
+    (T16, 15)
+);
+
+pub struct CopyStruct<T>(pub T);
+
+macro_rules! copy_struct_for_tuple {
+    (($ty:ident, $name:tt)) => {
+        copy_struct_for_tuple!(@# ($ty, $name));
+    };
+    ($(($ty:ident, $name:tt)),+) => {
+        copy_struct_for_tuple!(@# $(($ty, $name)),*);
+        copy_struct_for_tuple!(@! [$(($ty, $name))*]);
+    };
+    (@# $(($ty:ident, $name:tt)),*) => {
+        impl<$($ty,)*> ToRef for CopyStruct<($($ty,)*)> where $($ty:ToRef,)* {
+            // Complex since we need buffer
+            const MEM_TYPE: MemType = MemType::Complex;
+            type Ref = *const u8;
+
+            fn to_size(&self, acc: &mut usize) {
+                if matches!(MemType::Primitive$(.max($ty::MEM_TYPE))*, MemType::Complex) {
+                    $(self.0.$name.to_size(acc);)*
+                }
+                *acc += (0 $(+::std::mem::size_of::<$ty::Ref>())*);
+            }
+
+            fn to_ref(&self, buffer: &mut Writer) -> Self::Ref {
+                let r = ($(self.0.$name.to_ref(buffer),)*);
+                let ptr = buffer.ptr as *const u8;
+                r.tuple_copy_to(buffer);
+                ptr
+            }
+        }
+    };
+    (@! [] ($ty_l:ident, $name_l:tt) $(($ty:ident, $name:tt))*) => {
+        copy_struct_for_tuple!(@~ [$(($ty, $name))*]);
+    };
+    (@! [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        copy_struct_for_tuple!(@! [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
+    (@~ [] $(($ty:ident, $name:tt))*) => {
+        copy_struct_for_tuple!($(($ty, $name)),*);
+    };
+    (@~ [($ty_f:ident, $name_f:tt) $(($ty:ident, $name:tt))*] $(($ty_r:ident, $name_r:tt))*) => {
+        copy_struct_for_tuple!(@~ [$(($ty, $name))*] ($ty_f, $name_f) $(($ty_r, $name_r))*);
+    };
+}
+
+copy_struct_for_tuple!(
+    (T1, 0),
+    (T2, 1),
+    (T3, 2),
+    (T4, 3),
+    (T5, 4),
+    (T6, 5),
+    (T7, 6),
+    (T8, 7),
+    (T9, 8),
+    (T10, 9),
+    (T11, 10),
+    (T12, 11),
+    (T13, 12),
+    (T14, 13),
+    (T15, 14),
+    (T16, 15)
+);

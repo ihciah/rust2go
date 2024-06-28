@@ -44,9 +44,11 @@ pub struct DemoResponse {
 // Otherwise, use async style:
 // Both `async fn` and `impl Future` styles are supported.
 //
-// If you want to use your own binding mod name, use:
-// `#[rust2go::r2g(binding)]`
-#[rust2go::r2g]
+// If you want to use your own binding mod name(by default it is binding), use:
+// `#[rust2go::r2g(binding)]` or `#[rust2go::r2g(binding = binding)]`
+// If you want to set queue size manually(by default it is 4096), use:
+// `#[rust2go::r2g(queue_size = 4096)]`
+#[rust2go::r2g(binding = binding, queue_size = 4096)]
 pub trait DemoCall {
     #[mem]
     fn demo_oneway(req: &DemoUser);

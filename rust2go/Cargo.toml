@@ -1,6 +1,6 @@
 [package]
 name = "rust2go"
-version = "0.3.10"
+version = "0.3.13"
 
 description = "Rust2go main shared library."
 
@@ -12,7 +12,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rust2go-macro = { version = "0.3.7", path = "../rust2go-macro" }
+rust2go-macro = { version = "0.3.9", path = "../rust2go-macro" }
 rust2go-convert = { version = "0.1.0", path = "../rust2go-convert" }
 rust2go-cli = { version = "0.3.7", path = "../rust2go-cli", optional = true }
 

@@ -1102,7 +1102,11 @@ impl TraitRepr {
     }
 
     // Generate rust impl, callbacks and binding mod include.
-    pub fn generate_rs(&self, binding_path: Option<&Path>) -> Result<TokenStream> {
+    pub fn generate_rs(
+        &self,
+        binding_path: Option<&Path>,
+        queue_size: Option<usize>,
+    ) -> Result<TokenStream> {
         const DEFAULT_BINDING_MOD: &str = "binding";
         let path_prefix = match binding_path {
             Some(p) => quote! {#p::},
@@ -1127,12 +1131,13 @@ impl TraitRepr {
         let mut shm_init = None;
         let mut shm_init_extc = None;
         let mem_cnt = self.fns.iter().filter(|f| f.mem_call_id.is_some()).count();
+        let queue_size = queue_size.unwrap_or(4096);
         if mem_cnt != 0 {
             let mem_ffi_handles = (0..mem_cnt).map(|id| format_ident!("mem_ffi_handle{}", id));
             shm_init = Some(quote! {
                 ::std::thread_local! {
                     static WS: (::rust2go_mem_ffi::WriteQueue<::rust2go_mem_ffi::Payload>, ::rust2go_mem_ffi::SharedSlab) = {
-                        unsafe {::rust2go_mem_ffi::init_mem_ffi(#mem_init_ffi as *const (), 1024, [#(#impl_struct_name::#mem_ffi_handles),*])}
+                        unsafe {::rust2go_mem_ffi::init_mem_ffi(#mem_init_ffi as *const (), #queue_size, [#(#impl_struct_name::#mem_ffi_handles),*])}
                     };
                 }
             });
@@ -1522,7 +1527,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                             Self::WS.with(|(wq, sb)| {
                                 let sid = ::rust2go_mem_ffi::push_slab(sb, ::rust2go_mem_ffi::TaskDesc {
                                     buf,
-                                    params_ptr: Box::leak(Box::new((#(#func_param_names,)*))) as *const _ as usize,
+                                    params_ptr: Box::into_raw(Box::new((#(#func_param_names,)*))) as usize,
                                     slot_ptr,
                                 });
                                 let payload = ::rust2go_mem_ffi::Payload::new_call(CALL_ID, sid, ptr as usize);
@@ -1598,7 +1603,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 let reqs_ty = self.params().iter().map(|p| &p.ty);
                 let set_result = if self.drop_safe_ret_params {
                     quote! {
-                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, (value, _params));
+                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, (value, *_params));
                     }
                 } else {
                     quote! {

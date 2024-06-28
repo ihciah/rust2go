@@ -117,33 +117,17 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
 }
 
 pub trait GoCompiler {
-    fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib);
-}
+    fn go_build(&self, go_src: &Path, link: LinkType, output: &Path);
 
-#[derive(Debug, Clone, Copy)]
-pub struct DefaultGoCompiler;
-impl GoCompiler for DefaultGoCompiler {
     fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-        let mut go_build = Command::new("go");
-        go_build
-            .env("GO111MODULE", "on")
-            .current_dir(go_src)
-            .arg("build")
-            .arg(if link == LinkType::Static {
-                "-buildmode=c-archive"
-            } else {
-                "-buildmode=c-shared"
-            })
-            .arg("-o")
-            .arg(out_dir.join(if link == LinkType::Static {
-                "libgo.a"
-            } else {
-                "libgo.so"
-            }))
-            .arg(".");
+        let output = out_dir.join(if link == LinkType::Static {
+            "libgo.a"
+        } else {
+            "libgo.so"
+        });
 
-        go_build.status().expect("Go build failed");
+        self.go_build(go_src, link, output.as_path());
 
         // Copy .so file to target dir.
         if link == LinkType::Dynamic {
@@ -200,6 +184,28 @@ impl GoCompiler for DefaultGoCompiler {
         } else {
             println!("cargo:rustc-link-lib=dylib=go");
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DefaultGoCompiler;
+impl GoCompiler for DefaultGoCompiler {
+    fn go_build(&self, go_src: &Path, link: LinkType, output: &Path) {
+        let mut go_build = Command::new("go");
+        go_build
+            .env("GO111MODULE", "on")
+            .current_dir(go_src)
+            .arg("build")
+            .arg(if link == LinkType::Static {
+                "-buildmode=c-archive"
+            } else {
+                "-buildmode=c-shared"
+            })
+            .arg("-o")
+            .arg(output)
+            .arg(".");
+
+        go_build.status().expect("Go build failed");
     }
 }
 

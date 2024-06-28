@@ -1527,7 +1527,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                             Self::WS.with(|(wq, sb)| {
                                 let sid = ::rust2go_mem_ffi::push_slab(sb, ::rust2go_mem_ffi::TaskDesc {
                                     buf,
-                                    params_ptr: Box::leak(Box::new((#(#func_param_names,)*))) as *const _ as usize,
+                                    params_ptr: Box::into_raw(Box::new((#(#func_param_names,)*))) as usize,
                                     slot_ptr,
                                 });
                                 let payload = ::rust2go_mem_ffi::Payload::new_call(CALL_ID, sid, ptr as usize);
@@ -1603,7 +1603,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 let reqs_ty = self.params().iter().map(|p| &p.ty);
                 let set_result = if self.drop_safe_ret_params {
                     quote! {
-                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, (value, _params));
+                        ::rust2go_mem_ffi::set_result_for_shared_mut_slot(&slot, (value, *_params));
                     }
                 } else {
                     quote! {

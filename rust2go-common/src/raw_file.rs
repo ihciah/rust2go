@@ -91,7 +91,7 @@ typedef struct QueueMeta {
             gr := rwq.Read()
             gw := rrq.Write()
 
-            slab := mem_ring.NewSlab[Storage]()
+            slab := mem_ring.NewMultiSlab[Storage]()
             pool, _ := ants.NewMultiPool(MULTIPOOL_SIZE, SIZE_PER_POOL, ants.RoundRobin)
 
             gr.RunHandler(func(p Payload) {

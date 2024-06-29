@@ -57,10 +57,11 @@ typedef struct QueueMeta {
 */
 import "C"
 import (
-	mem_ring "github.com/ihciah/rust2go/mem-ring"
-	"github.com/panjf2000/ants/v2"
 	"reflect"
 	"unsafe"
+
+	mem_ring "github.com/ihciah/rust2go/mem-ring"
+	"github.com/panjf2000/ants/v2"
 )
 
 var DemoCallImpl DemoCall
@@ -365,7 +366,7 @@ func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}
 	gr := rwq.Read()
 	gw := rrq.Write()
 
-	slab := mem_ring.NewSlab[Storage]()
+	slab := mem_ring.NewMultiSlab[Storage]()
 	pool, _ := ants.NewMultiPool(MULTIPOOL_SIZE, SIZE_PER_POOL, ants.RoundRobin)
 
 	gr.RunHandler(func(p Payload) {

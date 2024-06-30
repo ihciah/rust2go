@@ -163,11 +163,11 @@ pub unsafe fn init_rings<T: 'static>(
     size: usize,
 ) -> Result<(ReadQueue<T>, WriteQueue<T>), io::Error> {
     type RingInitFunc = unsafe extern "C" fn(QueueMeta, QueueMeta);
-    let rqueue = Queue::new(size)?;
-    let wqueue = Queue::new(size)?;
+    let (rqueue, rmeta) = Queue::new(size)?;
+    let (wqueue, wmeta) = Queue::new(size)?;
 
     let init_func: RingInitFunc = std::mem::transmute(peer_init_function_pointer);
-    init_func(rqueue.meta(), wqueue.meta());
+    init_func(rmeta, wmeta);
 
     Ok((rqueue.read(), wqueue.write()?))
 }
@@ -180,11 +180,11 @@ pub unsafe fn init_rings<T: 'static + Send>(
     size: usize,
 ) -> Result<(ReadQueue<T>, WriteQueue<T>), io::Error> {
     type RingInitFunc = unsafe extern "C" fn(QueueMeta, QueueMeta);
-    let rqueue = Queue::new(size)?;
-    let wqueue = Queue::new(size)?;
+    let (rqueue, rmeta) = Queue::new(size)?;
+    let (wqueue, wmeta) = Queue::new(size)?;
 
     let init_func: RingInitFunc = std::mem::transmute(peer_init_function_pointer);
-    init_func(rqueue.meta(), wqueue.meta());
+    init_func(rmeta, wmeta);
 
     Ok((rqueue.read(), wqueue.write()?))
 }

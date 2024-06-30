@@ -1,6 +1,8 @@
 package mem_ring
 
 import (
+	"net"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -16,9 +18,9 @@ func NewNotifier(fd int32) Notifier {
 }
 
 func (n Notifier) Notify() {
-	val := uint64(1)
+	val := uint8(0)
 	for {
-		_, e := syscall.Write(int(n.fd), (*(*[8]byte)(unsafe.Pointer(&val)))[:])
+		_, e := syscall.Write(int(n.fd), (*(*[1]byte)(unsafe.Pointer(&val)))[:])
 		if e == unix.EINTR {
 			continue
 		}
@@ -27,30 +29,20 @@ func (n Notifier) Notify() {
 }
 
 type Awaiter struct {
-	fd int32
+	buf [64]byte
+	c   net.Conn
 }
 
 func NewAwaiter(fd int32) Awaiter {
-	return Awaiter{fd: fd}
+	f := os.NewFile(uintptr(fd), "fd")
+	c, e := net.FileConn(f)
+	if e != nil {
+		panic(e)
+	}
+	var buf [64]byte
+	return Awaiter{buf, c}
 }
 
-func (n Awaiter) Wait() int {
-	type PollEvent struct {
-		FD      int32
-		Events  int16
-		Revents int16
-	}
-
-	event := PollEvent{
-		FD:     n.fd,
-		Events: 1,
-	}
-
-	for {
-		n, _, e := syscall.Syscall6(unix.SYS_PPOLL, uintptr(unsafe.Pointer(&event)), uintptr(1), uintptr(unsafe.Pointer(nil)), 0, 0, 0)
-		if e == unix.EINTR {
-			continue
-		}
-		return int(n)
-	}
+func (n *Awaiter) Wait() {
+	n.c.Read(n.buf[:])
 }

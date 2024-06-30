@@ -3,7 +3,7 @@ use std::{
     future::Future,
     io,
     mem::{self, MaybeUninit},
-    os::fd::{IntoRawFd, RawFd},
+    os::fd::RawFd,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
     task::Waker,
 };
@@ -28,7 +28,7 @@ use monoio::{select, spawn};
 use tokio::{select, spawn};
 
 use crate::{
-    eventfd::{Awaiter, Notifier},
+    eventfd::{new_pair, Awaiter, Notifier},
     util::yield_now,
 };
 
@@ -63,8 +63,7 @@ impl<T> ReadQueue<T> {
     where
         T: 'static,
     {
-        let mut working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
-        working_awaiter.mark_drop(false);
+        let working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
         let (tx, rx) = channel();
         spawn(self.working_handler(working_awaiter, handler, tx));
         Ok(Guard { _rx: rx })
@@ -75,8 +74,7 @@ impl<T> ReadQueue<T> {
     where
         T: Send + 'static,
     {
-        let mut working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
-        working_awaiter.mark_drop(false);
+        let working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
         let (tx, rx) = channel();
         if let Some(tokio_handle) = self.tokio_handle.clone() {
             tokio_handle.spawn(self.working_handler(working_awaiter, handler, tx));
@@ -434,7 +432,7 @@ pub struct QueueMeta {
 unsafe impl<T: Sync> Sync for Queue<T> {}
 
 impl<T> Queue<T> {
-    pub fn new(size: usize) -> Result<Self, io::Error> {
+    pub fn new(size: usize) -> Result<(Self, QueueMeta), io::Error> {
         let buffer = unsafe {
             let mut v = Vec::<MaybeUninit<T>>::with_capacity(size);
             v.set_len(size);
@@ -447,10 +445,10 @@ impl<T> Queue<T> {
         let working_ptr = Box::leak(Box::new(AtomicU32::new(0)));
         let stuck_ptr = Box::leak(Box::new(AtomicU32::new(0)));
 
-        let working_fd = Notifier::new()?.into_raw_fd();
-        let unstuck_fd = Notifier::new()?.into_raw_fd();
+        let (working_fd, working_fd_peer) = new_pair()?;
+        let (unstuck_fd, unstuck_fd_peer) = new_pair()?;
 
-        Ok(Self {
+        let queue = Self {
             buffer_ptr: buffer_slice.as_mut_ptr(),
             buffer_len: size,
             head_ptr,
@@ -460,7 +458,19 @@ impl<T> Queue<T> {
             working_fd,
             unstuck_fd,
             do_drop: true,
-        })
+        };
+        let meta = QueueMeta {
+            buffer_ptr: queue.buffer_ptr as _,
+            buffer_len: queue.buffer_len,
+            head_ptr: queue.head_ptr as _,
+            tail_ptr: queue.tail_ptr as _,
+            working_ptr: queue.working_ptr as _,
+            stuck_ptr: queue.stuck_ptr as _,
+            working_fd: working_fd_peer,
+            unstuck_fd: unstuck_fd_peer,
+        };
+
+        Ok((queue, meta))
     }
 
     /// # Safety
@@ -508,8 +518,7 @@ impl<T> Queue<T> {
     }
 
     pub fn read(self) -> ReadQueue<T> {
-        let mut unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
-        unstuck_notifier.mark_drop(false);
+        let unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
         ReadQueue {
             queue: self,
             unstuck_notifier,
@@ -520,8 +529,7 @@ impl<T> Queue<T> {
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
     pub fn read_with_tokio_handle(self, tokio_handle: tokio::runtime::Handle) -> ReadQueue<T> {
-        let mut unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
-        unstuck_notifier.mark_drop(false);
+        let unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
         ReadQueue {
             queue: self,
             unstuck_notifier,
@@ -534,11 +542,8 @@ impl<T> Queue<T> {
     where
         T: 'static,
     {
-        let mut working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let mut unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
-
-        working_notifier.mark_drop(false);
-        unstuck_awaiter.mark_drop(false);
+        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -570,11 +575,8 @@ impl<T> Queue<T> {
     where
         T: Send + 'static,
     {
-        let mut working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let mut unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
-
-        working_notifier.mark_drop(false);
-        unstuck_awaiter.mark_drop(false);
+        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -599,11 +601,8 @@ impl<T> Queue<T> {
     where
         T: Send + 'static,
     {
-        let mut working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let mut unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
-
-        working_notifier.mark_drop(false);
-        unstuck_awaiter.mark_drop(false);
+        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -781,8 +780,7 @@ mod tests {
         async fn demo_wake() {
             let (mut tx, mut rx) = channel::<()>();
 
-            let q_read = Queue::<u8>::new(1024).unwrap();
-            let meta = q_read.meta();
+            let (q_read, meta) = Queue::<u8>::new(1024).unwrap();
             let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
             let q_read = q_read.read();
             let q_write = q_write.write().unwrap();
@@ -804,8 +802,7 @@ mod tests {
         async fn demo_stuck() {
             let (mut tx, mut rx) = channel::<()>();
 
-            let q_read = Queue::<u8>::new(1).unwrap();
-            let meta = q_read.meta();
+            let (q_read, meta) = Queue::<u8>::new(1).unwrap();
             let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
             let q_read = q_read.read();
             let q_write = q_write.write().unwrap();

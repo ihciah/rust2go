@@ -1,7 +1,6 @@
 package mem_ring
 
 import (
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -168,20 +167,34 @@ func (q Queue[T]) Write() WriteQueue[T] {
 	return wq
 }
 
-func (rq *ReadQueue[T]) RunHandler(handler func(T)) {
+func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 	// TODO: return channel-based guard
+	var waiter TinyWaiter
+	if len(w) == 0 {
+		waiter = &GoSchedWaiter{}
+	} else {
+		waiter = w[0]
+	}
 	go func() {
 		awaiter := NewAwaiter(rq.q.workingFd)
-		for {
-			rq.q.markWorking()
+		rq.q.markWorking()
+		c: for {
 			for item := rq.q.pop(); item != nil; item = rq.q.pop() {
 				handler(*item)
 			}
-			runtime.Gosched()
-			if !rq.q.isEmpty() || !rq.q.markUnworking() {
-				continue
+			waiter.Reset()
+			for {
+				stop_wait := waiter.Wait()
+				if !rq.q.isEmpty() || !rq.q.markUnworking() {
+					continue c
+				}
+				if stop_wait {
+					break
+				}
 			}
+
 			awaiter.Wait()
+			rq.q.markWorking()
 		}
 	}()
 }

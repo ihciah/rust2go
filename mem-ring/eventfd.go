@@ -34,7 +34,7 @@ func NewAwaiter(fd int32) Awaiter {
 	return Awaiter{fd: fd}
 }
 
-func (n Awaiter) Wait() int {
+func (n Awaiter) Wait() {
 	type PollEvent struct {
 		FD      int32
 		Events  int16
@@ -46,11 +46,20 @@ func (n Awaiter) Wait() int {
 		Events: 1,
 	}
 
+	// wait
 	for {
-		n, _, e := syscall.Syscall6(unix.SYS_PPOLL, uintptr(unsafe.Pointer(&event)), uintptr(1), uintptr(unsafe.Pointer(nil)), 0, 0, 0)
-		if e == unix.EINTR {
-			continue
+		_, _, e := syscall.Syscall6(unix.SYS_PPOLL, uintptr(unsafe.Pointer(&event)), uintptr(1), uintptr(unsafe.Pointer(nil)), 0, 0, 0)
+		if e != unix.EINTR {
+			break
 		}
-		return int(n)
+	}
+
+	// read
+	var buf [8]byte
+	for {
+		_, e := syscall.Read(int(n.fd), buf[:])
+		if e != unix.EINTR {
+			break
+		}
 	}
 }

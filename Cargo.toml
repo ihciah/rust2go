@@ -25,4 +25,4 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/ihciah/rust2go"
 
 [workspace.dependencies]
-monoio = { version = "0.2.4-beta.0" }
+monoio = { version = "0.2.3" }

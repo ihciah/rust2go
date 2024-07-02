@@ -534,7 +534,7 @@ checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "mem-ring"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
  "local-sync",
@@ -587,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "monoio"
-version = "0.2.4-beta.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d44eb9277199d71764c9326b637b9788e5d1e254741b7e0c1b9962c4ea04d10"
+checksum = "60824f1a372fa200937885a2d434610333fe47d6c6f3d0855bd4555b46316fe7"
 dependencies = [
  "auto-const-array",
  "bytes",
@@ -611,9 +611,9 @@ dependencies = [
 
 [[package]]
 name = "monoio-macros"
-version = "0.1.1-beta.0"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0687a0abdf0923ffede75b922d159ab1b4154e480d6014f69090a3ee7612c8d4"
+checksum = "176a5f5e69613d9e88337cf2a65e11135332b4efbcc628404a7c555e4452084c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "rust2go-mem-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mem-ring",
  "rust2go-convert",

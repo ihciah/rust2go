@@ -6,14 +6,14 @@ import (
 )
 
 type TinyWaiter interface {
-	Reset()
+	Reset(uint, bool)
 	// return true if the waiter is done
 	Wait() bool
 }
 
 type GoSchedWaiter struct{}
 
-func (w *GoSchedWaiter) Reset() {}
+func (w *GoSchedWaiter) Reset(_ uint, _ bool) {}
 func (w *GoSchedWaiter) Wait() bool {
 	runtime.Gosched()
 	return true
@@ -25,7 +25,7 @@ type SleepWaiter struct {
 	Current  time.Duration
 }
 
-func (w *SleepWaiter) Reset() {
+func (w *SleepWaiter) Reset(_ uint, _ bool) {
 	w.Current = 0
 }
 

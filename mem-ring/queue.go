@@ -178,11 +178,15 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 	go func() {
 		awaiter := NewAwaiter(rq.q.workingFd)
 		rq.q.markWorking()
+		var waited bool
 		c: for {
+			cnt := uint(0)
 			for item := rq.q.pop(); item != nil; item = rq.q.pop() {
 				handler(*item)
+				cnt += 1
 			}
-			waiter.Reset()
+			waiter.Reset(cnt, waited)
+			waited = false
 			for {
 				stop_wait := waiter.Wait()
 				if !rq.q.isEmpty() || !rq.q.markUnworking() {
@@ -195,6 +199,7 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 
 			awaiter.Wait()
 			rq.q.markWorking()
+			waited = true
 		}
 	}()
 }

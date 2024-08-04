@@ -12,5 +12,8 @@ monoio = { workspace = true, features = ['sync'] }
 rust2go = { path = "../../rust2go", features = ["build"] }
 
 [[bin]]
-name = "example"
+name = "example-cgo"
 path = "src/main.rs"
+
+[profile.release]
+debug = true

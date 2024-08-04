@@ -48,7 +48,7 @@ typedef struct QueueMeta {
 
     pub fn go_shm_ring_init() -> &'static str {
         r#"
-        func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}, []byte, uint)) {
+        func ringsInit(crr, crw C.QueueMeta, fns []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint))) {
             const MULTIPOOL_SIZE = 8
             const SIZE_PER_POOL = -1
 
@@ -96,9 +96,7 @@ typedef struct QueueMeta {
 
             gr.RunHandler(func(p Payload) {
                 if p.Flag == CALL {
-                    // handle request
-                    pool.Submit(func() {
-                        resp, buffer, offset := fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)))
+                    post_func := func(resp interface{}, buffer []byte, offset uint) {
                         if resp == nil {
                             payload := Payload{
                                 Ptr:          0,
@@ -124,7 +122,8 @@ typedef struct QueueMeta {
                             Flag:         REPLY,
                         }
                         gw.Push(payload)
-                    })
+                    }
+                    fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)), pool, post_func)
                 } else if p.Flag == DROP {
                     // drop memory instantly
                     slab.Pop(p.UserData)
@@ -1074,7 +1073,7 @@ impl TraitRepr {
             let mem_ffi_handles = (0..shm_cnt)
                 .map(|id| format!("ringHandle{name}{id}"))
                 .collect::<Vec<String>>();
-            out.push_str(&format!("//export RingsInit{name}\nfunc RingsInit{name}(crr, crw C.QueueMeta) {{\nringsInit(crr, crw, []func(ptr unsafe.Pointer) (interface{{}}, []byte, uint){{{}}})\n}}\n", mem_ffi_handles.join(",")));
+            out.push_str(&format!("//export RingsInit{name}\nfunc RingsInit{name}(crr, crw C.QueueMeta) {{\nringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{{}}, []byte, uint)){{{}}})\n}}\n", mem_ffi_handles.join(",")));
         }
         out
     }
@@ -1231,24 +1230,28 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
 
     fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {
         if let Some(mem_call_id) = self.mem_call_id {
-            let fn_sig = format!("func ringHandle{trait_name}{mem_call_id}(ptr unsafe.Pointer) (interface{{}}, []byte, uint) {{\n");
+            let fn_sig = format!("func ringHandle{trait_name}{mem_call_id}(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{{}}, []byte, uint)) {{\n");
             let Some(ret) = &self.ret else {
-                return format!("{fn_sig}return nil, nil, 0\n}}\n");
+                return format!("{fn_sig}post_func(nil, nil, 0)\n}}\n");
             };
 
-            let fn_ending = "return resp, buffer, offset\n}\n";
             let mut fn_body = String::new();
             for p in self.params().iter() {
                 fn_body.push_str(&format!("{name}:=*(*C.{ref_type})(ptr)\nptr=unsafe.Pointer(uintptr(ptr)+unsafe.Sizeof({name}))\n", name = p.name, ref_type = p.ty.to_c(false)));
+                fn_body.push_str(&format!(
+                    "{name}_:={cnt}({name})\n",
+                    name = p.name,
+                    cnt = p.ty.c_to_go_field_converter(levels).0
+                ));
             }
-
+            fn_body.push_str("pool.Submit(func() {\n");
             fn_body.push_str(&format!(
                 "resp := {trait_name}Impl.{fn_name}({params})\n",
                 fn_name = self.name,
                 params = self
                     .params
                     .iter()
-                    .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
+                    .map(|p| format!("{}_", p.name))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
@@ -1261,7 +1264,8 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 ret.go_to_c_field_converter(levels).0,
             );
             fn_body.push_str(&format!("resp_ref, buffer := cvt_ref_cap({g2c_cnt}, {g2c_cvt}, resp_ref_size)(&resp)\noffset := uint(len(buffer))\nbuffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)\n"));
-
+            fn_body.push_str("post_func(resp, buffer, offset)\n})\n");
+            let fn_ending = "}\n";
             return format!("{fn_sig}{fn_body}{fn_ending}");
         }
 

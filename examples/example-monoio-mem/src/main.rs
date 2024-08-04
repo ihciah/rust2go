@@ -1,7 +1,11 @@
 mod user;
-use std::future::{poll_fn, Future};
+use std::{
+    cell::UnsafeCell,
+    future::{poll_fn, Future},
+    time::Duration,
+    time::Instant,
+};
 
-use monoio::time::Instant;
 use user::{DemoCall, DemoCallImpl, DemoComplicatedRequest, DemoUser};
 
 #[monoio::main(timer_enabled = true)]
@@ -32,6 +36,46 @@ async fn main() {
     // Current shm-based call has no elegant quit.
     // Elegant quit will be added later.
     monoio::time::sleep(monoio::time::Duration::from_secs(1)).await;
+}
+
+#[allow(unused)]
+async fn perf() {
+    thread_local! {
+        pub static CNT: UnsafeCell<u64> = const { UnsafeCell::new(0) };
+    }
+
+    let req = DemoComplicatedRequest {
+        users: vec![DemoUser {
+            name: "chihai".to_string(),
+            age: 28,
+        }],
+        balabala: vec![1],
+    };
+    let _ = unsafe { DemoCallImpl::demo_check_async(&req) }.await;
+
+    let start = Instant::now();
+    for _ in 0..1000 {
+        monoio::spawn(async {
+            let req = DemoComplicatedRequest {
+                users: vec![DemoUser {
+                    name: "chihai".to_string(),
+                    age: 28,
+                }],
+                balabala: vec![1],
+            };
+            loop {
+                let resp = unsafe { DemoCallImpl::demo_check_async(&req) }.await;
+                assert!(resp.pass);
+                CNT.with(|cnt| unsafe { *cnt.get() += 1 });
+            }
+        });
+    }
+    loop {
+        monoio::time::sleep(Duration::from_secs(5)).await;
+        let eps = start.elapsed().as_secs();
+        let cnt = CNT.with(|cnt| unsafe { *cnt.get() });
+        println!("TOTAL QPS: {}", cnt / eps);
+    }
 }
 
 // Call an async golang function.

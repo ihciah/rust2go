@@ -1,9 +1,12 @@
 use std::{
     mem::MaybeUninit,
     ptr::NonNull,
-    sync::atomic::{
-        AtomicU8,
-        Ordering::{AcqRel, Acquire},
+    sync::{
+        atomic::{
+            AtomicU8,
+            Ordering::{AcqRel, Acquire},
+        },
+        Mutex,
     },
     task::Waker,
 };
@@ -23,7 +26,7 @@ struct SlotInner<T, A = ()> {
     state: State,
     data: MaybeUninit<T>,
     attachment: Option<A>,
-    waker: Option<Waker>,
+    waker: Mutex<Option<Waker>>,
 }
 
 impl<T, A> Drop for SlotInner<T, A> {
@@ -75,7 +78,7 @@ impl<T, A> SlotInner<T, A> {
             state: State(AtomicU8::new(0)),
             data: MaybeUninit::uninit(),
             attachment: None,
-            waker: None,
+            waker: Mutex::new(None),
         }
     }
 
@@ -139,6 +142,17 @@ impl<T, A> SlotReader<T, A> {
         let inner = unsafe { self.0.as_mut() };
         inner.read().map(|res| (res, inner.attachment.take()))
     }
+
+    #[inline]
+    pub(crate) fn set_waker(&mut self, waker: &Waker) {
+        unsafe {
+            let mut waker_locked = self.0.as_mut().waker.lock().unwrap();
+            match waker_locked.as_mut() {
+                None => *waker_locked = Some(waker.clone()),
+                Some(w) => w.clone_from(waker),
+            }
+        }
+    }
 }
 
 impl<T, A> Drop for SlotReader<T, A> {
@@ -166,7 +180,7 @@ impl<T, A> SlotWriter<T, A> {
     #[inline]
     pub fn write(mut self, data: T) {
         if unsafe { self.0.as_mut() }.write(data).is_none() {
-            if let Some(waker) = unsafe { self.0.as_mut().waker.take() } {
+            if let Some(waker) = unsafe { self.0.as_ref().waker.lock().unwrap().take() } {
                 drop(self);
                 waker.wake();
             }
@@ -194,7 +208,7 @@ impl<T, A> SlotWriter<T, A> {
 
     #[inline]
     pub(crate) fn set_waker(&mut self, waker: Waker) {
-        unsafe { self.0.as_mut().waker = Some(waker) };
+        unsafe { *self.0.as_mut().waker.lock().unwrap() = Some(waker) };
     }
 }
 

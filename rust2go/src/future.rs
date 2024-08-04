@@ -42,6 +42,7 @@ where
         let this = self.get_mut();
         match this {
             Self::Executed(reader) => {
+                reader.set_waker(cx.waker());
                 if let Some((resp, attachment)) = unsafe { reader.read_with_attachment() } {
                     *this = Self::Fused;
                     let (req, _) = attachment.unwrap();

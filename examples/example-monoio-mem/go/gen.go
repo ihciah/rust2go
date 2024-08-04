@@ -8,6 +8,15 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
+typedef struct DemoResponseRef {
+  bool pass;
+} DemoResponseRef;
+
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -17,15 +26,6 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef users;
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
-
-typedef struct DemoResponseRef {
-  bool pass;
-} DemoResponseRef;
-
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
 
 typedef struct DemoUserRef {
   struct StringRef name;
@@ -72,33 +72,39 @@ type DemoCall interface {
 	demo_check_async_safe(req DemoComplicatedRequest) DemoResponse
 }
 
-func ringHandleDemoCall0(ptr unsafe.Pointer) (interface{}, []byte, uint) {
-	return nil, nil, 0
+func ringHandleDemoCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
+	post_func(nil, nil, 0)
 }
-func ringHandleDemoCall1(ptr unsafe.Pointer) (interface{}, []byte, uint) {
+func ringHandleDemoCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
 	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
-	resp := DemoCallImpl.demo_check_async(newDemoComplicatedRequest(req))
-	resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
-	resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
-	offset := uint(len(buffer))
-	buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
-	return resp, buffer, offset
+	req_ := newDemoComplicatedRequest(req)
+	go func() {
+		resp := DemoCallImpl.demo_check_async(req_)
+		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
+		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
+		offset := uint(len(buffer))
+		buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
+		post_func(resp, buffer, offset)
+	}()
 }
-func ringHandleDemoCall2(ptr unsafe.Pointer) (interface{}, []byte, uint) {
+func ringHandleDemoCall2(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
 	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
-	resp := DemoCallImpl.demo_check_async_safe(newDemoComplicatedRequest(req))
-	resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
-	resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
-	offset := uint(len(buffer))
-	buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
-	return resp, buffer, offset
+	req_ := newDemoComplicatedRequest(req)
+	go func() {
+		resp := DemoCallImpl.demo_check_async_safe(req_)
+		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
+		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
+		offset := uint(len(buffer))
+		buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
+		post_func(resp, buffer, offset)
+	}()
 }
 
 //export RingsInitDemoCall
 func RingsInitDemoCall(crr, crw C.QueueMeta) {
-	ringsInit(crr, crw, []func(ptr unsafe.Pointer) (interface{}, []byte, uint){ringHandleDemoCall0, ringHandleDemoCall1, ringHandleDemoCall2})
+	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleDemoCall0, ringHandleDemoCall1, ringHandleDemoCall2})
 }
 
 // An alternative impl of unsafe.String for go1.18
@@ -323,7 +329,7 @@ func refDemoResponse(p *DemoResponse, buffer *[]byte) C.DemoResponseRef {
 	}
 }
 
-func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}, []byte, uint)) {
+func ringsInit(crr, crw C.QueueMeta, fns []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint))) {
 	const MULTIPOOL_SIZE = 8
 	const SIZE_PER_POOL = -1
 
@@ -371,9 +377,7 @@ func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}
 
 	gr.RunHandler(func(p Payload) {
 		if p.Flag == CALL {
-			// handle request
-			pool.Submit(func() {
-				resp, buffer, offset := fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)))
+			post_func := func(resp interface{}, buffer []byte, offset uint) {
 				if resp == nil {
 					payload := Payload{
 						Ptr:          0,
@@ -399,11 +403,17 @@ func ringsInit(crr, crw C.QueueMeta, fns []func(ptr unsafe.Pointer) (interface{}
 					Flag:         REPLY,
 				}
 				gw.Push(payload)
-			})
+			}
+			fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)), pool, post_func)
 		} else if p.Flag == DROP {
 			// drop memory instantly
 			slab.Pop(p.UserData)
 		}
 	})
+	// , &mem_ring.SleepWaiter{
+	// 	Interval: time.Millisecond,
+	// 	Max:      time.Millisecond * 100,
+	// }
+
 }
 func main() {}

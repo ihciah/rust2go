@@ -4,7 +4,7 @@ use std::{
     io,
     mem::{self, MaybeUninit},
     os::fd::RawFd,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
     task::Waker,
 };
 
@@ -403,8 +403,8 @@ pub struct Queue<T> {
     buffer_ptr: *mut MaybeUninit<T>,
     buffer_len: usize,
 
-    head_ptr: *mut AtomicUsize,
-    tail_ptr: *mut AtomicUsize,
+    head_ptr: *mut AtomicU64,
+    tail_ptr: *mut AtomicU64,
     working_ptr: *mut AtomicU32,
     stuck_ptr: *mut AtomicU32,
 
@@ -440,8 +440,8 @@ impl<T> Queue<T> {
         };
         let buffer_slice = Box::leak(buffer);
 
-        let head_ptr = Box::leak(Box::new(AtomicUsize::new(0)));
-        let tail_ptr = Box::leak(Box::new(AtomicUsize::new(0)));
+        let head_ptr = Box::leak(Box::new(AtomicU64::new(0)));
+        let tail_ptr = Box::leak(Box::new(AtomicU64::new(0)));
         let working_ptr = Box::leak(Box::new(AtomicU32::new(0)));
         let stuck_ptr = Box::leak(Box::new(AtomicU32::new(0)));
 
@@ -479,8 +479,8 @@ impl<T> Queue<T> {
         let buffer_slice =
             std::slice::from_raw_parts_mut(meta.buffer_ptr as *mut MaybeUninit<T>, meta.buffer_len);
         let size = buffer_slice.len();
-        let head_ptr = meta.head_ptr as *mut AtomicUsize;
-        let tail_ptr = meta.tail_ptr as *mut AtomicUsize;
+        let head_ptr = meta.head_ptr as *mut AtomicU64;
+        let tail_ptr = meta.tail_ptr as *mut AtomicU64;
         let working_ptr = meta.working_ptr as *mut AtomicU32;
         let stuck_ptr = meta.stuck_ptr as *mut AtomicU32;
         let working_fd = meta.working_fd;
@@ -672,7 +672,7 @@ impl<T> Queue<T> {
     pub fn len(&self) -> usize {
         let shead = unsafe { &*self.head_ptr };
         let stail = unsafe { &*self.tail_ptr };
-        stail.load(Ordering::Acquire) - shead.load(Ordering::Acquire)
+        (stail.load(Ordering::Acquire) - shead.load(Ordering::Acquire)) as usize
     }
 
     pub fn is_empty(&self) -> bool {
@@ -684,7 +684,7 @@ impl<T> Queue<T> {
     pub fn is_full(&self) -> bool {
         let shead = unsafe { &*self.head_ptr };
         let stail = unsafe { &*self.tail_ptr };
-        stail.load(Ordering::Acquire) - shead.load(Ordering::Acquire) == self.buffer_len
+        stail.load(Ordering::Acquire) - shead.load(Ordering::Acquire) == self.buffer_len as u64
     }
 
     fn push(&mut self, item: T) -> Result<(), T> {
@@ -692,12 +692,15 @@ impl<T> Queue<T> {
         let stail = unsafe { &*self.tail_ptr };
 
         let tail = stail.load(Ordering::Relaxed);
-        if tail - shead.load(Ordering::Acquire) == self.buffer_len {
+        if tail - shead.load(Ordering::Acquire) == self.buffer_len as u64 {
             return Err(item);
         }
 
         unsafe {
-            (*self.buffer_ptr.add(tail % self.buffer_len)).write(item);
+            (*self
+                .buffer_ptr
+                .add((tail % (self.buffer_len as u64)) as usize))
+            .write(item);
         }
         stail.store(tail + 1, Ordering::Release);
         Ok(())
@@ -712,7 +715,12 @@ impl<T> Queue<T> {
             return None;
         }
 
-        let item = unsafe { (*self.buffer_ptr.add(head % self.buffer_len)).assume_init_read() };
+        let item = unsafe {
+            (*self
+                .buffer_ptr
+                .add((head % (self.buffer_len as u64)) as usize))
+            .assume_init_read()
+        };
         shead.store(head + 1, Ordering::Release);
         Some(item)
     }

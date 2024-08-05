@@ -22,8 +22,8 @@ type QueueMeta struct {
 type Queue[T any] struct {
 	bufferPtr  unsafe.Pointer
 	bufferLen  uintptr
-	headPtr    *uintptr
-	tailPtr    *uintptr
+	headPtr    *uint64
+	tailPtr    *uint64
 	workingPtr *uint32
 	stuckPtr   *uint32
 	workingFd  int32
@@ -46,8 +46,8 @@ func NewQueue[T any](meta QueueMeta) Queue[T] {
 	return Queue[T]{
 		bufferPtr:  unsafe.Pointer(meta.BufferPtr),
 		bufferLen:  meta.BufferLen,
-		headPtr:    (*uintptr)(unsafe.Pointer(meta.HeadPtr)),
-		tailPtr:    (*uintptr)(unsafe.Pointer(meta.TailPtr)),
+		headPtr:    (*uint64)(unsafe.Pointer(meta.HeadPtr)),
+		tailPtr:    (*uint64)(unsafe.Pointer(meta.TailPtr)),
 		workingPtr: (*uint32)(unsafe.Pointer(meta.WorkingPtr)),
 		stuckPtr:   (*uint32)(unsafe.Pointer(meta.StuckPtr)),
 		workingFd:  meta.WorkingFd,
@@ -58,16 +58,16 @@ func NewQueue[T any](meta QueueMeta) Queue[T] {
 func (q *Queue[T]) push(item T) bool {
 	t_size := unsafe.Sizeof(item)
 
-	tail := atomic.LoadUintptr(q.tailPtr)
-	head := atomic.LoadUintptr(q.headPtr)
+	tail := atomic.LoadUint64(q.tailPtr)
+	head := atomic.LoadUint64(q.headPtr)
 
-	if tail-head == q.bufferLen {
+	if tail-head == uint64(q.bufferLen) {
 		return false
 	}
 
-	ptr := unsafe.Add(q.bufferPtr, (tail%q.bufferLen)*t_size)
+	ptr := unsafe.Add(q.bufferPtr, uintptr(tail%uint64(q.bufferLen))*t_size)
 	*(*T)(ptr) = item
-	atomic.AddUintptr(q.tailPtr, 1)
+	atomic.AddUint64(q.tailPtr, 1)
 	return true
 }
 
@@ -75,25 +75,25 @@ func (q *Queue[T]) pop() *T {
 	var _t T
 	t_size := unsafe.Sizeof(_t)
 
-	tail := atomic.LoadUintptr(q.tailPtr)
-	head := atomic.LoadUintptr(q.headPtr)
+	tail := atomic.LoadUint64(q.tailPtr)
+	head := atomic.LoadUint64(q.headPtr)
 
 	if tail == head {
 		return nil
 	}
 
-	ptr := unsafe.Add(q.bufferPtr, (head%q.bufferLen)*t_size)
+	ptr := unsafe.Add(q.bufferPtr, uintptr(head%uint64(q.bufferLen))*t_size)
 	item := *(*T)(ptr)
-	atomic.AddUintptr(q.headPtr, 1)
+	atomic.AddUint64(q.headPtr, 1)
 	return &item
 }
 
 func (q *Queue[T]) isEmpty() bool {
-	return atomic.LoadUintptr(q.tailPtr) == atomic.LoadUintptr(q.headPtr)
+	return atomic.LoadUint64(q.tailPtr) == atomic.LoadUint64(q.headPtr)
 }
 
 func (q *Queue[T]) isFull() bool {
-	return atomic.LoadUintptr(q.tailPtr)-atomic.LoadUintptr(q.headPtr) == q.bufferLen
+	return atomic.LoadUint64(q.tailPtr)-atomic.LoadUint64(q.headPtr) == uint64(q.bufferLen)
 }
 
 func (q *Queue[T]) markWorking() {
@@ -179,7 +179,8 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 		awaiter := NewAwaiter(rq.q.workingFd)
 		rq.q.markWorking()
 		var waited bool
-		c: for {
+	c:
+		for {
 			cnt := uint(0)
 			for item := rq.q.pop(); item != nil; item = rq.q.pop() {
 				handler(*item)

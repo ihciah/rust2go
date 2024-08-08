@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{io::Cursor, path::PathBuf};
 
 use clap::Parser;
 use rust2go_common::raw_file::RawRsFile;
@@ -8,11 +8,11 @@ use rust2go_common::raw_file::RawRsFile;
 pub struct Args {
     /// Path of source rust file
     #[arg(short, long)]
-    pub src: String,
+    pub src: PathBuf,
 
     /// Path of destination go file
     #[arg(short, long)]
-    pub dst: String,
+    pub dst: PathBuf,
 
     /// With or without go main function
     #[arg(long, default_value = "false")]
@@ -25,9 +25,18 @@ pub struct Args {
     /// Disable auto format go file
     #[arg(long, default_value = "false")]
     pub no_fmt: bool,
+
+    /// Whether or not overwrite the destination go file if existing
+    #[arg(long, default_value = "true")]
+    pub overwrite: bool,
 }
 
 pub fn generate(args: &Args) {
+    if !args.overwrite && args.dst.is_file() {
+        println!("destination file exists, aborting. use --overwrite=true to regenerate the file");
+        return;
+    }
+
     // Read and parse rs file.
     let file_content = std::fs::read_to_string(&args.src).expect("Unable to read file");
     let raw_file = RawRsFile::new(file_content);

@@ -95,9 +95,15 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
     /// Regenerate go code.
     /// Note: you should generate go code before build with rust2go-cli.
     /// This function is to make sure the go code is updated.
-    pub fn with_regen(mut self, src: &str, dst: &str) -> Self {
-        self.regen_arg.src = src.to_string();
-        self.regen_arg.dst = dst.to_string();
+    pub fn with_regen(
+        mut self,
+        src: impl Into<PathBuf>,
+        dst: impl Into<PathBuf>,
+        overwrite: bool,
+    ) -> Self {
+        self.regen_arg.src = src.into();
+        self.regen_arg.dst = dst.into();
+        self.regen_arg.overwrite = overwrite;
         self
     }
 
@@ -219,7 +225,7 @@ impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
             .as_deref()
             .unwrap_or(crate::DEFAULT_BINDING_FILE);
         // Regenerate go code.
-        if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
+        if self.regen_arg.src.is_file() {
             rust2go_cli::generate(&self.regen_arg);
         }
         self.go_comp

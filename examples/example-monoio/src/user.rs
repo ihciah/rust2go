@@ -57,4 +57,6 @@ pub trait DemoCall {
     fn demo_check_async_safe(
         req: DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;
+    fn demo_get_n() -> i32;
+    fn demo_sum(a: i32, b: i32) -> i32;
 }

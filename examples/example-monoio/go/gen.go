@@ -8,11 +8,6 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -23,14 +18,19 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
 
+typedef struct DemoResponseRef {
+  bool pass;
+} DemoResponseRef;
+
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
 typedef struct DemoUserRef {
   struct StringRef name;
   uint8_t age;
 } DemoUserRef;
-
-typedef struct DemoResponseRef {
-  bool pass;
-} DemoResponseRef;
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
@@ -49,6 +49,18 @@ __attribute__((weak))
 inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
 ((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
 }
+
+// hack from: https://stackoverflow.com/a/69904977
+__attribute__((weak))
+inline void DemoCall_demo_get_n_cb(const void *f_ptr, int32_t resp, const void *slot) {
+((void (*)(int32_t, const void*))f_ptr)(resp, slot);
+}
+
+// hack from: https://stackoverflow.com/a/69904977
+__attribute__((weak))
+inline void DemoCall_demo_sum_cb(const void *f_ptr, int32_t resp, const void *slot) {
+((void (*)(int32_t, const void*))f_ptr)(resp, slot);
+}
 */
 import "C"
 import (
@@ -64,6 +76,8 @@ type DemoCall interface {
 	demo_check(req DemoComplicatedRequest) DemoResponse
 	demo_check_async(req DemoComplicatedRequest) DemoResponse
 	demo_check_async_safe(req DemoComplicatedRequest) DemoResponse
+	demo_get_n() int32
+	demo_sum(a int32, b int32) int32
 }
 
 //export CDemoCall_demo_oneway
@@ -102,6 +116,24 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
+}
+
+//export CDemoCall_demo_get_n
+func CDemoCall_demo_get_n(slot *C.void, cb *C.void) {
+	resp := DemoCallImpl.demo_get_n()
+	resp_ref, buffer := cvt_ref(cntC_int32_t, refC_int32_t)(&resp)
+	C.DemoCall_demo_get_n_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
+}
+
+//export CDemoCall_demo_sum
+func CDemoCall_demo_sum(a C.int32_t, b C.int32_t, slot *C.void, cb *C.void) {
+	resp := DemoCallImpl.demo_sum(newC_int32_t(a), newC_int32_t(b))
+	resp_ref, buffer := cvt_ref(cntC_int32_t, refC_int32_t)(&resp)
+	C.DemoCall_demo_sum_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
 }
 
 // An alternative impl of unsafe.String for go1.18

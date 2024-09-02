@@ -1,0 +1,44 @@
+name: CI
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: "${{ github.ref != 'refs/heads/master' }}"
+"on":
+  workflow_dispatch:
+  merge_group:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: sccache
+  CC: sccache clang
+  CXX: sccache clang++
+jobs:
+  test:
+    name: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+        timeout-minutes: 5
+        continue-on-error: true
+      - name: Build
+        run: cargo check --all-features --all-targets
+      - name: Test
+        run: cargo test --all-features --all-targets
+
+  lint:
+    name: lint checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+        timeout-minutes: 5
+        continue-on-error: true
+      - run: cargo fmt --check
+      - run: cargo clippy --all-features --all-targets -- --deny warnings

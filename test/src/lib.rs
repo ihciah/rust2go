@@ -1,7 +1,5 @@
 mod user;
 
-fn main() {}
-
 #[cfg(test)]
 mod tests {
     use super::user::*;
@@ -65,10 +63,55 @@ mod tests {
             })
         }
         .await;
-        assert!(valid_req
-            .users
-            .iter()
-            .zip([1, 2, 3].iter())
-            .all(|(x, y)| x.id == *y));
+        assert_eq!(
+            valid_req.users.iter().map(|u| u.id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn delete_friends() {
+        unsafe {
+            TestCallImpl::add_friends(&FriendsListRequest {
+                token: vec![6, 6, 6],
+                user_ids: vec![1, 2, 3],
+            })
+        }
+        .await;
+        let valid_req = TestCallImpl::delete_friends(FriendsListRequest {
+            token: vec![6, 6, 6],
+            user_ids: vec![1, 3],
+        })
+        .await;
+        assert_eq!(
+            valid_req.users.iter().map(|u| u.id).collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+    }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn pm_friends() {
+        unsafe {
+            TestCallImpl::add_friends(&FriendsListRequest {
+                token: vec![6, 6, 6],
+                user_ids: vec![1, 2, 3],
+            })
+        }
+        .await;
+        let (valid_req, _) = TestCallImpl::pm_friend(PMFriendRequest {
+            token: vec![6, 6, 6],
+            user_id: 1,
+            message: "hello".into(),
+        })
+        .await;
+        assert!(valid_req.succ);
+
+        let (invalid_req, _) = TestCallImpl::pm_friend(PMFriendRequest {
+            token: vec![6, 6, 6],
+            user_id: 8,
+            message: "hello".into(),
+        })
+        .await;
+        assert!(!invalid_req.succ);
     }
 }

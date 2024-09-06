@@ -811,7 +811,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rust2go-macro"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "proc-macro2",
  "quote",

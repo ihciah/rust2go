@@ -1,6 +1,6 @@
 [package]
 name = "rust2go-macro"
-version = "0.3.9"
+version = "0.3.10"
 
 description = "Rust2go macro."
 

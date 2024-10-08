@@ -35,3 +35,11 @@ func (Demo) demo_check_async_safe(req DemoComplicatedRequest) DemoResponse {
 	fmt.Printf("[Go-call async drop_safe] Golang returned result, pass: %v\n", req.balabala[0] == 1)
 	return resp
 }
+
+func (Demo) demo_get_n() int32 {
+	return 8
+}
+
+func (Demo) demo_sum(a int32, b int32) int32 {
+	return a + b
+}

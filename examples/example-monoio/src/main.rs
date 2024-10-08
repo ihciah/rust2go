@@ -14,6 +14,12 @@ async fn main() {
         name: "chihai".to_string(),
         age: 28,
     };
+    println!("========== Start get_n demo ==========");
+    let n = DemoCallImpl::demo_get_n();
+    println!("[Rust-get_n] n={n}");
+    println!("========== Start sum demo ==========");
+    let sum = DemoCallImpl::demo_sum(1, 2);
+    println!("[Rust-get_n] 1+2={sum}");
     println!("========== Start oneway demo ==========");
     DemoCallImpl::demo_oneway(&user);
     println!("[Rust-oneway] done");

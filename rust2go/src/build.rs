@@ -109,7 +109,7 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
         self
     }
 
-    /// Copy libgo.so to target dir.
+    /// Copy DLL to target dir.
     pub fn with_copy_lib(mut self, copy_lib: CopyLib) -> Self {
         self.copy_lib = copy_lib;
         self
@@ -121,15 +121,12 @@ pub trait GoCompiler {
 
     fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-        let output = out_dir.join(if link == LinkType::Static {
-            "libgo.a"
-        } else {
-            "libgo.so"
-        });
+        let out_filename = filename(link);
+        let output = out_dir.join(&out_filename);
 
         self.go_build(go_src, link, output.as_path());
 
-        // Copy .so file to target dir.
+        // Copy the DLL file to target dir.
         if link == LinkType::Dynamic {
             // A workaround to get target dir.
             // From https://github.com/rust-lang/cargo/issues/9661#issuecomment-1722358176
@@ -154,11 +151,11 @@ pub trait GoCompiler {
                 CopyLib::DefaultPath => {
                     let target_dir = get_cargo_target_dir().unwrap();
                     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-                    std::fs::copy(out_dir.join("libgo.so"), target_dir.join("libgo.so"))
+                    std::fs::copy(out_dir.join(&out_filename), target_dir.join(&out_filename))
                         .expect("unable to copy dynamic library");
                 }
                 CopyLib::CustomPath(p) => {
-                    std::fs::copy(out_dir.join("libgo.so"), p.join("libgo.so"))
+                    std::fs::copy(out_dir.join(&out_filename), p.join(&out_filename))
                         .expect("unable to copy dynamic library");
                 }
             }
@@ -224,5 +221,14 @@ impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
         }
         self.go_comp
             .build(&self.go_src, binding_name, self.link, &self.copy_lib);
+    }
+}
+
+fn filename(link_type: LinkType) -> String {
+    use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
+
+    match link_type {
+        LinkType::Static => format!("{DLL_PREFIX}go.a"),
+        LinkType::Dynamic => format!("{DLL_PREFIX}go{DLL_SUFFIX}"),
     }
 }

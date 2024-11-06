@@ -74,7 +74,7 @@ var DemoCallImpl DemoCall
 type DemoCall interface {
 	demo_oneway(req DemoUser)
 	demo_check(req DemoComplicatedRequest) DemoResponse
-	demo_check_async(req DemoComplicatedRequest) DemoResponse
+	demo_check_async(req *DemoComplicatedRequest) DemoResponse
 	demo_check_async_safe(req DemoComplicatedRequest) DemoResponse
 	demo_get_n() int32
 	demo_sum(a int32, b int32) int32
@@ -82,12 +82,14 @@ type DemoCall interface {
 
 //export CDemoCall_demo_oneway
 func CDemoCall_demo_oneway(req C.DemoUserRef) {
-	DemoCallImpl.demo_oneway(newDemoUser(req))
+	_new_req := newDemoUser(req)
+	DemoCallImpl.demo_oneway(_new_req)
 }
 
 //export CDemoCall_demo_check
 func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
-	resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
+	_new_req := newDemoComplicatedRequest(req)
+	resp := DemoCallImpl.demo_check(_new_req)
 	resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
 	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 	runtime.KeepAlive(resp)
@@ -98,7 +100,7 @@ func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.v
 func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
 	_new_req := newDemoComplicatedRequest(req)
 	go func() {
-		resp := DemoCallImpl.demo_check_async(_new_req)
+		resp := DemoCallImpl.demo_check_async(&_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
 		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 		runtime.KeepAlive(resp)
@@ -129,7 +131,9 @@ func CDemoCall_demo_get_n(slot *C.void, cb *C.void) {
 
 //export CDemoCall_demo_sum
 func CDemoCall_demo_sum(a C.int32_t, b C.int32_t, slot *C.void, cb *C.void) {
-	resp := DemoCallImpl.demo_sum(newC_int32_t(a), newC_int32_t(b))
+	_new_a := newC_int32_t(a)
+	_new_b := newC_int32_t(b)
+	resp := DemoCallImpl.demo_sum(_new_a, _new_b)
 	resp_ref, buffer := cvt_ref(cntC_int32_t, refC_int32_t)(&resp)
 	C.DemoCall_demo_sum_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 	runtime.KeepAlive(resp)

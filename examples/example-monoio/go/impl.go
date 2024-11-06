@@ -21,7 +21,7 @@ func (Demo) demo_check(req DemoComplicatedRequest) DemoResponse {
 	return DemoResponse{pass: true}
 }
 
-func (Demo) demo_check_async(req DemoComplicatedRequest) DemoResponse {
+func (Demo) demo_check_async(req *DemoComplicatedRequest) DemoResponse {
 	fmt.Printf("[Go-call async] Golang received req, will sleep 1s\n")
 	time.Sleep(1 * time.Second)
 	fmt.Printf("[Go-call async] Golang returned result\n")

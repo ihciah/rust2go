@@ -165,7 +165,7 @@ fn r2g_trait(
                     }
 
                     // for all functions with safe=false, add unsafe
-                    if !fn_repr.safe() {
+                    if !fn_repr.is_safe() {
                         f.sig.unsafety = Some(syn::token::Unsafe::default());
                     }
                 }

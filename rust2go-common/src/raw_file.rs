@@ -658,7 +658,7 @@ impl TryFrom<&ItemTrait> for TraitRepr {
             let mut drop_safe_ret_params = false;
             let mut ret_send = false;
 
-            let mut safe = true;
+            let mut is_safe = true;
             let has_reference = params.iter().any(|param| param.ty.is_reference);
 
             if is_async {
@@ -682,12 +682,19 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 );
 
                 if !drop_safe && !drop_safe_ret_params {
-                    safe = false;
+                    is_safe = false;
                 }
                 if (drop_safe || drop_safe_ret_params) && has_reference {
                     sbail!("drop_safe function cannot have reference parameters")
                 }
             }
+
+            let go_ptr = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("go_ptr")))
+                );
 
             let using_mem = fn_item
                 .attrs
@@ -699,7 +706,7 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 if ret.is_some() {
                     sbail!("function based on shm must be async or without return value")
                 } else {
-                    safe = false;
+                    is_safe = false;
                 }
             }
             let mem_call_id = if using_mem {
@@ -715,10 +722,11 @@ impl TryFrom<&ItemTrait> for TraitRepr {
                 is_async,
                 params,
                 ret,
-                safe,
+                is_safe,
                 drop_safe_ret_params,
                 ret_send,
                 ret_static: !has_reference,
+                go_ptr,
                 mem_call_id,
             });
         }
@@ -734,10 +742,11 @@ pub struct FnRepr {
     is_async: bool,
     params: Vec<Param>,
     ret: Option<ParamType>,
-    safe: bool,
+    is_safe: bool,
     drop_safe_ret_params: bool,
     ret_send: bool,
     ret_static: bool,
+    go_ptr: bool,
     mem_call_id: Option<usize>,
 }
 
@@ -1174,8 +1183,8 @@ impl FnRepr {
         self.drop_safe_ret_params
     }
 
-    pub fn safe(&self) -> bool {
-        self.safe
+    pub fn is_safe(&self) -> bool {
+        self.is_safe
     }
 
     pub fn params(&self) -> &[Param] {
@@ -1277,6 +1286,15 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
             .iter()
             .for_each(|p| out.push_str(&format!("{} C.{}, ", p.name, p.ty.to_c(false))));
 
+        let mut new_names = Vec::new();
+        let mut new_cvt = String::new();
+        let ref_mark = BoolMark::new(self.go_ptr, "&");
+        for p in self.params.iter() {
+            let new_name = format_ident!("_new_{}", p.name);
+            let cvt = p.ty.c_to_go_field_converter(levels).0;
+            new_cvt.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
+            new_names.push(format!("{ref_mark}{}", new_name));
+        }
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),
             (false, None) => {
@@ -1285,15 +1303,11 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     DemoCallImpl.demo_oneway(newDemoUser(req))
                 // }
                 out.push_str(") {\n");
+                out.push_str(&new_cvt);
                 out.push_str(&format!(
                     "    {trait_name}Impl.{fn_name}({params})\n",
                     fn_name = self.name,
-                    params = self
-                        .params
-                        .iter()
-                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    params = new_names.join(", ")
                 ));
                 out.push_str("}\n");
             }
@@ -1307,15 +1321,11 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     runtime.KeepAlive(buffer)
                 // }
                 out.push_str("slot *C.void, cb *C.void) {\n");
+                out.push_str(&new_cvt);
                 out.push_str(&format!(
                     "resp := {trait_name}Impl.{fn_name}({params})\n",
                     fn_name = self.name,
-                    params = self
-                        .params
-                        .iter()
-                        .map(|p| format!("{}({})", p.ty.c_to_go_field_converter(levels).0, p.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    params = new_names.join(", ")
                 ));
                 let (g2c_cnt, g2c_cvt) = (
                     ret.go_to_c_field_counter(levels).0,
@@ -1343,15 +1353,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     }()
                 // }
                 out.push_str("slot *C.void, cb *C.void) {\n");
-
-                let mut new_names = Vec::new();
-                for p in self.params.iter() {
-                    let new_name = format_ident!("_new_{}", p.name);
-                    let cvt = p.ty.c_to_go_field_converter(levels).0;
-                    out.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
-                    new_names.push(new_name.to_string());
-                }
-
+                out.push_str(&new_cvt);
                 out.push_str("    go func() {\n");
                 out.push_str(&format!(
                     "resp := {trait_name}Impl.{fn_name}({params})\n",
@@ -1378,12 +1380,13 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
     fn to_go_interface_method(&self) -> String {
         // demo_oneway(req DemoUser)
         // demo_check(req DemoComplicatedRequest) DemoResponse
+        let star_mark = BoolMark::new(self.go_ptr, "*");
         format!(
             "{}({}) {}",
             self.name,
             self.params
                 .iter()
-                .map(|p| format!("{} {}", p.name, p.ty.to_go()))
+                .map(|p| format!("{} {star_mark}{}", p.name, p.ty.to_go()))
                 .collect::<Vec<_>>()
                 .join(", "),
             self.ret.as_ref().map(|p| p.to_go()).unwrap_or_default()
@@ -1397,7 +1400,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         let callback_name = format_ident!("{func_name}_cb");
         let func_param_names: Vec<_> = self.params.iter().map(|p| &p.name).collect();
         let func_param_types: Vec<_> = self.params.iter().map(|p| &p.ty).collect();
-        let unsafe_marker = (!self.safe).then(syn::token::Unsafe::default);
+        let unsafe_marker = (!self.is_safe).then(syn::token::Unsafe::default);
         out.extend(quote! {
             #unsafe_marker fn #func_name(#(#func_param_names: #func_param_types),*)
         });
@@ -1693,6 +1696,24 @@ fn type_to_segment(ty: &Type) -> Result<&PathSegment> {
         sbail!("types with multiple segments are not supported");
     }
     Ok(path.segments.first().unwrap())
+}
+
+struct BoolMark {
+    mark: bool,
+    fmt: &'static str,
+}
+impl BoolMark {
+    fn new(mark: bool, fmt: &'static str) -> Self {
+        Self { mark, fmt }
+    }
+}
+impl std::fmt::Display for BoolMark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.mark {
+            return write!(f, "{}", self.fmt);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

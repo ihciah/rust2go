@@ -23,20 +23,25 @@ For detailed example, please checkout [the example projects](./examples).
 > Detailed design details can be found in this article: [Design and Implementation of a Rust-Go FFI Framework](https://en.ihcblog.com/rust2go/).
 
 ### Why Fast?
+
 In order to achieve the ultimate performance, this project is not based on communication, but on FFI to pass specially encoded data. In order to reduce memory operations to a minimum, data that satisfies a specific memory layout is passed directly by reference rather than copied.
 
 For example, `Vec<u8>` and `String` is represented as a pointer and a length. However, structs like `Vec<String>` or `Vec<Vec<u8>>` require intermediate representation. In order to reduce the number of memory allocations to one, I use a precomputed size buffer to store these intermediate structures.
 
 ### Memory Safety
+
 On the Golang side, the data it receives is referenced from Rust. The Rust side will do its best to ensure the validity of this data during the call. So the Golang side can implement the handler arbitrarily, but manually deep copy when leaking data outside the function life cycle.
 
 On the Rust side, it is needed to ensure that the slot pointer of the callback ffi operation, and the user parameters are valid when the future drops. This is archieved by implementing an atomic slot structure and providing a `[drop_safe]` attribute to require user passing parameters with ownership.
 
 ## Toolchain Requirements
+
 - Golang: >=1.18
   - For >=1.18 && < 1.20: generate golang code with `--go118`
   - For >=1.20: generate golang code normally
 - Rust: >=1.75 if you want to use async
+
+With my experience, starting from Golang 1.21 there is a significant performance improvement in CGO. So I recommend using Golang 1.21 or later.
 
 ## Milestones
 ### Init Version
@@ -58,9 +63,14 @@ On the Rust side, it is needed to ensure that the slot pointer of the callback f
 
 ### Performance Optimization
 - [x] Shared memory based implementation
+- [x] Go-side reference passing support saving stack grow cost for big size data
+- [x] Go-side object pool support saving allocation cost for complicated data types
 
 ### Extended Features
 - [ ] Support calling rust from golang
+
+### Exploratory Features
+- [ ] Support sense peer memory layout at boot time or compile time and access fields directly
 
 ## Credit
 This project is inspired by [fcplug](https://github.com/andeya/fcplug).

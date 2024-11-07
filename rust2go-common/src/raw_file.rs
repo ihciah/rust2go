@@ -205,6 +205,7 @@ typedef struct QueueMeta {
         &self,
         levels: &HashMap<Ident, u8>,
         go118: bool,
+        recycle: bool,
     ) -> Result<String> {
         const GO118CODE: &str = r#"
         // An alternative impl of unsafe.String for go1.18
@@ -244,12 +245,7 @@ typedef struct QueueMeta {
         }
         "#;
 
-        let mut out = if go118 {
-            GO118CODE.to_string()
-        } else {
-            GO121CODE.to_string()
-        } + r#"
-        func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
+        const NON_RECYCLE_LIST: &str = r#"
         func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
                 input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
@@ -260,6 +256,52 @@ typedef struct QueueMeta {
                 return output
             }
         }
+        "#;
+        const RECYCLE_LIST: &str = r#"
+        func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
+            return func(x C.ListRef) []T2 {
+                input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
+
+                // try to get from _GLOBAL_POOL
+                elem := _GLOBAL_POOL.Get(reflect.TypeOf([]T2{}))
+                var output []T2
+                if elem != nil {
+                    output = elem.([]T2)
+                    if cap(output) < len(input) {
+                        // if the capacity is not enough, create a new one
+                        // old one will not be used anymore
+                        output = make([]T2, len(input))
+                    } else {
+                        // if the capacity is enough, truncate the slice
+                        output = output[:len(input)]
+                    }
+                } else {
+                    // if not found in _GLOBAL_POOL, create a new one
+                    output = make([]T2, len(input))
+                }
+
+                for i, v := range input {
+                    output[i] = f(v)
+                }
+                return output
+            }
+        }
+        "#;
+
+        let mut out = if go118 {
+            GO118CODE.to_string()
+        } else {
+            GO121CODE.to_string()
+        };
+
+        if !recycle {
+            out += NON_RECYCLE_LIST;
+        } else {
+            out += RECYCLE_LIST;
+        }
+
+        out += r#"
+        func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
         func new_list_mapper_primitive[T1, T2 any](_ func(T1) T2) func(C.ListRef) []T2 {
             return func(x C.ListRef) []T2 {
                 return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
@@ -383,6 +425,52 @@ typedef struct QueueMeta {
         func refC_float(p *float32, _ *[]byte) C.float      { return C.float(*p) }
         func refC_double(p *float64, _ *[]byte) C.double    { return C.double(*p) }
         "#;
+        if recycle {
+            out.push_str(
+                r#"
+            type _GenericPool struct {
+                mapping map[reflect.Type]*sync.Pool
+                mu      sync.RWMutex
+            }
+
+            func (p *_GenericPool) Get(typ reflect.Type) interface{} {
+                p.mu.RLock()
+                pool, ok := p.mapping[typ]
+                p.mu.RUnlock()
+                if !ok {
+                    return nil
+                }
+                return pool.Get()
+            }
+
+            // x: []T
+            func (p *_GenericPool) Put(x interface{}) {
+                // check if x is []T
+                typ := reflect.TypeOf(x)
+                if typ.Kind() != reflect.Slice {
+                    return
+                }
+
+                p.mu.RLock()
+                pool, ok := p.mapping[typ]
+                p.mu.RUnlock()
+                if !ok {
+                    pool = &sync.Pool{}
+                    p.mu.Lock()
+                    if _, ok := p.mapping[typ]; !ok {
+                        p.mapping[typ] = pool
+                    }
+                    p.mu.Unlock()
+                }
+                pool.Put(x)
+            }
+
+            var _GLOBAL_POOL = &_GenericPool{
+                mapping: make(map[reflect.Type]*sync.Pool),
+            }
+            "#,
+            );
+        }
         for item in self.file.items.iter() {
             match item {
                 // for example, convert
@@ -425,13 +513,62 @@ typedef struct QueueMeta {
                     out.push_str(&format!(
                         "func new{struct_name}(p C.{struct_name}Ref) {struct_name}{{\nreturn {struct_name}{{\n"
                     ));
+                    let mut name_types = Vec::new();
                     for field in s.fields.iter() {
                         let field_name = field.ident.as_ref().unwrap().to_string();
                         let field_type = ParamType::try_from(&field.ty)?;
-                        let (new_f, _) = field_type.c_to_go_field_converter(levels);
+                        let (new_f, f_level) = field_type.c_to_go_field_converter(levels);
                         out.push_str(&format!("{field_name}: {new_f}(p.{field_name}),\n",));
+                        name_types.push((field_name, field_type, f_level));
                     }
                     out.push_str("}\n}\n");
+
+                    // recStruct
+                    if recycle {
+                        out.push_str(&format!(
+                            "func rec{struct_name}(s *{struct_name}, p *_GenericPool){{\n"
+                        ));
+                        for (field_name, field_type, f_level) in name_types {
+                            if f_level >= 2 {
+                                match field_type.inner {
+                                    ParamTypeInner::Custom(_) => {
+                                        out.push_str(&format!("p.Put(s.{field_name})\n"));
+                                    }
+                                    ParamTypeInner::List(inner) => {
+                                        let seg = type_to_segment(&inner).unwrap();
+                                        let inside = match &seg.arguments {
+                                            syn::PathArguments::AngleBracketed(ga) => {
+                                                match ga.args.last().unwrap() {
+                                                    syn::GenericArgument::Type(ty) => ty,
+                                                    _ => panic!("list generic must be a type"),
+                                                }
+                                            }
+                                            _ => {
+                                                panic!(
+                                                    "list type must have angle bracketed arguments"
+                                                )
+                                            }
+                                        };
+                                        let pt = ParamType::try_from(inside)
+                                            .expect("unable to convert list type");
+                                        let (_, inner_level) = pt.c_to_go_field_converter(levels);
+                                        if inner_level >= 2 {
+                                            out.push_str(&format!(
+                                                "for i := range s.{field_name} {{\n",
+                                            ));
+                                            out.push_str(&format!(
+                                                "rec{}(&s.{field_name}[i], p)\n",
+                                                pt.to_go()
+                                            ));
+                                        }
+                                        out.push_str(&format!("p.Put(s.{field_name})\n"));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        out.push_str("}\n");
+                    }
 
                     let level = *levels.get(&s.ident).unwrap();
 
@@ -1070,12 +1207,12 @@ impl TraitRepr {
     }
 
     // Generate golang exports.
-    pub fn generate_go_exports(&self, levels: &HashMap<Ident, u8>) -> String {
+    pub fn generate_go_exports(&self, levels: &HashMap<Ident, u8>, recycle: bool) -> String {
         let name = self.name.to_string();
         let mut out: String = self
             .fns
             .iter()
-            .map(|f| f.to_go_export(&name, levels))
+            .map(|f| f.to_go_export(&name, levels, recycle))
             .collect();
         let shm_cnt = self.fns.iter().filter(|f| f.mem_call_id.is_some()).count();
         if shm_cnt != 0 {
@@ -1237,7 +1374,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
         }
     }
 
-    fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {
+    fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>, recycle: bool) -> String {
         if let Some(mem_call_id) = self.mem_call_id {
             let fn_sig = format!("func ringHandle{trait_name}{mem_call_id}(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{{}}, []byte, uint)) {{\n");
             let Some(ret) = &self.ret else {
@@ -1288,12 +1425,17 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
 
         let mut new_names = Vec::new();
         let mut new_cvt = String::new();
+        let mut rec_req_lines = String::new();
         let ref_mark = BoolMark::new(self.go_ptr, "&");
         for p in self.params.iter() {
             let new_name = format_ident!("_new_{}", p.name);
-            let cvt = p.ty.c_to_go_field_converter(levels).0;
+            let (cvt, lv) = p.ty.c_to_go_field_converter(levels);
             new_cvt.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
-            new_names.push(format!("{ref_mark}{}", new_name));
+            if recycle && lv >= 2 {
+                rec_req_lines
+                    .push_str(&format!("rec{}(&{new_name}, _GLOBAL_POOL)\n", p.ty.to_go()));
+            }
+            new_names.push(format!("{ref_mark}{new_name}"));
         }
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),
@@ -1309,6 +1451,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     fn_name = self.name,
                     params = new_names.join(", ")
                 ));
+                out.push_str(&rec_req_lines);
                 out.push_str("}\n");
             }
             (false, Some(ret)) => {
@@ -1338,6 +1481,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
                 ));
                 out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
+                out.push_str(&rec_req_lines);
                 out.push_str("}\n");
             }
             (true, Some(ret)) => {
@@ -1371,6 +1515,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
                 ));
                 out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
+                out.push_str(&rec_req_lines);
                 out.push_str("}()\n}\n");
             }
         }
@@ -1739,11 +1884,16 @@ mod tests {
 
         println!(
             "structs gen: {}",
-            raw_file.convert_structs_to_go(&levels, false).unwrap()
+            raw_file
+                .convert_structs_to_go(&levels, false, true)
+                .unwrap()
         );
         for trait_ in traits {
             println!("if gen: {}", trait_.generate_go_interface());
-            println!("go export gen: {}", trait_.generate_go_exports(&levels));
+            println!(
+                "go export gen: {}",
+                trait_.generate_go_exports(&levels, true)
+            );
         }
         let levels = raw_file.convert_structs_levels().unwrap();
         levels.iter().for_each(|f| println!("{}: {}", f.0, f.1));

@@ -26,6 +26,10 @@ pub struct Args {
     /// Disable auto format go file
     #[arg(long, default_value = "false")]
     pub no_fmt: bool,
+
+    /// Enable object pool
+    #[arg(long, default_value = "false")]
+    pub recycle: bool,
 }
 
 pub fn generate(args: &Args) {
@@ -77,18 +81,19 @@ pub fn generate(args: &Args) {
     };
     let import_cgo = if use_cgo { "\"runtime\"\n" } else { "" };
 
-    let import_118 = if args.go118 { "\"reflect\"\n" } else { "" };
+    let import_reflect = if args.go118 { "\"reflect\"\n" } else { "" };
+    let import_sync = if args.recycle { "\"sync\"\n" } else { "" };
     let mut go_content = format!(
-    "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_cgo}{import_118}{import_shm})\n"
+    "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_cgo}{import_sync}{import_reflect}{import_shm})\n"
 );
     let levels = raw_file.convert_structs_levels().unwrap();
     traits.iter().for_each(|t| {
         go_content.push_str(&t.generate_go_interface());
-        go_content.push_str(&t.generate_go_exports(&levels));
+        go_content.push_str(&t.generate_go_exports(&levels, args.recycle));
     });
     go_content.push_str(
         &raw_file
-            .convert_structs_to_go(&levels, args.go118)
+            .convert_structs_to_go(&levels, args.go118, args.recycle)
             .expect("Unable to generate go structs"),
     );
     if use_shm {

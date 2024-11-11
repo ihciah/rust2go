@@ -181,8 +181,13 @@ func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 				// if the capacity is not enough, create a new one
 				// old one will not be used anymore
 				output = make([]T2, len(input))
+			} else if len(output) < len(input) {
+				var t2 T2
+				for i, il := len(output), len(input); i < il; i++ {
+					output = append(output, t2)
+				}
 			} else {
-				// if the capacity is enough, truncate the slice
+				// if the len is enough, truncate the slice
 				output = output[:len(input)]
 			}
 		} else {

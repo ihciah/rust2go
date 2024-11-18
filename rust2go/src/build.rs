@@ -202,7 +202,10 @@ impl GoCompiler for DefaultGoCompiler {
             .arg(output)
             .arg(".");
 
-        go_build.status().expect("Go build failed");
+        assert!(
+            go_build.status().expect("Go build failed").success(),
+            "Go build failed"
+        );
     }
 }
 

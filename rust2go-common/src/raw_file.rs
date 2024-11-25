@@ -651,7 +651,7 @@ typedef struct QueueMeta {
                     Ok(Node::List(Box::new(type_to_node(inside)?)))
                 }
                 "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize"
-                | "bool" | "char" => Ok(Node::Primitive),
+                | "bool" | "char" | "f32" | "f64" => Ok(Node::Primitive),
                 _ => Ok(Node::NamedStruct(seg.ident.clone())),
             }
         }
@@ -948,7 +948,7 @@ impl TryFrom<&Type> for ParamType {
         let seg = type_to_segment(ty)?;
         let param_type_inner = match seg.ident.to_string().as_str() {
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize"
-            | "bool" | "char" | "f32" => {
+            | "bool" | "char" | "f32" | "f64" => {
                 if !seg.arguments.is_none() {
                     sbail!("primitive types with arguments are not supported")
                 }

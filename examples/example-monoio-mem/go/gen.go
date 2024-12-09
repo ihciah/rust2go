@@ -8,15 +8,6 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
-
-typedef struct DemoResponseRef {
-  bool pass;
-} DemoResponseRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
@@ -27,6 +18,15 @@ typedef struct DemoComplicatedRequestRef {
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
 
+typedef struct DemoResponseRef {
+  bool pass;
+} DemoResponseRef;
+
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
 typedef struct DemoUserRef {
   struct StringRef name;
   uint8_t age;
@@ -34,14 +34,14 @@ typedef struct DemoUserRef {
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 typedef struct QueueMeta {
@@ -57,11 +57,10 @@ typedef struct QueueMeta {
 */
 import "C"
 import (
-	"reflect"
-	"unsafe"
-
 	mem_ring "github.com/ihciah/rust2go/mem-ring"
 	"github.com/panjf2000/ants/v2"
+	"reflect"
+	"unsafe"
 )
 
 var DemoCallImpl DemoCall
@@ -79,27 +78,27 @@ func ringHandleDemoCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
 	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
 	req_ := newDemoComplicatedRequest(req)
-	go func() {
+	pool.Submit(func() {
 		resp := DemoCallImpl.demo_check_async(req_)
 		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
 		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
 		offset := uint(len(buffer))
 		buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
 		post_func(resp, buffer, offset)
-	}()
+	})
 }
 func ringHandleDemoCall2(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
 	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
 	req_ := newDemoComplicatedRequest(req)
-	go func() {
+	pool.Submit(func() {
 		resp := DemoCallImpl.demo_check_async_safe(req_)
 		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
 		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
 		offset := uint(len(buffer))
 		buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
 		post_func(resp, buffer, offset)
-	}()
+	})
 }
 
 //export RingsInitDemoCall
@@ -410,10 +409,5 @@ func ringsInit(crr, crw C.QueueMeta, fns []func(unsafe.Pointer, *ants.MultiPool,
 			slab.Pop(p.UserData)
 		}
 	})
-	// , &mem_ring.SleepWaiter{
-	// 	Interval: time.Millisecond,
-	// 	Max:      time.Millisecond * 100,
-	// }
-
 }
 func main() {}

@@ -692,8 +692,8 @@ impl TryFrom<&ItemTrait> for TraitRepr {
             let go_ptr = fn_item
                 .attrs
                 .iter()
-                .any(|attr|
-                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("go_ptr")))
+                .all(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() != Some(&format_ident!("go_pass_struct")))
                 );
 
             let using_mem = fn_item
@@ -1215,26 +1215,15 @@ impl FnRepr {
         let fn_name = format!("{}_{}", trait_name, self.name);
         let c_resp_type = ret.to_c(true);
 
-        match self.is_async {
-            true => format!(
-                r#"
+        format!(
+            r#"
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
 inline void {fn_name}_cb(const void *f_ptr, {c_resp_type}* resp, const void *slot) {{
 ((void (*)({c_resp_type}*, const void*))f_ptr)(resp, slot);
 }}
 "#,
-            ),
-            false => format!(
-                r#"
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void {fn_name}_cb(const void *f_ptr, {c_resp_type}* resp, const void *slot) {{
-((void (*)({c_resp_type}*, const void*))f_ptr)(resp, slot);
-}}
-"#,
-            ),
-        }
+        )
     }
 
     fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {

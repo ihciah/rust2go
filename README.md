@@ -32,6 +32,8 @@ On the Golang side, the data it receives is referenced from Rust. The Rust side 
 
 On the Rust side, it is needed to ensure that the slot pointer of the callback ffi operation, and the user parameters are valid when the future drops. This is archieved by implementing an atomic slot structure and providing a `[drop_safe]` attribute to require user passing parameters with ownership.
 
+Note: Since golang may scan the stack, and when it meets peer pointer, it may panic. You should run the program with `GODEBUG=invalidptr=0,cgocheck=0` env to bypass it.
+
 ## Toolchain Requirements
 - Golang: >=1.18
   - For >=1.18 && < 1.20: generate golang code with `--go118`

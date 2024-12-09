@@ -9,7 +9,7 @@ Now rust2go supports 3 attributes on trait's async function:
 2. `#[drop_safe]`: this makes the function safe, but requires all paramters passing ownership.
 3. `#[drop_safe_ret]`: to make the function safe, it requires passing ownership; this attribute allow users to get the paramters ownership back.
 4. `#[mem]` or `#[shm]`: make this function implemented based on shared memory, whose performance is highly improved(but it requires linux now).
-5. `#[go_ptr]`: make the generated go side code use pointer instead of value at parameters. This is useful when the parameter is large. This does not affect the rust side code.
+5. `#[go_pass_struct]`: make the generated go side code use pointer instead of value at parameters. This is useful when the parameter is large. This does not affect the rust side code.
 
 For example, here is the original trait:
 ```rust

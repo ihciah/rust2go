@@ -34,32 +34,32 @@ typedef struct DemoUserRef {
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_get_n_cb(const void *f_ptr, int32_t resp, const void *slot) {
-((void (*)(int32_t, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_get_n_cb(const void *f_ptr, int32_t* resp, const void *slot) {
+((void (*)(int32_t*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_sum_cb(const void *f_ptr, int32_t resp, const void *slot) {
-((void (*)(int32_t, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_sum_cb(const void *f_ptr, int32_t* resp, const void *slot) {
+((void (*)(int32_t*, const void*))f_ptr)(resp, slot);
 }
 */
 import "C"
@@ -72,10 +72,10 @@ import (
 var DemoCallImpl DemoCall
 
 type DemoCall interface {
-	demo_oneway(req DemoUser)
-	demo_check(req DemoComplicatedRequest) DemoResponse
+	demo_oneway(req *DemoUser)
+	demo_check(req *DemoComplicatedRequest) DemoResponse
 	demo_check_async(req *DemoComplicatedRequest) DemoResponse
-	demo_check_async_safe(req DemoComplicatedRequest) DemoResponse
+	demo_check_async_safe(req *DemoComplicatedRequest) DemoResponse
 	demo_get_n() int32
 	demo_sum(a int32, b int32) int32
 }
@@ -83,15 +83,16 @@ type DemoCall interface {
 //export CDemoCall_demo_oneway
 func CDemoCall_demo_oneway(req C.DemoUserRef) {
 	_new_req := newDemoUser(req)
-	DemoCallImpl.demo_oneway(_new_req)
+	DemoCallImpl.demo_oneway(&_new_req)
 }
 
 //export CDemoCall_demo_check
 func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
 	_new_req := newDemoComplicatedRequest(req)
-	resp := DemoCallImpl.demo_check(_new_req)
+	resp := DemoCallImpl.demo_check(&_new_req)
 	resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
 }
@@ -102,7 +103,8 @@ func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, c
 	go func() {
 		resp := DemoCallImpl.demo_check_async(&_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
@@ -112,9 +114,10 @@ func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, c
 func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
 	_new_req := newDemoComplicatedRequest(req)
 	go func() {
-		resp := DemoCallImpl.demo_check_async_safe(_new_req)
+		resp := DemoCallImpl.demo_check_async_safe(&_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
@@ -124,7 +127,8 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 func CDemoCall_demo_get_n(slot *C.void, cb *C.void) {
 	resp := DemoCallImpl.demo_get_n()
 	resp_ref, buffer := cvt_ref(cntC_int32_t, refC_int32_t)(&resp)
-	C.DemoCall_demo_get_n_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	C.DemoCall_demo_get_n_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
 }
@@ -135,7 +139,8 @@ func CDemoCall_demo_sum(a C.int32_t, b C.int32_t, slot *C.void, cb *C.void) {
 	_new_b := newC_int32_t(b)
 	resp := DemoCallImpl.demo_sum(_new_a, _new_b)
 	resp_ref, buffer := cvt_ref(cntC_int32_t, refC_int32_t)(&resp)
-	C.DemoCall_demo_sum_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	C.DemoCall_demo_sum_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
 }

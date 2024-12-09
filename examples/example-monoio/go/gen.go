@@ -66,7 +66,6 @@ import "C"
 import (
 	"reflect"
 	"runtime"
-	"sync"
 	"unsafe"
 )
 
@@ -95,7 +94,6 @@ func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.v
 	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
-	recDemoComplicatedRequest(&_new_req, _GLOBAL_POOL)
 }
 
 //export CDemoCall_demo_check_async
@@ -107,7 +105,6 @@ func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, c
 		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
-		recDemoComplicatedRequest(&_new_req, _GLOBAL_POOL)
 	}()
 }
 
@@ -120,7 +117,6 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
-		recDemoComplicatedRequest(&_new_req, _GLOBAL_POOL)
 	}()
 }
 
@@ -168,36 +164,17 @@ func refString(s *string, _ *[]byte) C.StringRef {
 	}
 }
 
+func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		input := unsafe.Slice((*T1)(unsafe.Pointer(x.ptr)), x.len)
-
-		// try to get from _GLOBAL_POOL
-		elem := _GLOBAL_POOL.Get(reflect.TypeOf([]T2{}))
-		var output []T2
-		if elem != nil {
-			output = elem.([]T2)
-			if cap(output) < len(input) {
-				// if the capacity is not enough, create a new one
-				// old one will not be used anymore
-				output = make([]T2, len(input))
-			} else {
-				// if the capacity is enough, truncate the slice
-				output = output[:len(input)]
-			}
-		} else {
-			// if not found in _GLOBAL_POOL, create a new one
-			output = make([]T2, len(input))
-		}
-
+		output := make([]T2, len(input))
 		for i, v := range input {
 			output[i] = f(v)
 		}
 		return output
 	}
 }
-
-func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper_primitive[T1, T2 any](_ func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
 		return unsafe.Slice((*T2)(unsafe.Pointer(x.ptr)), x.len)
@@ -324,47 +301,6 @@ func refC_intptr_t(p *int, _ *[]byte) C.intptr_t    { return C.intptr_t(*p) }
 func refC_float(p *float32, _ *[]byte) C.float      { return C.float(*p) }
 func refC_double(p *float64, _ *[]byte) C.double    { return C.double(*p) }
 
-type _GenericPool struct {
-	mapping map[reflect.Type]*sync.Pool
-	mu      sync.RWMutex
-}
-
-func (p *_GenericPool) Get(typ reflect.Type) interface{} {
-	p.mu.RLock()
-	pool, ok := p.mapping[typ]
-	p.mu.RUnlock()
-	if !ok {
-		return nil
-	}
-	return pool.Get()
-}
-
-// x: []T
-func (p *_GenericPool) Put(x interface{}) {
-	// check if x is []T
-	typ := reflect.TypeOf(x)
-	if typ.Kind() != reflect.Slice {
-		return
-	}
-
-	p.mu.RLock()
-	pool, ok := p.mapping[typ]
-	p.mu.RUnlock()
-	if !ok {
-		pool = &sync.Pool{}
-		p.mu.Lock()
-		if _, ok := p.mapping[typ]; !ok {
-			p.mapping[typ] = pool
-		}
-		p.mu.Unlock()
-	}
-	pool.Put(x)
-}
-
-var _GLOBAL_POOL = &_GenericPool{
-	mapping: make(map[reflect.Type]*sync.Pool),
-}
-
 type DemoUser struct {
 	name string
 	age  uint8
@@ -375,8 +311,6 @@ func newDemoUser(p C.DemoUserRef) DemoUser {
 		name: newString(p.name),
 		age:  newC_uint8_t(p.age),
 	}
-}
-func recDemoUser(s *DemoUser, p *_GenericPool) {
 }
 func cntDemoUser(s *DemoUser, cnt *uint) [0]C.DemoUserRef {
 	return [0]C.DemoUserRef{}
@@ -399,9 +333,6 @@ func newDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedReq
 		balabala: new_list_mapper_primitive(newC_uint8_t)(p.balabala),
 	}
 }
-func recDemoComplicatedRequest(s *DemoComplicatedRequest, p *_GenericPool) {
-	p.Put(s.users)
-}
 func cntDemoComplicatedRequest(s *DemoComplicatedRequest, cnt *uint) [0]C.DemoComplicatedRequestRef {
 	cnt_list_mapper(cntDemoUser)(&s.users, cnt)
 	return [0]C.DemoComplicatedRequestRef{}
@@ -421,8 +352,6 @@ func newDemoResponse(p C.DemoResponseRef) DemoResponse {
 	return DemoResponse{
 		pass: newC_bool(p.pass),
 	}
-}
-func recDemoResponse(s *DemoResponse, p *_GenericPool) {
 }
 func cntDemoResponse(s *DemoResponse, cnt *uint) [0]C.DemoResponseRef {
 	return [0]C.DemoResponseRef{}

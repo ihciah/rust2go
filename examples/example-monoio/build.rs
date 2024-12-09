@@ -7,7 +7,6 @@ fn main() {
             src: "./src/user.rs".into(),
             dst: "./go/gen.go".into(),
             go118: true,
-            recycle: true,
             ..Default::default()
         })
         .build();

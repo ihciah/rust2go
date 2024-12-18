@@ -180,7 +180,8 @@ impl<T, A> SlotWriter<T, A> {
     #[inline]
     pub fn write(mut self, data: T) {
         if unsafe { self.0.as_mut() }.write(data).is_none() {
-            if let Some(waker) = unsafe { self.0.as_ref().waker.lock().unwrap().take() } {
+            let waker = unsafe { self.0.as_ref().waker.lock().unwrap().take() };
+            if let Some(waker) = waker {
                 drop(self);
                 waker.wake();
             }

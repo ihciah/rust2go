@@ -13,16 +13,39 @@ use tokio::{io::AsyncReadExt, net::UnixStream};
 pub(crate) fn new_pair() -> Result<(RawFd, RawFd), Error> {
     // create unix stream pair
     let mut fds = [-1; 2];
-    if unsafe {
-        libc::socketpair(
-            libc::AF_UNIX,
-            libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
-            0,
-            fds.as_mut_ptr(),
-        )
-    } == -1
-    {
-        return Err(Error::last_os_error());
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "linux"
+    ))]
+    let flag = libc::SOCK_STREAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC;
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    let flag = libc::SOCK_STREAM;
+
+    macro_rules! ret_last_error {
+        ($fn: ident ( $($arg: expr),* $(,)* )) => {
+            if ::libc::$fn($($arg, )*) == -1 {
+                return Err(Error::last_os_error());
+            }
+        };
+    }
+
+    unsafe {
+        ret_last_error!(socketpair(libc::AF_UNIX, flag, 0, fds.as_mut_ptr()));
+        for fd in fds.iter() {
+            ret_last_error!(setsockopt(
+                // set socket option
+                *fd,
+                libc::SOL_SOCKET,
+                libc::SO_NOSIGPIPE,
+                &1 as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as u32,
+            ));
+        }
     }
 
     Ok((fds[0], fds[1]))

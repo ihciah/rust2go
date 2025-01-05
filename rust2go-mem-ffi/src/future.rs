@@ -1,3 +1,5 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use std::{future::Future, task::Waker};
 
 use crate::SharedMut;

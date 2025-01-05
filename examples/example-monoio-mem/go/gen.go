@@ -32,18 +32,6 @@ typedef struct DemoUserRef {
   uint8_t age;
 } DemoUserRef;
 
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
-((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
-}
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
-((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
-}
-
 typedef struct QueueMeta {
     uintptr_t buffer_ptr;
     uintptr_t buffer_len;
@@ -66,9 +54,9 @@ import (
 var DemoCallImpl DemoCall
 
 type DemoCall interface {
-	demo_oneway(req DemoUser)
-	demo_check_async(req DemoComplicatedRequest) DemoResponse
-	demo_check_async_safe(req DemoComplicatedRequest) DemoResponse
+	demo_oneway(req *DemoUser)
+	demo_check_async(req *DemoComplicatedRequest) DemoResponse
+	demo_check_async_safe(req *DemoComplicatedRequest) DemoResponse
 }
 
 func ringHandleDemoCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
@@ -76,10 +64,9 @@ func ringHandleDemoCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 }
 func ringHandleDemoCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
-	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
 	req_ := newDemoComplicatedRequest(req)
 	pool.Submit(func() {
-		resp := DemoCallImpl.demo_check_async(req_)
+		resp := DemoCallImpl.demo_check_async(&req_)
 		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
 		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
 		offset := uint(len(buffer))
@@ -89,10 +76,9 @@ func ringHandleDemoCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 }
 func ringHandleDemoCall2(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	req := *(*C.DemoComplicatedRequestRef)(ptr)
-	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(req))
 	req_ := newDemoComplicatedRequest(req)
 	pool.Submit(func() {
-		resp := DemoCallImpl.demo_check_async_safe(req_)
+		resp := DemoCallImpl.demo_check_async_safe(&req_)
 		resp_ref_size := uint(unsafe.Sizeof(C.DemoResponseRef{}))
 		resp_ref, buffer := cvt_ref_cap(cntDemoResponse, refDemoResponse, resp_ref_size)(&resp)
 		offset := uint(len(buffer))
@@ -130,6 +116,9 @@ func refString(s *string, _ *[]byte) C.StringRef {
 	}
 }
 
+func ownString(s_ref C.StringRef) string {
+	return string(unsafe.Slice((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len)))
+}
 func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
@@ -278,7 +267,15 @@ func newDemoUser(p C.DemoUserRef) DemoUser {
 		age:  newC_uint8_t(p.age),
 	}
 }
+func ownDemoUser(p C.DemoUserRef) DemoUser {
+	return DemoUser{
+		name: ownString(p.name),
+		age:  newC_uint8_t(p.age),
+	}
+}
 func cntDemoUser(s *DemoUser, cnt *uint) [0]C.DemoUserRef {
+	_ = s
+	_ = cnt
 	return [0]C.DemoUserRef{}
 }
 func refDemoUser(p *DemoUser, buffer *[]byte) C.DemoUserRef {
@@ -297,6 +294,12 @@ func newDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedReq
 	return DemoComplicatedRequest{
 		users:    new_list_mapper(newDemoUser)(p.users),
 		balabala: new_list_mapper_primitive(newC_uint8_t)(p.balabala),
+	}
+}
+func ownDemoComplicatedRequest(p C.DemoComplicatedRequestRef) DemoComplicatedRequest {
+	return DemoComplicatedRequest{
+		users:    new_list_mapper(ownDemoUser)(p.users),
+		balabala: new_list_mapper(newC_uint8_t)(p.balabala),
 	}
 }
 func cntDemoComplicatedRequest(s *DemoComplicatedRequest, cnt *uint) [0]C.DemoComplicatedRequestRef {
@@ -319,7 +322,14 @@ func newDemoResponse(p C.DemoResponseRef) DemoResponse {
 		pass: newC_bool(p.pass),
 	}
 }
+func ownDemoResponse(p C.DemoResponseRef) DemoResponse {
+	return DemoResponse{
+		pass: newC_bool(p.pass),
+	}
+}
 func cntDemoResponse(s *DemoResponse, cnt *uint) [0]C.DemoResponseRef {
+	_ = s
+	_ = cnt
 	return [0]C.DemoResponseRef{}
 }
 func refDemoResponse(p *DemoResponse, buffer *[]byte) C.DemoResponseRef {

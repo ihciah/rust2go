@@ -1,3 +1,5 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum MemType {

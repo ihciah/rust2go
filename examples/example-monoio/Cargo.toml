@@ -2,6 +2,8 @@
 name = "example-monoio"
 version = "0.1.0"
 edition = "2021"
+authors.workspace = true
+license.workspace = true
 publish = false
 
 [dependencies]
@@ -14,6 +16,3 @@ rust2go = { path = "../../rust2go", features = ["build"] }
 [[bin]]
 name = "example-cgo"
 path = "src/main.rs"
-
-[profile.release]
-debug = true

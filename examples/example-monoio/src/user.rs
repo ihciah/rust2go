@@ -59,5 +59,6 @@ pub trait DemoCall {
     ) -> impl std::future::Future<Output = DemoResponse>;
     fn demo_get_n() -> i32;
     #[go_pass_struct]
+    #[cgo_callback]
     fn demo_sum(a: i32, b: i32) -> i32;
 }

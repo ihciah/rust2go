@@ -1,6 +1,8 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use rust2go_common::{raw_file::TraitRepr, sbail};
+use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
 #[proc_macro_derive(R2G)]
@@ -90,8 +92,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-#[proc_macro_attribute]
-pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
+fn parse_attrs(attrs: TokenStream) -> (Option<syn::Path>, Option<usize>) {
     let mut binding_path = None;
     let mut queue_size = None;
 
@@ -119,9 +120,40 @@ pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
     }
+    (binding_path, queue_size)
+}
+
+#[proc_macro_attribute]
+pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let (binding_path, queue_size) = parse_attrs(attrs);
     syn::parse::<syn::ItemTrait>(item)
         .and_then(|trat| r2g_trait(binding_path, queue_size, trat))
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
+}
+
+#[proc_macro_attribute]
+pub fn g2r(_attrs: TokenStream, item: TokenStream) -> TokenStream {
+    syn::parse::<syn::ItemTrait>(item)
+        .and_then(g2r_trait)
+        .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
+}
+
+fn g2r_trait(mut trat: syn::ItemTrait) -> syn::Result<TokenStream> {
+    let trat_repr = G2RTraitRepr::try_from(&trat)?;
+
+    for trat_fn in trat.items.iter_mut() {
+        match trat_fn {
+            syn::TraitItem::Fn(f) => {
+                // remove attributes of all functions
+                f.attrs.clear();
+            }
+            _ => sbail!("only fn is supported"),
+        }
+    }
+
+    let mut out = quote! {#trat};
+    out.extend(trat_repr.generate_rs()?);
+    Ok(out.into())
 }
 
 fn r2g_trait(
@@ -129,7 +161,7 @@ fn r2g_trait(
     queue_size: Option<usize>,
     mut trat: syn::ItemTrait,
 ) -> syn::Result<TokenStream> {
-    let trat_repr = TraitRepr::try_from(&trat)?;
+    let trat_repr = R2GTraitRepr::try_from(&trat)?;
 
     for (fn_repr, trat_fn) in trat_repr.fns().iter().zip(trat.items.iter_mut()) {
         match trat_fn {

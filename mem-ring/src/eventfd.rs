@@ -1,5 +1,6 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use std::{
-    cell::UnsafeCell,
     io::Error,
     os::fd::{AsRawFd, FromRawFd, RawFd},
 };
@@ -32,19 +33,35 @@ pub(crate) fn new_pair() -> Result<(RawFd, RawFd), Error> {
                 return Err(Error::last_os_error());
             }
         };
+        ($fn: ident ( $($arg: expr),* $(,)* ), $fds: ident) => {
+            if ::libc::$fn($($arg, )*) == -1 {
+                for fd in $fds {
+                    ::libc::close(fd);
+                }
+                return Err(Error::last_os_error());
+            }
+        };
     }
 
     unsafe {
         ret_last_error!(socketpair(libc::AF_UNIX, flag, 0, fds.as_mut_ptr()));
+        #[cfg(target_vendor = "apple")]
         for fd in fds.iter() {
-            ret_last_error!(setsockopt(
-                // set socket option
-                *fd,
-                libc::SOL_SOCKET,
-                libc::SO_NOSIGPIPE,
-                &1 as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::c_int>() as u32,
-            ));
+            ret_last_error!(
+                setsockopt(
+                    *fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    &1 as *const _ as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as u32,
+                ),
+                fds
+            );
+        }
+
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        for fd in fds.iter() {
+            ret_last_error!(fcntl(*fd, libc::F_SETFL, libc::O_NONBLOCK), fds);
         }
     }
 
@@ -123,6 +140,7 @@ impl Awaiter {
 
     #[cfg(feature = "monoio")]
     pub(crate) async fn wait(&mut self) {
+        use std::cell::UnsafeCell;
         thread_local! {
             pub static BUF: UnsafeCell<Vec<u8>> = UnsafeCell::new(vec![0; 64]);
         }

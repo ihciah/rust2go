@@ -1,8 +1,10 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use std::io::Cursor;
 
 use clap::Parser;
 use itertools::Itertools as _;
-use rust2go_common::raw_file::RawRsFile;
+use rust2go_common::common::RawRsFile;
 
 #[derive(Parser, Debug, Default, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -54,35 +56,60 @@ pub fn generate(args: &Args) {
         .write(Cursor::new(&mut output));
 
     // Convert headers into golang.
-    let mut output = String::from_utf8(output).expect("Unable to convert to string");
+    let mut importc = String::from_utf8(output).expect("Unable to convert to string");
 
-    let traits = raw_file.convert_trait().unwrap();
-    let use_shm = traits
-        .iter()
-        .any(|t| t.fns().iter().any(|f| f.mem_call_id().is_some()));
-    let use_cgo = traits
-        .iter()
-        .any(|t| t.fns().iter().any(|f| f.mem_call_id().is_none()));
-    traits
-        .iter()
-        .for_each(|t| output.push_str(&t.generate_c_callbacks()));
-    if use_shm {
-        output.push_str(RawRsFile::go_shm_include());
+    let r2g_traits = raw_file.convert_r2g_trait().unwrap();
+    let g2r_traits = raw_file.convert_g2r_trait().unwrap();
+    macro_rules! r2g_any {
+        ($f: expr) => {
+            r2g_traits.iter().any(|t| t.fns().iter().any($f))
+        };
     }
+    macro_rules! g2r_any {
+        ($f: expr) => {
+            g2r_traits.iter().any(|t| t.fns().iter().any($f))
+        };
+    }
+    macro_rules! or_empty {
+        ($flag: expr, $content: expr) => {
+            if $flag {
+                $content
+            } else {
+                ""
+            }
+        };
+    }
+    let use_shm = r2g_any!(|f| f.mem_call_id().is_some());
+    let use_runtime =
+        r2g_any!(|f| f.mem_call_id().is_none()) || g2r_traits.iter().any(|t| !t.fns().is_empty());
+    let use_cgocall =
+        r2g_any!(|f| f.mem_call_id().is_none() && f.cgo_callback()) || g2r_any!(|f| f.cgo_call());
+    let use_asmcall =
+        r2g_any!(|f| f.mem_call_id().is_none() && !f.cgo_callback()) || g2r_any!(|f| !f.cgo_call());
+    if use_shm {
+        importc.push_str(RawRsFile::go_shm_include());
+    }
+    if g2r_traits.iter().any(|t| t.has_ret()) {
+        importc.push_str(RawRsFile::go_internal_drop());
+    }
+    g2r_traits.iter().for_each(|t| {
+        importc.push_str(&t.to_importc());
+    });
 
-    let import_shm = if use_shm {
+    let import_shm = or_empty!(
+        use_shm,
         "mem_ring \"github.com/ihciah/rust2go/mem-ring\"\n\"github.com/panjf2000/ants/v2\"\n"
-    } else {
-        ""
-    };
-    let import_cgo = if use_cgo { "\"runtime\"\n" } else { "" };
+    );
+    let import_runtime = or_empty!(use_runtime, "\"runtime\"\n");
+    let import_cgocall = or_empty!(use_cgocall, "\"github.com/ihciah/rust2go/cgocall\"\n");
+    let import_asmcall = or_empty!(use_asmcall, "\"github.com/ihciah/rust2go/asmcall\"\n");
+    let import_118 = or_empty!(args.go118, "\"reflect\"\n");
 
-    let import_118 = if args.go118 { "\"reflect\"\n" } else { "" };
     let mut go_content = format!(
-    "package main\n\n/*\n{output}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_cgo}{import_118}{import_shm})\n"
-);
+        "package main\n\n/*\n{importc}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_runtime}{import_118}{import_shm}\n{import_cgocall}{import_asmcall})\n"
+    );
     let levels = raw_file.convert_structs_levels().unwrap();
-    traits.iter().for_each(|t| {
+    r2g_traits.iter().for_each(|t| {
         go_content.push_str(&t.generate_go_interface());
         go_content.push_str(&t.generate_go_exports(&levels));
     });
@@ -94,6 +121,9 @@ pub fn generate(args: &Args) {
     if use_shm {
         go_content.push_str(RawRsFile::go_shm_ring_init());
     }
+    g2r_traits.iter().for_each(|t| {
+        go_content.push_str(&t.to_go(&levels));
+    });
     if !args.without_main {
         go_content.push_str("func main() {}\n");
     }

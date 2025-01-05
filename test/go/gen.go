@@ -59,42 +59,14 @@ typedef struct PMFriendResponseRef {
   bool succ;
   struct StringRef message;
 } PMFriendResponseRef;
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void TestCall_ping_cb(const void *f_ptr, uintptr_t* resp, const void *slot) {
-((void (*)(uintptr_t*, const void*))f_ptr)(resp, slot);
-}
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void TestCall_login_cb(const void *f_ptr, struct LoginResponseRef* resp, const void *slot) {
-((void (*)(struct LoginResponseRef*, const void*))f_ptr)(resp, slot);
-}
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void TestCall_add_friends_cb(const void *f_ptr, struct FriendsListResponseRef* resp, const void *slot) {
-((void (*)(struct FriendsListResponseRef*, const void*))f_ptr)(resp, slot);
-}
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void TestCall_delete_friends_cb(const void *f_ptr, struct FriendsListResponseRef* resp, const void *slot) {
-((void (*)(struct FriendsListResponseRef*, const void*))f_ptr)(resp, slot);
-}
-
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void TestCall_pm_friend_cb(const void *f_ptr, struct PMFriendResponseRef* resp, const void *slot) {
-((void (*)(struct PMFriendResponseRef*, const void*))f_ptr)(resp, slot);
-}
 */
 import "C"
 import (
 	"reflect"
 	"runtime"
 	"unsafe"
+
+	"github.com/ihciah/rust2go/asmcall"
 )
 
 var TestCallImpl TestCall
@@ -113,7 +85,7 @@ func CTestCall_ping(n C.uintptr_t, slot *C.void, cb *C.void) {
 	_new_n := newC_uintptr_t(n)
 	resp := TestCallImpl.ping(_new_n)
 	resp_ref, buffer := cvt_ref(cntC_uintptr_t, refC_uintptr_t)(&resp)
-	C.TestCall_ping_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
@@ -124,7 +96,7 @@ func CTestCall_login(req C.LoginRequestRef, slot *C.void, cb *C.void) {
 	_new_req := newLoginRequest(req)
 	resp := TestCallImpl.login(&_new_req)
 	resp_ref, buffer := cvt_ref(cntLoginResponse, refLoginResponse)(&resp)
-	C.TestCall_login_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
@@ -142,7 +114,7 @@ func CTestCall_add_friends(req C.FriendsListRequestRef, slot *C.void, cb *C.void
 	go func() {
 		resp := TestCallImpl.add_friends(&_new_req)
 		resp_ref, buffer := cvt_ref(cntFriendsListResponse, refFriendsListResponse)(&resp)
-		C.TestCall_add_friends_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
@@ -155,7 +127,7 @@ func CTestCall_delete_friends(req C.FriendsListRequestRef, slot *C.void, cb *C.v
 	go func() {
 		resp := TestCallImpl.delete_friends(&_new_req)
 		resp_ref, buffer := cvt_ref(cntFriendsListResponse, refFriendsListResponse)(&resp)
-		C.TestCall_delete_friends_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
@@ -168,7 +140,7 @@ func CTestCall_pm_friend(req C.PMFriendRequestRef, slot *C.void, cb *C.void) {
 	go func() {
 		resp := TestCallImpl.pm_friend(&_new_req)
 		resp_ref, buffer := cvt_ref(cntPMFriendResponse, refPMFriendResponse)(&resp)
-		C.TestCall_pm_friend_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
@@ -199,6 +171,9 @@ func refString(s *string, _ *[]byte) C.StringRef {
 	}
 }
 
+func ownString(s_ref C.StringRef) string {
+	return string(unsafe.Slice((*byte)(unsafe.Pointer(s_ref.ptr)), int(s_ref.len)))
+}
 func cntString(_ *string, _ *uint) [0]C.StringRef { return [0]C.StringRef{} }
 func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {
 	return func(x C.ListRef) []T2 {
@@ -349,7 +324,16 @@ func newUser(p C.UserRef) User {
 		age:  newC_uint8_t(p.age),
 	}
 }
+func ownUser(p C.UserRef) User {
+	return User{
+		id:   newC_uint32_t(p.id),
+		name: ownString(p.name),
+		age:  newC_uint8_t(p.age),
+	}
+}
 func cntUser(s *User, cnt *uint) [0]C.UserRef {
+	_ = s
+	_ = cnt
 	return [0]C.UserRef{}
 }
 func refUser(p *User, buffer *[]byte) C.UserRef {
@@ -371,7 +355,15 @@ func newLoginRequest(p C.LoginRequestRef) LoginRequest {
 		password: newString(p.password),
 	}
 }
+func ownLoginRequest(p C.LoginRequestRef) LoginRequest {
+	return LoginRequest{
+		user:     ownUser(p.user),
+		password: ownString(p.password),
+	}
+}
 func cntLoginRequest(s *LoginRequest, cnt *uint) [0]C.LoginRequestRef {
+	_ = s
+	_ = cnt
 	return [0]C.LoginRequestRef{}
 }
 func refLoginRequest(p *LoginRequest, buffer *[]byte) C.LoginRequestRef {
@@ -394,7 +386,16 @@ func newLoginResponse(p C.LoginResponseRef) LoginResponse {
 		token:   new_list_mapper_primitive(newC_uint8_t)(p.token),
 	}
 }
+func ownLoginResponse(p C.LoginResponseRef) LoginResponse {
+	return LoginResponse{
+		succ:    newC_bool(p.succ),
+		message: ownString(p.message),
+		token:   new_list_mapper(newC_uint8_t)(p.token),
+	}
+}
 func cntLoginResponse(s *LoginResponse, cnt *uint) [0]C.LoginResponseRef {
+	_ = s
+	_ = cnt
 	return [0]C.LoginResponseRef{}
 }
 func refLoginResponse(p *LoginResponse, buffer *[]byte) C.LoginResponseRef {
@@ -416,7 +417,15 @@ func newLogoutRequest(p C.LogoutRequestRef) LogoutRequest {
 		user_ids: new_list_mapper_primitive(newC_uint32_t)(p.user_ids),
 	}
 }
+func ownLogoutRequest(p C.LogoutRequestRef) LogoutRequest {
+	return LogoutRequest{
+		token:    new_list_mapper(newC_uint8_t)(p.token),
+		user_ids: new_list_mapper(newC_uint32_t)(p.user_ids),
+	}
+}
 func cntLogoutRequest(s *LogoutRequest, cnt *uint) [0]C.LogoutRequestRef {
+	_ = s
+	_ = cnt
 	return [0]C.LogoutRequestRef{}
 }
 func refLogoutRequest(p *LogoutRequest, buffer *[]byte) C.LogoutRequestRef {
@@ -437,7 +446,15 @@ func newFriendsListRequest(p C.FriendsListRequestRef) FriendsListRequest {
 		user_ids: new_list_mapper_primitive(newC_uint32_t)(p.user_ids),
 	}
 }
+func ownFriendsListRequest(p C.FriendsListRequestRef) FriendsListRequest {
+	return FriendsListRequest{
+		token:    new_list_mapper(newC_uint8_t)(p.token),
+		user_ids: new_list_mapper(newC_uint32_t)(p.user_ids),
+	}
+}
 func cntFriendsListRequest(s *FriendsListRequest, cnt *uint) [0]C.FriendsListRequestRef {
+	_ = s
+	_ = cnt
 	return [0]C.FriendsListRequestRef{}
 }
 func refFriendsListRequest(p *FriendsListRequest, buffer *[]byte) C.FriendsListRequestRef {
@@ -454,6 +471,11 @@ type FriendsListResponse struct {
 func newFriendsListResponse(p C.FriendsListResponseRef) FriendsListResponse {
 	return FriendsListResponse{
 		users: new_list_mapper(newUser)(p.users),
+	}
+}
+func ownFriendsListResponse(p C.FriendsListResponseRef) FriendsListResponse {
+	return FriendsListResponse{
+		users: new_list_mapper(ownUser)(p.users),
 	}
 }
 func cntFriendsListResponse(s *FriendsListResponse, cnt *uint) [0]C.FriendsListResponseRef {
@@ -479,7 +501,16 @@ func newPMFriendRequest(p C.PMFriendRequestRef) PMFriendRequest {
 		message: newString(p.message),
 	}
 }
+func ownPMFriendRequest(p C.PMFriendRequestRef) PMFriendRequest {
+	return PMFriendRequest{
+		user_id: newC_uint32_t(p.user_id),
+		token:   new_list_mapper(newC_uint8_t)(p.token),
+		message: ownString(p.message),
+	}
+}
 func cntPMFriendRequest(s *PMFriendRequest, cnt *uint) [0]C.PMFriendRequestRef {
+	_ = s
+	_ = cnt
 	return [0]C.PMFriendRequestRef{}
 }
 func refPMFriendRequest(p *PMFriendRequest, buffer *[]byte) C.PMFriendRequestRef {
@@ -501,7 +532,15 @@ func newPMFriendResponse(p C.PMFriendResponseRef) PMFriendResponse {
 		message: newString(p.message),
 	}
 }
+func ownPMFriendResponse(p C.PMFriendResponseRef) PMFriendResponse {
+	return PMFriendResponse{
+		succ:    newC_bool(p.succ),
+		message: ownString(p.message),
+	}
+}
 func cntPMFriendResponse(s *PMFriendResponse, cnt *uint) [0]C.PMFriendResponseRef {
+	_ = s
+	_ = cnt
 	return [0]C.PMFriendResponseRef{}
 }
 func refPMFriendResponse(p *PMFriendResponse, buffer *[]byte) C.PMFriendResponseRef {

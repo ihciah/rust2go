@@ -270,6 +270,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-bi"
+version = "0.1.0"
+dependencies = [
+ "rust2go",
+]
+
+[[package]]
 name = "example-monoio"
 version = "0.1.0"
 dependencies = [
@@ -765,6 +772,13 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
+
+[[package]]
+name = "rust-lib"
+version = "0.1.0"
+dependencies = [
+ "rust2go",
+]
 
 [[package]]
 name = "rust2go"

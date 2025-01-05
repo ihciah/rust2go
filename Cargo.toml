@@ -11,6 +11,8 @@ members = [
     "examples/example-tokio",
     "examples/example-monoio-mem",
     "examples/example-tokio-mem",
+    "examples/example-bidirectional",
+    "examples/example-go2rust/rust-lib",
     "test",
 ]
 resolver = "2"
@@ -18,7 +20,7 @@ resolver = "2"
 [workspace.package]
 authors = ["ihciah <ihciah@gmail.com>"]
 categories = ["development-tools::ffi", "external-ffi-bindings"]
-description = "Calling go from Rust with FFI."
+description = "Async Calling Between Go and Rust with FFI."
 edition = "2021"
 keywords = ["ffi", "golang", "go", "async"]
 license = "MIT/Apache-2.0"

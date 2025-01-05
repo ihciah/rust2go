@@ -1,0 +1,16 @@
+[package]
+name = "rust-lib"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+rust2go = { path = "../../../rust2go" }
+
+[build-dependencies]
+rust2go = { path = "../../../rust2go", features = ["build"] }

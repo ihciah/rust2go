@@ -1,3 +1,5 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use std::{
     env,
     path::{Path, PathBuf},
@@ -198,6 +200,7 @@ impl GoCompiler for DefaultGoCompiler {
             } else {
                 "-buildmode=c-shared"
             })
+            // .arg(r#"-gcflags="all=-N -l""#)
             .arg("-o")
             .arg(output)
             .arg(".");

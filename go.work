@@ -6,5 +6,7 @@ use (
 	./examples/example-tokio/go
 	./examples/example-monoio-mem/go
 	./examples/example-tokio-mem/go
+	./examples/example-bidirectional/go
+	./examples/example-go2rust
 	./test/go
 )

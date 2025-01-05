@@ -1,3 +1,5 @@
+// Copyright 2024 ihciah. All Rights Reserved.
+
 use std::{
     collections::VecDeque,
     future::Future,

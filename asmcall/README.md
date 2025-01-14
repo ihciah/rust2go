@@ -8,7 +8,7 @@ To avoid extensive checks, scheduling, and GC synchronization overhead, replacin
 
 This package provides four functions (corresponding to 0~3 arguments). Handwritten assembly is used for Go stack switching and ABI conversion on AMD64 and ARM64 platforms. For other platforms, it falls back to a CGO implementation.
 
-[fastcgo](https://github.com/petermattis/fastcgo) and [rustgo](https://words.filippo.io/rustgo/) were the first attempt at a similar optimization. Implemented seven years ago, it is no longer compatible with newer versions of the Go compiler. Drawing inspiration from fastcgo and refering to the Go runtime source code, I made a new implementation. The main differences include how the g pointer is switched, avoidance of asynchronous preemption, and added ARM64 assembly support.
+[fastcgo](https://github.com/petermattis/fastcgo) and [rustgo](https://words.filippo.io/rustgo/) were the first attempt at a similar optimization. Implemented seven years ago, it is no longer compatible with newer versions of the Go compiler. Drawing inspiration from fastcgo and referring to the Go runtime source code, I made a new implementation. The main differences include how the g pointer is switched, avoidance of asynchronous preemption, and added ARM64 assembly support.
 
 Core Principles:
 

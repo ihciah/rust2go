@@ -85,7 +85,8 @@ pub fn generate(args: &Args) {
     let use_cgocall =
         r2g_any!(|f| f.mem_call_id().is_none() && f.cgo_callback()) || g2r_any!(|f| f.cgo_call());
     let use_asmcall =
-        r2g_any!(|f| f.mem_call_id().is_none() && !f.cgo_callback()) || g2r_any!(|f| !f.cgo_call());
+        r2g_any!(|f| f.mem_call_id().is_none() && !f.cgo_callback() && f.ret().is_some())
+            || g2r_any!(|f| !f.cgo_call());
     if use_shm {
         importc.push_str(RawRsFile::go_shm_include());
     }

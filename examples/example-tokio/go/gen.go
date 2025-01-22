@@ -8,46 +8,46 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct StringRef {
-  const uint8_t *ptr;
-  uintptr_t len;
-} StringRef;
-
 typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
 } ListRef;
-
-typedef struct DemoUserRef {
-  struct StringRef name;
-  uint8_t age;
-} DemoUserRef;
-
-typedef struct DemoResponseRef {
-  bool pass;
-} DemoResponseRef;
 
 typedef struct DemoComplicatedRequestRef {
   struct ListRef users;
   struct ListRef balabala;
 } DemoComplicatedRequestRef;
 
+typedef struct DemoResponseRef {
+  bool pass;
+} DemoResponseRef;
+
+typedef struct StringRef {
+  const uint8_t *ptr;
+  uintptr_t len;
+} StringRef;
+
+typedef struct DemoUserRef {
+  struct StringRef name;
+  uint8_t age;
+} DemoUserRef;
+
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef resp, const void *slot) {
-((void (*)(struct DemoResponseRef, const void*))f_ptr)(resp, slot);
+inline void DemoCall_demo_check_async_safe_cb(const void *f_ptr, struct DemoResponseRef* resp, const void *slot) {
+((void (*)(struct DemoResponseRef*, const void*))f_ptr)(resp, slot);
 }
 */
 import "C"
@@ -68,14 +68,17 @@ type DemoCall interface {
 
 //export CDemoCall_demo_oneway
 func CDemoCall_demo_oneway(req C.DemoUserRef) {
-	DemoCallImpl.demo_oneway(newDemoUser(req))
+	_new_req := newDemoUser(req)
+	DemoCallImpl.demo_oneway(_new_req)
 }
 
 //export CDemoCall_demo_check
 func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
-	resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
+	_new_req := newDemoComplicatedRequest(req)
+	resp := DemoCallImpl.demo_check(_new_req)
 	resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+	C.DemoCall_demo_check_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
 	runtime.KeepAlive(resp)
 	runtime.KeepAlive(buffer)
 }
@@ -86,7 +89,8 @@ func CDemoCall_demo_check_async(req C.DemoComplicatedRequestRef, slot *C.void, c
 	go func() {
 		resp := DemoCallImpl.demo_check_async(_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+		C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
@@ -98,7 +102,8 @@ func CDemoCall_demo_check_async_safe(req C.DemoComplicatedRequestRef, slot *C.vo
 	go func() {
 		resp := DemoCallImpl.demo_check_async_safe(_new_req)
 		resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+		C.DemoCall_demo_check_async_safe_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()

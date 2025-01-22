@@ -509,7 +509,7 @@ typedef struct QueueMeta {
                     Ok(Node::List(Box::new(type_to_node(inside)?)))
                 }
                 "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize"
-                | "bool" | "char" => Ok(Node::Primitive),
+                | "bool" | "char" | "f32" | "f64" => Ok(Node::Primitive),
                 _ => Ok(Node::NamedStruct(seg.ident.clone())),
             }
         }
@@ -692,8 +692,8 @@ impl TryFrom<&ItemTrait> for TraitRepr {
             let go_ptr = fn_item
                 .attrs
                 .iter()
-                .any(|attr|
-                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("go_ptr")))
+                .all(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() != Some(&format_ident!("go_pass_struct")))
                 );
 
             let using_mem = fn_item
@@ -806,7 +806,7 @@ impl TryFrom<&Type> for ParamType {
         let seg = type_to_segment(ty)?;
         let param_type_inner = match seg.ident.to_string().as_str() {
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize"
-            | "bool" | "char" | "f32" => {
+            | "bool" | "char" | "f32" | "f64" => {
                 if !seg.arguments.is_none() {
                     sbail!("primitive types with arguments are not supported")
                 }
@@ -1215,26 +1215,15 @@ impl FnRepr {
         let fn_name = format!("{}_{}", trait_name, self.name);
         let c_resp_type = ret.to_c(true);
 
-        match self.is_async {
-            true => format!(
-                r#"
+        format!(
+            r#"
 // hack from: https://stackoverflow.com/a/69904977
 __attribute__((weak))
-inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot) {{
-((void (*)({c_resp_type}, const void*))f_ptr)(resp, slot);
+inline void {fn_name}_cb(const void *f_ptr, {c_resp_type}* resp, const void *slot) {{
+((void (*)({c_resp_type}*, const void*))f_ptr)(resp, slot);
 }}
 "#,
-            ),
-            false => format!(
-                r#"
-// hack from: https://stackoverflow.com/a/69904977
-__attribute__((weak))
-inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot) {{
-((void (*)({c_resp_type}, const void*))f_ptr)(resp, slot);
-}}
-"#,
-            ),
-        }
+        )
     }
 
     fn to_go_export(&self, trait_name: &str, levels: &HashMap<Ident, u8>) -> String {
@@ -1316,7 +1305,8 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 // func CDemoCall_demo_check(req C.DemoComplicatedRequestRef, slot *C.void, cb *C.void) {
                 //     resp := DemoCallImpl.demo_check(newDemoComplicatedRequest(req))
                 //     resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-                //     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+                //     C.DemoCall_demo_check_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+                //     runtime.KeepAlive(resp_ref)
                 //     runtime.KeepAlive(resp)
                 //     runtime.KeepAlive(buffer)
                 // }
@@ -1335,7 +1325,7 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     "resp_ref, buffer := cvt_ref({g2c_cnt}, {g2c_cvt})(&resp)\n"
                 ));
                 out.push_str(&format!(
-                    "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
+                    "C.{callback}(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))\n",
                 ));
                 out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
                 out.push_str("}\n");
@@ -1347,7 +1337,8 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                 //     go func() {
                 //         resp := DemoCallImpl.demo_check_async(_new_req)
                 //         resp_ref, buffer := cvt_ref(cntDemoResponse, refDemoResponse)(&resp)
-                //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))
+                //         C.DemoCall_demo_check_async_cb(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))
+                //         runtime.KeepAlive(resp)
                 //         runtime.KeepAlive(resp)
                 //         runtime.KeepAlive(buffer)
                 //     }()
@@ -1368,9 +1359,14 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
                     "resp_ref, buffer := cvt_ref({g2c_cnt}, {g2c_cvt})(&resp)\n"
                 ));
                 out.push_str(&format!(
-                    "C.{callback}(unsafe.Pointer(cb), resp_ref, unsafe.Pointer(slot))\n",
+                    "C.{callback}(unsafe.Pointer(cb), &resp_ref, unsafe.Pointer(slot))\n",
                 ));
+<<<<<<< HEAD
                 out.push_str("runtime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
+=======
+                out.push_str("runtime.KeepAlive(resp_ref)\nruntime.KeepAlive(resp)\nruntime.KeepAlive(buffer)\n");
+                out.push_str(&rec_req_lines);
+>>>>>>> 514b7d6 (improve: passing pointer instead of struct)
                 out.push_str("}()\n}\n");
             }
         }
@@ -1647,33 +1643,33 @@ inline void {fn_name}_cb(const void *f_ptr, {c_resp_type} resp, const void *slot
             }
             (false, Some(ret)) => {
                 // #[no_mangle]
-                // unsafe extern "C" fn demo_check_cb(resp: binding::DemoResponseRef, slot: *const ()) {
-                //     *(slot as *mut Option<DemoResponse>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                // unsafe extern "C" fn demo_check_cb(resp: *const binding::DemoResponseRef, slot: *const ()) {
+                //     *(slot as *mut Option<DemoResponse>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                 // }
                 let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 Ok(quote! {
-                    #[allow(clippy::useless_transmute)]
+                    #[allow(clippy::useless_transmute, clippy::transmute_ptr_to_ref)]
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(resp: #resp_ref_ty, slot: *const ()) {
-                        *(slot as *mut Option<#ret>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                    unsafe extern "C" fn #fn_name(resp: *const #resp_ref_ty, slot: *const ()) {
+                        *(slot as *mut Option<#ret>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                     }
                 })
             }
             (true, Some(ret)) => {
                 // #[no_mangle]
                 // unsafe extern "C" fn demo_check_async_cb(
-                //     resp: binding::DemoResponseRef,
+                //     resp: *const binding::DemoResponseRef,
                 //     slot: *const (),
                 // ) {
-                //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                 // }
                 let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 let func_param_types = self.params.iter().map(|p| &p.ty);
                 Ok(quote! {
-                    #[allow(clippy::useless_transmute)]
+                    #[allow(clippy::useless_transmute, clippy::transmute_ptr_to_ref)]
                     #[no_mangle]
-                    unsafe extern "C" fn #fn_name(resp: #resp_ref_ty, slot: *const ()) {
-                        ::rust2go::SlotWriter::<#ret, ((#(#func_param_types,)*), Vec<u8>)>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(&resp)));
+                    unsafe extern "C" fn #fn_name(resp: *const #resp_ref_ty, slot: *const ()) {
+                        ::rust2go::SlotWriter::<#ret, ((#(#func_param_types,)*), Vec<u8>)>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                     }
                 })
             }

@@ -50,7 +50,7 @@ func (d *Demo) ping(n uint) uint {
 }
 
 // Login with username or id.
-func (d *Demo) login(req LoginRequest) (r LoginResponse) {
+func (d *Demo) login(req *LoginRequest) (r LoginResponse) {
 	defer func() {
 		if r.succ {
 			fmt.Println("[go] login user success")
@@ -92,11 +92,11 @@ func (d *Demo) login(req LoginRequest) (r LoginResponse) {
 	}
 }
 
-func (d *Demo) logout(req User) {
+func (d *Demo) logout(req *User) {
 	fmt.Printf("[go] logout user %s\n", req.name)
 }
 
-func (d *Demo) add_friends(req FriendsListRequest) FriendsListResponse {
+func (d *Demo) add_friends(req *FriendsListRequest) FriendsListResponse {
 	if !valid_token(req.token) {
 		return FriendsListResponse{
 			users: []User{},
@@ -116,10 +116,10 @@ func (d *Demo) add_friends(req FriendsListRequest) FriendsListResponse {
 		users,
 	}
 }
-func (d *Demo) delete_friends(req FriendsListRequest) FriendsListResponse {
+func (d *Demo) delete_friends(req *FriendsListRequest) FriendsListResponse {
 	return d.add_friends(req)
 }
-func (d *Demo) pm_friend(req PMFriendRequest) PMFriendResponse {
+func (d *Demo) pm_friend(req *PMFriendRequest) PMFriendResponse {
 	if !valid_token(req.token) {
 		return PMFriendResponse{
 			succ:    false,

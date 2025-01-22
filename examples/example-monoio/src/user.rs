@@ -50,7 +50,6 @@ pub struct DemoResponse {
 pub trait DemoCall {
     fn demo_oneway(req: &DemoUser);
     fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
-    #[go_ptr]
     fn demo_check_async(
         req: &DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;
@@ -59,5 +58,6 @@ pub trait DemoCall {
         req: DemoComplicatedRequest,
     ) -> impl std::future::Future<Output = DemoResponse>;
     fn demo_get_n() -> i32;
+    #[go_pass_struct]
     fn demo_sum(a: i32, b: i32) -> i32;
 }

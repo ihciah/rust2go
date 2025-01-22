@@ -55,6 +55,7 @@ pub struct PMFriendResponse {
 
 #[rust2go::r2g]
 pub trait TestCall {
+    #[go_pass_struct]
     fn ping(n: usize) -> usize;
     fn login(req: &LoginRequest) -> LoginResponse;
     fn logout(req: &User);

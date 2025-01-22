@@ -1,2 +1,2 @@
-# Rust2Go Intergrated Test
+# Rust2Go Integrated Test
 

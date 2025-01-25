@@ -8,7 +8,7 @@
 #define G0ASMCALL                                         \
     /* save SP */                                         \
     MOVD    RSP, R4                                       \
-    /* read g.0 and g.m.g0                                \
+    /* read g.0 and g.m.g0 */                             \
     MOVD    0x30(g), R3            /* g.m */              \
     MOVD    0x0(R3), R3            /* g.m.g0 */           \
     /* mark unpreemptible by replacing g with g0 */       \
@@ -19,14 +19,14 @@
     AND     $~15, R3                                      \
     MOVD    R3, RSP                                       \
     /* push SP and original g */                          \
-    SUB     $0x10, RSP                                    \
-    MOVD    R4, 0x8(RSP)                                  \
-    MOVD    R5, (RSP)                                     \
+    SUB     $0x20, RSP                                    \
+    MOVD    R30, 0x10(RSP)                                \
+    STP     (R5, R4), (RSP)                               \
     /* call the function */                               \
     CALL    R8                                            \
     /* restore g and SP */                                \
-    MOVD    (RSP), g                                      \
-    MOVD    0x8(RSP), R3                                  \
+    LDP     (RSP), (g, R3)                                \
+    MOVD    0x10(RSP), R30                                \
     MOVD    R3, RSP                                       \
     RET
 

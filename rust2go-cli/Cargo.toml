@@ -16,7 +16,7 @@ rust2go-common = { version = "0.4.0", path = "../rust2go-common" }
 
 clap = { version = "4", features = ["derive"] }
 cbindgen = { version = "0.27", default-features = false }
-itertools = { version = "0.13" }
+itertools = { version = "0.14" }
 
 [[bin]]
 name = "rust2go-cli"

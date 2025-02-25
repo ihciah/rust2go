@@ -1,6 +1,6 @@
 mod user;
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     time::Instant,
 };
 

@@ -17,7 +17,6 @@ pub enum LinkType {
 pub struct Builder<GOSRC = (), GOC = DefaultGoCompiler> {
     go_src: GOSRC,
     out_dir: Option<PathBuf>,
-    out_name: Option<String>,
     binding_name: Option<String>,
     link: LinkType,
     regen_arg: Args,
@@ -43,7 +42,6 @@ impl Builder {
         Builder {
             go_src: (),
             out_dir: None,
-            out_name: None,
             binding_name: None,
             link: LinkType::Static,
             regen_arg: Args::default(),
@@ -57,7 +55,6 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
     pub fn with_go_src<S: Into<PathBuf>>(self, go_src: S) -> Builder<PathBuf, GOC> {
         Builder {
             go_src: go_src.into(),
-            out_name: self.out_name,
             out_dir: self.out_dir,
             binding_name: self.binding_name,
             link: self.link,
@@ -70,7 +67,6 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
     pub fn with_go_compiler<GOC2>(self, go_comp: GOC2) -> Builder<GOSRC, GOC2> {
         Builder {
             go_src: self.go_src,
-            out_name: self.out_name,
             out_dir: self.out_dir,
             binding_name: self.binding_name,
             link: self.link,
@@ -82,8 +78,8 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
 
     /// Default binding name is "_go_bindings.rs".
     /// Use with_binding to set it.
-    pub fn with_binding(mut self, out_name: &str) -> Self {
-        self.out_name = Some(out_name.to_string());
+    pub fn with_binding(mut self, binding_name: impl Into<String>) -> Self {
+        self.binding_name = Some(binding_name.into());
         self
     }
 

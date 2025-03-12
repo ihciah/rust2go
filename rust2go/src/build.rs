@@ -2,6 +2,7 @@
 
 use std::{
     env,
+    ffi::OsString,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -14,7 +15,8 @@ pub enum LinkType {
     Dynamic,
 }
 
-pub struct Builder<GOSRC = (), GOC = DefaultGoCompiler> {
+/// Builder is a builder for building rust2go.
+pub struct Builder<GOSRC = (), GOC = CustomArgGoCompiler> {
     go_src: GOSRC,
     out_dir: Option<PathBuf>,
     binding_name: Option<String>,
@@ -46,12 +48,13 @@ impl Builder {
             link: LinkType::Static,
             regen_arg: Args::default(),
             copy_lib: CopyLib::Disabled,
-            go_comp: DefaultGoCompiler,
+            go_comp: CustomArgGoCompiler::new(),
         }
     }
 }
 
 impl<GOSRC, GOC> Builder<GOSRC, GOC> {
+    /// Set go src.
     pub fn with_go_src<S: Into<PathBuf>>(self, go_src: S) -> Builder<PathBuf, GOC> {
         Builder {
             go_src: go_src.into(),
@@ -64,6 +67,7 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
         }
     }
 
+    /// Set go compiler.
     pub fn with_go_compiler<GOC2>(self, go_comp: GOC2) -> Builder<GOSRC, GOC2> {
         Builder {
             go_src: self.go_src,
@@ -74,6 +78,11 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
             copy_lib: self.copy_lib,
             go_comp,
         }
+    }
+
+    /// Get mutable reference to go compiler.
+    pub fn go_compiler_mut(&mut self) -> &mut GOC {
+        &mut self.go_comp
     }
 
     /// Default binding name is "_go_bindings.rs".
@@ -110,6 +119,28 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
     /// Copy DLL to target dir.
     pub fn with_copy_lib(mut self, copy_lib: CopyLib) -> Self {
         self.copy_lib = copy_lib;
+        self
+    }
+}
+
+impl<GOSRC> Builder<GOSRC, CustomArgGoCompiler> {
+    /// Append argument to go compiler.
+    /// This function only works with CustomArgGoCompiler.
+    /// This is a shortcut for `.go_compiler_mut().arg(arg)`.
+    pub fn compiler_arg(&mut self, arg: impl Into<OsString>) -> &mut Self {
+        self.go_comp.arg(arg);
+        self
+    }
+
+    /// Append environment variable to go compiler.
+    /// This function only works with CustomArgGoCompiler.
+    /// This is a shortcut for `.go_compiler_mut().env(key, val)`.
+    pub fn compiler_env(
+        &mut self,
+        key: impl Into<OsString>,
+        val: impl Into<OsString>,
+    ) -> &mut Self {
+        self.go_comp.env(key, val);
         self
     }
 }
@@ -182,6 +213,7 @@ pub trait GoCompiler {
     }
 }
 
+/// DefaultGoCompiler is a GoCompiler that uses default arguments.
 #[derive(Debug, Clone, Copy)]
 pub struct DefaultGoCompiler;
 impl GoCompiler for DefaultGoCompiler {
@@ -200,6 +232,70 @@ impl GoCompiler for DefaultGoCompiler {
             .arg("-o")
             .arg(output)
             .arg(".");
+
+        assert!(
+            go_build.status().expect("Go build failed").success(),
+            "Go build failed"
+        );
+    }
+}
+
+/// CustomArgGoCompiler is a GoCompiler that allows users to customize arguments and environment variables.
+#[derive(Debug, Clone)]
+pub struct CustomArgGoCompiler {
+    args: Vec<OsString>,
+    envs: Vec<(OsString, OsString)>,
+}
+impl CustomArgGoCompiler {
+    /// Create a new CustomArgGoCompiler.
+    pub fn new() -> Self {
+        Self {
+            args: Vec::new(),
+            envs: vec![("GO111MODULE".into(), "on".into())],
+        }
+    }
+    /// Append argument to go compiler.
+    pub fn arg(&mut self, arg: impl Into<OsString>) -> &mut Self {
+        self.args.push(arg.into());
+        self
+    }
+    /// Append environment variable to go compiler.
+    pub fn env(&mut self, key: impl Into<OsString>, val: impl Into<OsString>) -> &mut Self {
+        self.envs.push((key.into(), val.into()));
+        self
+    }
+    /// Get mutable reference to arguments.
+    pub fn args_mut(&mut self) -> &mut Vec<OsString> {
+        &mut self.args
+    }
+    /// Get mutable reference to environment variables.
+    pub fn envs_mut(&mut self) -> &mut Vec<(OsString, OsString)> {
+        &mut self.envs
+    }
+}
+impl Default for CustomArgGoCompiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl GoCompiler for CustomArgGoCompiler {
+    fn go_build(&self, go_src: &Path, link: LinkType, output: &Path) {
+        let mut go_build = Command::new("go");
+        let mut cmd = &mut go_build;
+        for (key, val) in &self.envs {
+            cmd = cmd.env(key, val);
+        }
+        cmd.current_dir(go_src)
+            .arg("build")
+            .arg(if link == LinkType::Static {
+                "-buildmode=c-archive"
+            } else {
+                "-buildmode=c-shared"
+            });
+        for arg in &self.args {
+            cmd = cmd.arg(arg);
+        }
+        cmd.arg("-o").arg(output).arg(".");
 
         assert!(
             go_build.status().expect("Go build failed").success(),

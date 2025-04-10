@@ -9,6 +9,13 @@ use std::{
 
 use rust2go_cli::Args;
 
+/// Static lib extension on non-Windows platforms.
+#[cfg(not(windows))]
+const LIB_EXT: &str = ".a";
+/// Static lib extension on Windows.
+#[cfg(windows)]
+const LIB_EXT: &str = ".lib";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkType {
     Static,
@@ -149,6 +156,8 @@ pub trait GoCompiler {
     fn go_build(&self, go_src: &Path, link: LinkType, output: &Path);
 
     fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
+        use std::env::consts::DLL_PREFIX;
+
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         let out_filename = filename(link);
         let output = out_dir.join(&out_filename);
@@ -191,7 +200,7 @@ pub trait GoCompiler {
         }
 
         let bindings = bindgen::Builder::default()
-            .header(out_dir.join("libgo.h").to_str().unwrap())
+            .header(out_dir.join(format!("{DLL_PREFIX}go.h")).to_str().unwrap())
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             .generate()
             .expect("Unable to generate bindings");
@@ -326,7 +335,7 @@ fn filename(link_type: LinkType) -> String {
     use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 
     match link_type {
-        LinkType::Static => format!("{DLL_PREFIX}go.a"),
+        LinkType::Static => format!("{DLL_PREFIX}go{LIB_EXT}"),
         LinkType::Dynamic => format!("{DLL_PREFIX}go{DLL_SUFFIX}"),
     }
 }

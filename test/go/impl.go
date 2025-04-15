@@ -102,14 +102,25 @@ func (d *Demo) add_friends(req *FriendsListRequest) FriendsListResponse {
 			users: []User{},
 		}
 	}
+
+	// Use a map to store processed user IDs to ensure deduplication
+	processedIDs := make(map[uint32]bool)
 	users := make([]User, 0, len(req.user_ids))
+
 	for _, v := range req.user_ids {
+		// Skip if this ID has already been processed
+		if processedIDs[v] {
+			continue
+		}
+
 		if user, ok := d.id2user[v]; ok {
 			users = append(users, User{
 				id:   user.uid,
 				name: user.username,
 				age:  0,
 			})
+			// Mark this ID as processed
+			processedIDs[v] = true
 		}
 	}
 	return FriendsListResponse{

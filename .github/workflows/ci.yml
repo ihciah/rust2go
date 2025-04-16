@@ -11,11 +11,6 @@ concurrency:
   push:
     branches:
       - master
-env:
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: sccache
-  CC: sccache clang
-  CXX: sccache clang++
 jobs:
   test:
     name: build-and-test
@@ -24,10 +19,6 @@ jobs:
       GODEBUG: invalidptr=0,cgocheck=0
     steps:
       - uses: actions/checkout@v4
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
-        timeout-minutes: 5
-        continue-on-error: true
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
@@ -39,10 +30,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
-        timeout-minutes: 5
-        continue-on-error: true
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --check
       - run: cargo clippy --all-features --all-targets -- --deny warnings

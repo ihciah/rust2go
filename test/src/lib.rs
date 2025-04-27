@@ -9,6 +9,17 @@ mod tests {
         assert_eq!(TestCallImpl::ping(1995), 1995);
     }
 
+    #[test]
+    fn ping_zero() {
+        assert_eq!(TestCallImpl::ping(0), 0);
+    }
+
+    #[test]
+    fn ping_max() {
+        let max = usize::MAX;
+        assert_eq!(TestCallImpl::ping(max), max);
+    }
+
     #[monoio::test(timer_enabled = true)]
     async fn login() {
         macro_rules! login {
@@ -42,6 +53,31 @@ mod tests {
             name: String::new(),
             age: 0,
         });
+    }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn login_token() {
+        let success_resp = TestCallImpl::login(&LoginRequest {
+            user: User {
+                id: 1,
+                name: String::new(),
+                age: 0,
+            },
+            password: "test_psw".to_string(),
+        });
+        assert!(success_resp.succ);
+        assert!(!success_resp.token.is_empty());
+
+        let failure_resp = TestCallImpl::login(&LoginRequest {
+            user: User {
+                id: 1,
+                name: String::new(),
+                age: 0,
+            },
+            password: "wrong_psw".to_string(),
+        });
+        assert!(!failure_resp.succ);
+        assert!(failure_resp.token.is_empty());
     }
 
     #[monoio::test(timer_enabled = true)]

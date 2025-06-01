@@ -15,7 +15,7 @@ repository.workspace = true
 rust2go-common = { version = "0.4.0", path = "../rust2go-common" }
 
 clap = { version = "4", features = ["derive"] }
-cbindgen = { version = "0.28", default-features = false }
+cbindgen = { version = "0.29", default-features = false }
 itertools = { version = "0.14" }
 
 [[bin]]

@@ -380,12 +380,12 @@ impl R2GFnRepr {
             }
             fn_body.push_str("pool.Submit(func() {\n");
             fn_body.push_str(&format!(
-                "resp := {trait_name}Impl.{fn_name}({ref_mark}{params})\n",
+                "resp := {trait_name}Impl.{fn_name}({params})\n",
                 fn_name = self.name,
                 params = self
                     .params
                     .iter()
-                    .map(|p| format!("{}_", p.name))
+                    .map(|p| format!("{ref_mark}{}_", p.name))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));

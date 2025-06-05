@@ -343,4 +343,22 @@ mod tests {
             age: 0,
         });
     }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn test_multi_param_function() {
+        // Test function with multiple parameters to ensure all parameters get & prefix
+        let user = User {
+            id: 1,
+            name: "test_user".to_string(),
+            age: 25,
+        };
+        let message = "test message".to_string();
+        let token = vec![1, 2, 3, 4, 5];
+
+        let response = unsafe { TestCallImpl::multi_param_test(&user, &message, &token).await };
+
+        // Verify the response (implementation will be provided by Go side)
+        // For now, we just ensure the function can be called without panic
+        assert!(!response.message.is_empty());
+    }
 }

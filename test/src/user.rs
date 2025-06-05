@@ -54,6 +54,7 @@ pub struct PMFriendResponse {
 }
 
 #[rust2go::r2g]
+#[allow(clippy::ptr_arg)]
 pub trait TestCall {
     #[go_pass_struct]
     fn ping(n: usize) -> usize;
@@ -64,4 +65,6 @@ pub trait TestCall {
     async fn delete_friends(req: FriendsListRequest) -> FriendsListResponse;
     #[drop_safe_ret]
     async fn pm_friend(req: PMFriendRequest) -> PMFriendResponse;
+    #[mem_call]
+    async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
 }

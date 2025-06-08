@@ -160,3 +160,15 @@ func valid_token(token []uint8) bool {
 	}
 	return true
 }
+
+func (d *Demo) multi_param_test(user *User, message *string, token *[]uint8) LoginResponse {
+	// Test implementation for multi-parameter function
+	// This tests that all parameters are correctly passed with & prefix
+	fmt.Printf("[go] multi_param_test called with user: %+v, message: %s, token: %v\n", user, *message, *token)
+
+	return LoginResponse{
+		succ:    true,
+		message: fmt.Sprintf("Received user %s with message: %s", user.name, *message),
+		token:   *token,
+	}
+}

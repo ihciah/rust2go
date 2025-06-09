@@ -78,6 +78,7 @@ type TestCall interface {
 	add_friends(req *FriendsListRequest) FriendsListResponse
 	delete_friends(req *FriendsListRequest) FriendsListResponse
 	pm_friend(req *PMFriendRequest) PMFriendResponse
+	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
 }
 
 //export CTestCall_ping
@@ -140,6 +141,21 @@ func CTestCall_pm_friend(req C.PMFriendRequestRef, slot *C.void, cb *C.void) {
 	go func() {
 		resp := TestCallImpl.pm_friend(&_new_req)
 		resp_ref, buffer := cvt_ref(cntPMFriendResponse, refPMFriendResponse)(&resp)
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
+		runtime.KeepAlive(resp)
+		runtime.KeepAlive(buffer)
+	}()
+}
+
+//export CTestCall_multi_param_test
+func CTestCall_multi_param_test(user C.UserRef, message C.StringRef, token C.ListRef, slot *C.void, cb *C.void) {
+	_new_user := newUser(user)
+	_new_message := newString(message)
+	_new_token := new_list_mapper_primitive(newC_uint8_t)(token)
+	go func() {
+		resp := TestCallImpl.multi_param_test(&_new_user, &_new_message, &_new_token)
+		resp_ref, buffer := cvt_ref(cntLoginResponse, refLoginResponse)(&resp)
 		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)

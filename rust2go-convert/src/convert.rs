@@ -118,6 +118,20 @@ pub struct DataView {
     len: usize,
 }
 
+impl DataView {
+    #[inline]
+    fn new<T>(mut ptr: *const T, len: usize) -> Self {
+        if len == 0 {
+            // prevent passing NonNull::dangling() to Go when len == 0
+            ptr = std::ptr::null();
+        }
+        Self {
+            ptr: ptr.cast(),
+            len,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct ListRef(DataView);
@@ -136,10 +150,7 @@ impl<T: ToRef> ToRef for Vec<T> {
     }
 
     fn to_ref(&self, writer: &mut Writer) -> Self::Ref {
-        let mut data = ListRef(DataView {
-            ptr: self.as_ptr().cast(),
-            len: self.len(),
-        });
+        let mut data = ListRef(DataView::new(self.as_ptr(), self.len()));
 
         if matches!(Self::MEM_TYPE, MemType::Complex) {
             data.0.ptr = writer.as_ptr().cast();
@@ -178,10 +189,7 @@ impl ToRef for String {
 
     #[inline]
     fn to_ref(&self, _: &mut Writer) -> Self::Ref {
-        StringRef(DataView {
-            ptr: self.as_ptr().cast(),
-            len: self.len(),
-        })
+        StringRef(DataView::new(self.as_ptr(), self.len()))
     }
 }
 

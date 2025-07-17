@@ -405,7 +405,7 @@ typedef struct QueueMeta {
                 // }
                 Item::Struct(s) => {
                     let struct_name = s.ident.to_string();
-                    out.push_str(&format!("type {} struct {{\n", struct_name));
+                    out.push_str(&format!("type {struct_name} struct {{\n"));
                     for field in s.fields.iter() {
                         let field_name = field
                             .ident

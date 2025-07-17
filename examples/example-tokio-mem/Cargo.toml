@@ -18,5 +18,5 @@ tokio = { version = "1", features = ["full"] }
 rust2go = { path = "../../rust2go", features = ["build"] }
 
 [[bin]]
-name = "example"
+name = "example-tokio-mem"
 path = "src/main.rs"

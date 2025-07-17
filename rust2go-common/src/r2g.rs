@@ -416,7 +416,7 @@ impl R2GFnRepr {
             let new_name = format_ident!("_new_{}", p.name);
             let cvt = p.ty.c_to_go_field_converter(levels).0;
             new_cvt.push_str(&format!("{new_name} := {cvt}({})\n", p.name));
-            new_names.push(format!("{ref_mark}{}", new_name));
+            new_names.push(format!("{ref_mark}{new_name}"));
         }
         match (self.is_async, &self.ret) {
             (true, None) => panic!("async function must have a return value"),

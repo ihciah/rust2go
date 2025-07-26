@@ -156,13 +156,32 @@ pub trait GoCompiler {
     fn go_build(&self, go_src: &Path, link: LinkType, output: &Path);
 
     fn build(&self, go_src: &Path, binding_name: &str, link: LinkType, copy_lib: &CopyLib) {
-        use std::env::consts::DLL_PREFIX;
-
         let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-        let out_filename = filename(link);
+        let out_filename = lib_filename(link);
         let output = out_dir.join(&out_filename);
 
-        self.go_build(go_src, link, output.as_path());
+        let header_filename = header_filename();
+        let header = out_dir.join(&header_filename);
+
+        {
+            // Get header file content and metadata to reset .h atime/mtime for compile speed.
+            let (header_content, header_time) = read_header_file(&header);
+
+            self.go_build(go_src, link, output.as_path());
+
+            let (header_content_after, _) = read_header_file(&header);
+            if header_content == header_content_after && !header_content_after.is_empty() {
+                // If the header file is not changed, reset atime/mtime to avoid recompilation.
+                if let Some((atime, mtime)) = header_time {
+                    if let Some(atime) = atime {
+                        let _ = fs_set_times::set_atime(&header, atime.into());
+                    }
+                    if let Some(mtime) = mtime {
+                        let _ = fs_set_times::set_mtime(&header, mtime.into());
+                    }
+                }
+            }
+        }
 
         // Copy the DLL file to target dir.
         if link == LinkType::Dynamic {
@@ -200,7 +219,7 @@ pub trait GoCompiler {
         }
 
         let bindings = bindgen::Builder::default()
-            .header(out_dir.join(format!("{DLL_PREFIX}go.h")).to_str().unwrap())
+            .header(header.to_str().unwrap())
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             .generate()
             .expect("Unable to generate bindings");
@@ -331,11 +350,37 @@ impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
     }
 }
 
-fn filename(link_type: LinkType) -> String {
+fn lib_filename(link_type: LinkType) -> String {
     use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 
     match link_type {
         LinkType::Static => format!("{DLL_PREFIX}go{LIB_EXT}"),
         LinkType::Dynamic => format!("{DLL_PREFIX}go{DLL_SUFFIX}"),
     }
+}
+
+fn header_filename() -> String {
+    use std::env::consts::DLL_PREFIX;
+
+    format!("{DLL_PREFIX}go.h")
+}
+
+// Helper function to read header file content, size, and times.
+#[allow(clippy::type_complexity)]
+fn read_header_file(
+    path: &Path,
+) -> (
+    Vec<u8>,
+    Option<(Option<std::time::SystemTime>, Option<std::time::SystemTime>)>,
+) {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok();
+    let mut content = Vec::new();
+    file.as_mut().and_then(|h| h.read_to_end(&mut content).ok());
+    let time = file
+        .as_ref()
+        .and_then(|f| f.metadata().ok())
+        .map(|m| (m.accessed().ok(), m.modified().ok()));
+    (content, time)
 }

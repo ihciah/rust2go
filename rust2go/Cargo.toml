@@ -1,6 +1,6 @@
 [package]
 name = "rust2go"
-version = "0.4.1"
+version = "0.4.2"
 
 description = "Rust2go main shared library."
 
@@ -18,7 +18,8 @@ rust2go-cli = { version = "0.4.1", path = "../rust2go-cli", optional = true }
 
 bindgen = { version = "0.71", optional = true }
 syn = { version = "2", features = ["full"], optional = true }
+fs-set-times = { version = "0.20", optional = true }
 
 [features]
 default = []
-build = ["syn", "bindgen", "rust2go-cli"]
+build = ["syn", "bindgen", "rust2go-cli", "fs-set-times"]

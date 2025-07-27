@@ -1,26 +1,44 @@
 #!/bin/bash
 
-# Version update script
+# Version update script for Rust2Go
 # Usage: ./scripts/update-version.sh <new_version>
-# Example: ./scripts/update-version.sh 0.4.2
+# Examples: 
+#   ./scripts/update-version.sh v0.4.2    (Go format - recommended)
+#   ./scripts/update-version.sh 0.4.2     (Rust format)
 
 set -e
 
-NEW_VERSION="$1"
+INPUT_VERSION="$1"
 
-if [ -z "$NEW_VERSION" ]; then
+if [ -z "$INPUT_VERSION" ]; then
     echo "Usage: $0 <new_version>"
-    echo "Example: $0 0.4.2"
+    echo "Examples:"
+    echo "  $0 v0.4.2    (Go format - recommended)"
+    echo "  $0 0.4.2     (Rust format)"
     exit 1
 fi
 
-# Validate version format
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
-    echo "Error: Invalid version format. Should be X.Y.Z or X.Y.Z-suffix format"
+# Handle Go format (v-prefixed) or Rust format
+if [[ "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+    GIT_VERSION="$INPUT_VERSION"
+    RUST_VERSION="${INPUT_VERSION#v}"  # Remove 'v' prefix
+    echo "🎯 Go format detected: $GIT_VERSION"
+elif [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+    RUST_VERSION="$INPUT_VERSION"
+    GIT_VERSION="v$INPUT_VERSION"  # Add 'v' prefix
+    echo "🦀 Rust format detected: $RUST_VERSION, will use Git tag: $GIT_VERSION"
+else
+    echo "Error: Invalid version format. Should be:"
+    echo "  v1.2.3 or v1.2.3-suffix (Go format)"
+    echo "  1.2.3 or 1.2.3-suffix (Rust format)"
     exit 1
 fi
 
-echo "Preparing to update version to $NEW_VERSION..."
+echo "Preparing to update Rust crates to version $RUST_VERSION..."
+echo "Git tag will be: $GIT_VERSION"
+
+# Use RUST_VERSION for updating Cargo.toml files
+NEW_VERSION="$RUST_VERSION"
 
 # Get current version
 CURRENT_VERSION=$(grep '^version = ' rust2go/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -91,11 +109,15 @@ cargo update
 
 echo "Version update completed!"
 echo ""
-echo "Next steps:"
+echo "📋 Next steps:"
 echo "1. Check the updates: git diff"
 echo "2. Build and test: cargo build && cargo test"
-echo "3. Commit changes: git add -A && git commit -m \"Bump version to $NEW_VERSION\""
-echo "4. Create tag: git tag v$NEW_VERSION"
+echo "3. Commit changes: git add -A && git commit -m \"Bump version to $RUST_VERSION\""
+echo "4. Create Git tag: git tag $GIT_VERSION"
 echo "5. Push changes: git push origin master --tags"
 echo ""
-echo "The release workflow will trigger automatically after pushing the tag!" 
+echo "🚀 The release workflow will trigger automatically after pushing the tag!"
+echo ""
+echo "📦 After release, users can install with:"
+echo "   Go:   go get github.com/ihciah/rust2go@$GIT_VERSION"
+echo "   Rust: cargo add rust2go@$RUST_VERSION" 

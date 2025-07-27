@@ -1,6 +1,15 @@
 # Automated Release System
 
-This repository has been configured with GitHub Actions workflows for automated release versioning, which can automatically build, package, and publish new versions.
+This repository has been configured with GitHub Actions workflows for automated release versioning, which can automatically build, package, and publish new versions for both **Go** and **Rust** ecosystems.
+
+## 📦 Unified Version Management
+
+This project uses **Go-style versioning** (`v1.2.3`) as the primary format to ensure compatibility with Go modules:
+
+- **Git Tags**: `v1.2.3` (Go standard format)
+- **Go Import**: `go get github.com/ihciah/rust2go@v1.2.3`  
+- **Rust Crates**: `1.2.3` (automatically converted, no `v` prefix)
+- **Cargo Add**: `cargo add rust2go@1.2.3`
 
 ## 🚀 Quick Start
 
@@ -21,10 +30,10 @@ This repository has been configured with GitHub Actions workflows for automated 
 **Just 3 commands!**
 
 ```bash
-# 1. Update version number (run in Git Bash/WSL)
-./scripts/update-version.sh 0.4.2
+# 1. Update version number (run in Git Bash/WSL) - Use Go format!
+./scripts/update-version.sh v0.4.2
 
-# 2. Commit and push
+# 2. Commit and push  
 git add -A && git commit -m "Release v0.4.2" && git tag v0.4.2 && git push origin master --tags
 
 # 3. Wait for automatic release completion 🎉
@@ -32,16 +41,18 @@ git add -A && git commit -m "Release v0.4.2" && git tag v0.4.2 && git push origi
 
 It's that simple! GitHub Actions will automatically:
 - ✅ Build multi-platform binary files
-- ✅ Create GitHub Release
+- ✅ Create GitHub Release with Go-compatible tag
 - ✅ Generate Changelog
-- ✅ Publish to Crates.io
+- ✅ Publish to Crates.io (Rust format)
 - ✅ Upload compiled files
+- ✅ Enable Go module imports with proper versioning
 
 ### Check Release Status
 
 1. **GitHub Actions**: Go to `Actions` page to view build status
 2. **GitHub Releases**: Go to `Releases` page to see newly published versions
 3. **Crates.io**: Check https://crates.io/crates/rust2go
+4. **Go Proxy**: Verify at https://proxy.golang.org/github.com/ihciah/rust2go/@v/list
 
 ## Features
 
@@ -57,9 +68,14 @@ It's that simple! GitHub Actions will automatically:
 
 1. **Run the version update script**:
    ```bash
-   # Run in Git Bash or WSL
-   ./scripts/update-version.sh 0.4.2
+   # Run in Git Bash or WSL - Use Go format!
+   ./scripts/update-version.sh v0.4.2
    ```
+   
+   The script automatically:
+   - Detects Go format (`v0.4.2`) or Rust format (`0.4.2`)
+   - Updates Rust crates to `0.4.2` 
+   - Prepares Git tag as `v0.4.2`
 
 2. **Check updates**:
    ```bash
@@ -100,7 +116,7 @@ If you want to create a release for an existing commit, you can manually trigger
 
 ### Release Preview Version
 ```bash
-./scripts/update-version.sh 0.4.2-beta.1
+./scripts/update-version.sh v0.4.2-beta.1
 git add -A && git commit -m "Release v0.4.2-beta.1" && git tag v0.4.2-beta.1 && git push origin master --tags
 ```
 
@@ -191,8 +207,8 @@ All crates in the workspace should maintain the same version number for:
 ## Example Workflow
 
 ```bash
-# 1. Update version
-./scripts/update-version.sh 0.5.0
+# 1. Update version (Use Go format!)
+./scripts/update-version.sh v0.5.0
 
 # 2. Check changes
 git diff
@@ -209,4 +225,8 @@ git push origin master --tags
 # 5. Wait for GitHub Actions to complete build and release
 ```
 
-After the release is complete, you can see the new release on the GitHub releases page, and the updated crates will be available on crates.io. 
+After the release is complete:
+- **GitHub Releases**: New release with `v0.5.0` tag
+- **Crates.io**: Updated crates with `0.5.0` version
+- **Go Users**: Can import with `go get github.com/ihciah/rust2go@v0.5.0`
+- **Rust Users**: Can add with `cargo add rust2go@0.5.0` 

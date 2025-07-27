@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'  # Go standard versioning format
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., v0.4.2)'
+        description: 'Version to release in Go format (e.g., v0.4.2)'
         required: true
         type: string
 
@@ -21,7 +21,9 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.get_version.outputs.version }}
+      git_version: ${{ steps.get_version.outputs.git_version }}
+      rust_version: ${{ steps.get_version.outputs.rust_version }}
+      version: ${{ steps.get_version.outputs.git_version }}  # Keep for compatibility
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,10 +34,17 @@ jobs:
         id: get_version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            GIT_VERSION="${{ github.event.inputs.version }}"
           else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            GIT_VERSION="${GITHUB_REF#refs/tags/}"
           fi
+          
+          # Extract version without 'v' prefix for Rust crates
+          RUST_VERSION="${GIT_VERSION#v}"
+          
+          echo "git_version=$GIT_VERSION" >> $GITHUB_OUTPUT
+          echo "rust_version=$RUST_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$GIT_VERSION" >> $GITHUB_OUTPUT  # Keep for compatibility
 
       - name: Generate changelog
         id: changelog
@@ -65,11 +74,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          name: Release ${{ steps.get_version.outputs.version }}
-          body: ${{ steps.changelog.outputs.changelog }}
+          tag_name: ${{ steps.get_version.outputs.git_version }}
+          name: Release ${{ steps.get_version.outputs.git_version }}
+          body: |
+            ## 🚀 Rust2Go ${{ steps.get_version.outputs.git_version }}
+            
+            ### 📦 Installation
+            
+            **Go Module:**
+            ```bash
+            go get github.com/ihciah/rust2go@${{ steps.get_version.outputs.git_version }}
+            ```
+            
+            **Rust Crate:**
+            ```bash
+            cargo add rust2go@${{ steps.get_version.outputs.rust_version }}
+            ```
+            
+            ${{ steps.changelog.outputs.changelog }}
           draft: false
-          prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+          prerelease: ${{ contains(steps.get_version.outputs.git_version, '-') }}
 
   build-artifacts:
     name: Build ${{ matrix.target }}
@@ -122,7 +146,7 @@ jobs:
           mkdir -p artifacts
           
           # Create target-specific directory
-          TARGET_DIR="artifacts/rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}"
+          TARGET_DIR="artifacts/rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}"
           mkdir -p "$TARGET_DIR"
           
           # Function to copy files - fail fast on missing files
@@ -140,14 +164,14 @@ jobs:
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
             copy_if_exists "target/${{ matrix.target }}/release/*.dll" "$TARGET_DIR"
             cp "target/${{ matrix.target }}/release/rust2go-cli.exe" "$TARGET_DIR/"
-            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip"
-            (cd artifacts && zip -r "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/")
+            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.zip"
+            (cd artifacts && zip -r "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}/")
           else
             copy_if_exists "target/${{ matrix.target }}/release/*.so" "$TARGET_DIR"
             copy_if_exists "target/${{ matrix.target }}/release/*.dylib" "$TARGET_DIR"
             cp "target/${{ matrix.target }}/release/rust2go-cli" "$TARGET_DIR/"
-            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz"
-            (cd artifacts && tar -czf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/")
+            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.tar.gz"
+            (cd artifacts && tar -czf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}/")
           fi
           
           # Copy important files
@@ -162,7 +186,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ needs.create-release.outputs.version }}
+          tag_name: ${{ needs.create-release.outputs.git_version }}
           files: artifacts/${{ env.ARCHIVE_NAME }}
 
   publish-crates:

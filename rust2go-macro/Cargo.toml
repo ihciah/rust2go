@@ -1,6 +1,6 @@
 [package]
 name = "rust2go-macro"
-version = "0.4.0"
+version = "0.4.2"
 
 description = "Rust2go macro."
 
@@ -16,7 +16,7 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-rust2go-common = { version = "0.4.0", path = "../rust2go-common" }
+rust2go-common = { version = "0.4.2", path = "../rust2go-common" }
 
 proc-macro2 = { version = "1" }
 quote = { version = "1" }

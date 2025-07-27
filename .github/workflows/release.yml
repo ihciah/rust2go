@@ -1,0 +1,202 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v0.4.2)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: sccache
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 2 | tail -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          
+          # Generate changelog
+          echo "## What's Changed" > changelog.md
+          echo "" >> changelog.md
+          git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> changelog.md
+          echo "" >> changelog.md
+          echo "" >> changelog.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...${{ steps.get_version.outputs.version }}" >> changelog.md
+          
+          # Set output
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+
+  build-artifacts:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-gnu
+            os: windows-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        timeout-minutes: 5
+        continue-on-error: true
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+
+
+      - name: Build Rust artifacts
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Build CLI
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p rust2go-cli
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          
+          # Create target-specific directory
+          TARGET_DIR="artifacts/rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$TARGET_DIR"
+          
+          # Function to copy files - fail fast on missing files
+          copy_if_exists() {
+            local pattern="$1"
+            local destination="$2"
+            
+            if ls $pattern 1> /dev/null 2>&1; then
+              cp $pattern "$destination/"
+              echo "✅ Copied $(basename $pattern)"
+            fi
+          }
+          
+          # Copy files based on target platform
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
+            copy_if_exists "target/${{ matrix.target }}/release/*.dll" "$TARGET_DIR"
+            cp "target/${{ matrix.target }}/release/rust2go-cli.exe" "$TARGET_DIR/"
+            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip"
+            (cd artifacts && zip -r "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/")
+          else
+            copy_if_exists "target/${{ matrix.target }}/release/*.so" "$TARGET_DIR"
+            copy_if_exists "target/${{ matrix.target }}/release/*.dylib" "$TARGET_DIR"
+            cp "target/${{ matrix.target }}/release/rust2go-cli" "$TARGET_DIR/"
+            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz"
+            (cd artifacts && tar -czf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/")
+          fi
+          
+          # Copy important files
+          cp README.md "$TARGET_DIR/"
+          cp LICENSE-MIT "$TARGET_DIR/"
+          cp LICENSE-APACHE "$TARGET_DIR/"
+          
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.create-release.outputs.version }}
+          files: artifacts/${{ env.ARCHIVE_NAME }}
+
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: create-release
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        timeout-minutes: 5
+        continue-on-error: true
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Publish crates in dependency order - fail fast on errors
+          cargo publish -p rust2go-common
+          sleep 10
+          cargo publish -p rust2go-convert
+          sleep 10
+          cargo publish -p rust2go-macro
+          sleep 10
+          cargo publish -p rust2go-mem-ffi
+          sleep 10
+          cargo publish -p mem-ring
+          sleep 10
+          cargo publish -p rust2go-cli
+          sleep 10
+          cargo publish -p rust2go 

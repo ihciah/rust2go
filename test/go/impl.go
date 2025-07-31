@@ -149,6 +149,14 @@ func (d *Demo) pm_friend(req *PMFriendRequest) PMFriendResponse {
 	}
 }
 
+func (d *Demo) optional_test(optional *Optional) Optional {
+	fmt.Printf("[go] optional_test called with optional: %+v\n", optional.optional)
+
+	return Optional{
+		optional: optional.optional,
+	}
+}
+
 func valid_token(token []uint8) bool {
 	if len(token) != 3 {
 		return false

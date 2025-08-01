@@ -32,7 +32,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
             return TokenStream::default();
         };
         match first_seg.ident.to_string().as_str() {
-            "Vec" => {
+            "Vec" | "Option" => {
                 ref_fields.push(quote! {#name: ::rust2go::ListRef});
             }
             "String" => {

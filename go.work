@@ -4,6 +4,7 @@ use (
 	.
 	./examples/example-monoio/go
 	./examples/example-tokio/go
+	./examples/example-tokio-musl/go
 	./examples/example-monoio-mem/go
 	./examples/example-tokio-mem/go
 	./examples/example-bidirectional/go

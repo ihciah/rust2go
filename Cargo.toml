@@ -9,6 +9,7 @@ members = [
     "mem-ring",
     "examples/example-monoio",
     "examples/example-tokio",
+    "examples/example-tokio-musl",
     "examples/example-monoio-mem",
     "examples/example-tokio-mem",
     "examples/example-bidirectional",

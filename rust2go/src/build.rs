@@ -20,6 +20,7 @@ const LIB_EXT: &str = ".lib";
 pub enum LinkType {
     Static,
     Dynamic,
+    Musl,
 }
 
 /// Builder is a builder for building rust2go.
@@ -53,6 +54,18 @@ impl Builder {
             out_dir: None,
             binding_name: None,
             link: LinkType::Static,
+            regen_arg: Args::default(),
+            copy_lib: CopyLib::Disabled,
+            go_comp: CustomArgGoCompiler::new(),
+        }
+    }
+
+    pub fn musl() -> Self {
+        Builder {
+            go_src: (),
+            out_dir: None,
+            binding_name: None,
+            link: LinkType::Musl,
             regen_arg: Args::default(),
             copy_lib: CopyLib::Disabled,
             go_comp: CustomArgGoCompiler::new(),
@@ -165,7 +178,7 @@ pub trait GoCompiler {
         self.go_build(go_src, link, output.as_path());
 
         // Copy the DLL file to target dir.
-        if link == LinkType::Dynamic {
+        if link == LinkType::Dynamic || link == LinkType::Musl {
             // A workaround to get target dir.
             // From https://github.com/rust-lang/cargo/issues/9661#issuecomment-1722358176
             fn get_cargo_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -228,6 +241,11 @@ pub struct DefaultGoCompiler;
 impl GoCompiler for DefaultGoCompiler {
     fn go_build(&self, go_src: &Path, link: LinkType, output: &Path) {
         let mut go_build = Command::new("go");
+
+        if link == LinkType::Musl {
+            go_build.env("CC", "musl-gcc");
+        }
+
         go_build
             .env("GO111MODULE", "on")
             .current_dir(go_src)
@@ -336,6 +354,7 @@ fn filename(link_type: LinkType) -> String {
 
     match link_type {
         LinkType::Static => format!("{DLL_PREFIX}go{LIB_EXT}"),
+        LinkType::Musl => format!("{DLL_PREFIX}go{LIB_EXT}"),
         LinkType::Dynamic => format!("{DLL_PREFIX}go{DLL_SUFFIX}"),
     }
 }

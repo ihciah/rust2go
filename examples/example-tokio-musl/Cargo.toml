@@ -1,0 +1,18 @@
+[package]
+name = "example-tokio-musl"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rust2go = { path = "../../rust2go" }
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+rust2go = { path = "../../rust2go", features = ["build"] }
+
+[[bin]]
+name = "example"
+path = "src/main.rs"

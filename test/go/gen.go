@@ -49,6 +49,10 @@ typedef struct LogoutRequestRef {
   struct ListRef user_ids;
 } LogoutRequestRef;
 
+typedef struct OptionalRef {
+  struct ListRef optional;
+} OptionalRef;
+
 typedef struct PMFriendRequestRef {
   uint32_t user_id;
   struct ListRef token;
@@ -79,6 +83,7 @@ type TestCall interface {
 	delete_friends(req *FriendsListRequest) FriendsListResponse
 	pm_friend(req *PMFriendRequest) PMFriendResponse
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
+	optional_test(optional *Optional) Optional
 }
 
 //export CTestCall_ping
@@ -161,6 +166,17 @@ func CTestCall_multi_param_test(user C.UserRef, message C.StringRef, token C.Lis
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
+}
+
+//export CTestCall_optional_test
+func CTestCall_optional_test(optional C.OptionalRef, slot *C.void, cb *C.void) {
+	_new_optional := newOptional(optional)
+	resp := TestCallImpl.optional_test(&_new_optional)
+	resp_ref, buffer := cvt_ref(cntOptional, refOptional)(&resp)
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
 }
 
 // An alternative impl of unsafe.String for go1.18
@@ -563,6 +579,30 @@ func refPMFriendResponse(p *PMFriendResponse, buffer *[]byte) C.PMFriendResponse
 	return C.PMFriendResponseRef{
 		succ:    refC_bool(&p.succ, buffer),
 		message: refString(&p.message, buffer),
+	}
+}
+
+type Optional struct {
+	optional []string
+}
+
+func newOptional(p C.OptionalRef) Optional {
+	return Optional{
+		optional: new_list_mapper(newString)(p.optional),
+	}
+}
+func ownOptional(p C.OptionalRef) Optional {
+	return Optional{
+		optional: new_list_mapper(ownString)(p.optional),
+	}
+}
+func cntOptional(s *Optional, cnt *uint) [0]C.OptionalRef {
+	cnt_list_mapper(cntString)(&s.optional, cnt)
+	return [0]C.OptionalRef{}
+}
+func refOptional(p *Optional, buffer *[]byte) C.OptionalRef {
+	return C.OptionalRef{
+		optional: ref_list_mapper(refString)(&p.optional, buffer),
 	}
 }
 func main() {}

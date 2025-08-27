@@ -361,4 +361,17 @@ mod tests {
         // For now, we just ensure the function can be called without panic
         assert!(!response.message.is_empty());
     }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn test_optional() {
+        let req = Optional { optional: None };
+        let res = TestCallImpl::optional_test(req);
+        assert_eq!(res.optional, None);
+
+        let req = Optional {
+            optional: Some("yes".to_string()),
+        };
+        let res = TestCallImpl::optional_test(req);
+        assert_eq!(res.optional, Some("yes".to_string()));
+    }
 }

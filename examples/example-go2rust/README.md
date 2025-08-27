@@ -81,7 +81,7 @@ In this demo, we will call rust from go. Rust is compiled as a statically/dynami
 
     `cdylib` is for dynamically link; `staticlib` is for statically link.
 
-6. Generate golang code with `rust2go-cli rust-lib/src/user.rs --dst gen.go --without-main`. Then you can call it in your `main.go` with `{$trait}Impl`, like:
+6. Generate golang code with `rust2go-cli --src rust-lib/src/user.rs --dst gen.go --without-main`. Then you can call it in your `main.go` with `{$trait}Impl`, like:
 
     ```go
     func main() {

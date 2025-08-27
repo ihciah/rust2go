@@ -7,6 +7,7 @@ pub struct DemoUser {
 
 // Define your own structs. You must derive `rust2go::R2G` for each struct.
 #[derive(rust2go::R2G, Clone, Copy)]
+#[allow(dead_code)]
 pub struct DemoResponse {
     pub pass: bool,
 }

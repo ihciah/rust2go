@@ -11,6 +11,7 @@ pub struct User {
 }
 
 #[derive(rust2go::R2G, Clone)]
+#[allow(dead_code)]
 pub struct LoginRequest {
     pub user: User,
     pub password: String,
@@ -24,6 +25,7 @@ pub struct LoginResponse {
 }
 
 #[derive(rust2go::R2G, Clone)]
+#[allow(dead_code)]
 pub struct LogoutRequest {
     pub token: Vec<u8>,
     pub user_ids: Vec<u32>,
@@ -55,6 +57,7 @@ pub struct PMFriendResponse {
 
 #[rust2go::r2g]
 #[allow(clippy::ptr_arg)]
+#[allow(dead_code)]
 pub trait TestCall {
     #[go_pass_struct]
     fn ping(n: usize) -> usize;

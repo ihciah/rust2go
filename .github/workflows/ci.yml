@@ -23,7 +23,7 @@ jobs:
     env:
       GODEBUG: invalidptr=0,cgocheck=0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
         timeout-minutes: 5
@@ -38,7 +38,7 @@ jobs:
     name: lint checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
         timeout-minutes: 5

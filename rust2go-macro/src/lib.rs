@@ -1,7 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
@@ -17,6 +17,12 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
         syn::Data::Struct(d) => d,
         _ => return TokenStream::default(),
     };
+    
+    for attr in input.attrs {
+        eprintln!("{:?}", attr.meta.to_token_stream());
+    }
+    
+    
     let type_name = input.ident;
     let type_name_str = type_name.to_string();
 

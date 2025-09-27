@@ -18,10 +18,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
         _ => return TokenStream::default(),
     };
     
-    for attr in input.attrs {
-        eprintln!("{:?}", attr.meta.to_token_stream());
-    }
-    
+    let attrs = input.attrs;
     
     let type_name = input.ident;
     let type_name_str = type_name.to_string();
@@ -63,6 +60,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
+        #(#attrs)*
         #[repr(C)]
         pub struct #ref_type_name {
             #(#ref_fields),*

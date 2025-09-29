@@ -57,17 +57,16 @@ pub struct PMFriendResponse {
 
 #[allow(non_snake_case)]
 #[derive(rust2go::R2G, Clone)]
-pub struct PreserveStructAttrsRequest{
+pub struct PreserveStructAttrsRequest {
     pub UserId: u64,
     pub UserName: String,
 }
 
 #[allow(non_snake_case)]
 #[derive(rust2go::R2G, Clone)]
-pub struct PreserveStructAttrsResponse{
+pub struct PreserveStructAttrsResponse {
     pub Success: bool,
 }
-
 
 #[rust2go::r2g]
 #[allow(clippy::ptr_arg)]
@@ -85,5 +84,7 @@ pub trait TestCall {
     #[mem_call]
     async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
 
-    async fn preserve_struct_attrs_test(data: &PreserveStructAttrsRequest) -> PreserveStructAttrsResponse;
+    async fn preserve_struct_attrs_test(
+        data: &PreserveStructAttrsRequest,
+    ) -> PreserveStructAttrsResponse;
 }

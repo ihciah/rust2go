@@ -172,3 +172,12 @@ func (d *Demo) multi_param_test(user *User, message *string, token *[]uint8) Log
 		token:   *token,
 	}
 }
+
+func (d *Demo) preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse {
+	// Test implementation for preserve_struct_attrs function
+	fmt.Printf("[go] preserve_struct_attrs_test called with data: %+v \n", data)
+
+	return PreserveStructAttrsResponse{
+		Success: true,
+	}
+}

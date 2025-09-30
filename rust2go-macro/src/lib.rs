@@ -1,7 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote};
 use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 

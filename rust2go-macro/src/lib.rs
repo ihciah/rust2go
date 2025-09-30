@@ -133,6 +133,15 @@ pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
 }
 
+/// Mark only
+#[proc_macro_attribute]
+pub fn r2g_struct_tag(_attrs: TokenStream, item: TokenStream) -> TokenStream {
+    let input_struct = parse_macro_input!(item as syn::DeriveInput);
+    TokenStream::from(quote! {
+        #input_struct
+    })
+}
+
 #[proc_macro_attribute]
 pub fn g2r(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     syn::parse::<syn::ItemTrait>(item)

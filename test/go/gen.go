@@ -590,8 +590,8 @@ func refPMFriendResponse(p *PMFriendResponse, buffer *[]byte) C.PMFriendResponse
 }
 
 type PreserveStructAttrsRequest struct {
-	UserId   uint64
-	UserName string
+	UserId   uint64 `json:"user_id" yaml:"userId"`
+	UserName string `json:"user_name" yaml:"userName"`
 }
 
 func newPreserveStructAttrsRequest(p C.PreserveStructAttrsRequestRef) PreserveStructAttrsRequest {
@@ -619,7 +619,7 @@ func refPreserveStructAttrsRequest(p *PreserveStructAttrsRequest, buffer *[]byte
 }
 
 type PreserveStructAttrsResponse struct {
-	Success bool
+	Success bool `json:"success" yaml:"Success"`
 }
 
 func newPreserveStructAttrsResponse(p C.PreserveStructAttrsResponseRef) PreserveStructAttrsResponse {

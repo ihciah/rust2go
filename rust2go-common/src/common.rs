@@ -1,11 +1,18 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
+use crate::{g2r::G2RTraitRepr, r2g::R2GTraitRepr};
+use heck::{
+    ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase,
+    ToTitleCase, ToTrainCase, ToUpperCamelCase
+};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
-use syn::{Error, File, Ident, Item, PathSegment, Result, Type};
-
-use crate::{g2r::G2RTraitRepr, r2g::R2GTraitRepr};
+use syn::parse::Parser;
+use syn::{
+    Attribute, Error, Expr, ExprLit, File, Ident, Item, Lit, Meta, MetaNameValue, PathSegment,
+    Result, Type,
+};
 
 pub struct RawRsFile {
     file: File,
@@ -404,6 +411,7 @@ typedef struct QueueMeta {
                 //     }
                 // }
                 Item::Struct(s) => {
+                    let go_struct_tag = Self::go_struct_tag(&s.attrs)?;
                     let struct_name = s.ident.to_string();
                     out.push_str(&format!("type {struct_name} struct {{\n"));
                     for field in s.fields.iter() {
@@ -413,7 +421,12 @@ typedef struct QueueMeta {
                             .ok_or_else(|| serr!("only named fields are supported"))?
                             .to_string();
                         let field_type = ParamType::try_from(&field.ty)?;
-                        out.push_str(&format!("    {} {}\n", field_name, field_type.to_go()));
+                        out.push_str(&format!(
+                            "    {} {} {}\n",
+                            field_name,
+                            field_type.to_go(),
+                            Self::gen_tag(&field_name, &go_struct_tag)
+                        ));
                     }
                     out.push_str("}\n");
 
@@ -600,6 +613,90 @@ typedef struct QueueMeta {
         }
         out.insert(Ident::new("String", Span::call_site()), 1);
         Ok(out)
+    }
+
+    fn is_r2g_struct_tag(attr: &Attribute) -> bool {
+        if attr.path().is_ident("r2g_struct_tag") {
+            return true;
+        }
+
+        let segments: Vec<_> = attr
+            .path()
+            .segments
+            .iter()
+            .map(|seg| seg.ident.to_string())
+            .collect();
+
+        if segments.len() == 2 && segments[0] == "rust2go" && segments[1] == "r2g_struct_tag" {
+            return true;
+        }
+
+        false
+    }
+    fn go_struct_tag(attrs: &[Attribute]) -> Result<Vec<(String, String)>> {
+        let mut hash_set = vec![];
+
+        for attr in attrs {
+            if Self::is_r2g_struct_tag(attr) {
+                let meta_list = match &attr.meta {
+                    Meta::List(meta_list) => meta_list,
+                    _ => continue,
+                };
+
+                let parser = syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated;
+                let metas = parser.parse2(meta_list.tokens.clone())?;
+
+                for meta in metas {
+                    if let Meta::NameValue(MetaNameValue {
+                        path,
+                        value:
+                            Expr::Lit(ExprLit {
+                                lit: Lit::Str(lit_str),
+                                ..
+                            }),
+                        ..
+                    }) = meta
+                    {
+                        if let Some(ident) = path.get_ident() {
+                            let key = ident.to_string();
+                            let value = lit_str.value();
+                            hash_set.push((key, value));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(hash_set)
+    }
+
+    fn gen_tag(field_name: &str, tag_list: &[(String, String)]) -> String {
+        let mut tags = vec![];
+        for (key, heck_type) in tag_list {
+            tags.push(format!(
+                "{}:{:?}",
+                key,
+                Self::heck_field_name(field_name, heck_type)
+            ));
+        }
+        if tags.is_empty() {
+            return String::new();
+        }
+        format!("`{}`", tags.join(" "))
+    }
+
+    fn heck_field_name(field_name: &str, heck_type: &str) -> String {
+        match heck_type {
+            "snake_case" => field_name.to_snake_case(),
+            "lowerCamelCase" => field_name.to_lower_camel_case(),
+            "UpperCamelCase" => field_name.to_upper_camel_case(),
+            "kebab-case" => field_name.to_kebab_case(),
+            "SHOUTY_SNAKE_CASE" => field_name.to_shouty_snake_case(),
+            "SHOUTY-KEBAB-CASE" => field_name.to_shouty_kebab_case(),
+            "Title Case" => field_name.to_title_case(),
+            "Train-Case" => field_name.to_train_case(),
+            _ => panic!("unknown heck type"),
+        }
     }
 }
 

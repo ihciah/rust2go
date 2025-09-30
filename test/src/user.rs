@@ -55,6 +55,9 @@ pub struct PMFriendResponse {
     pub message: String,
 }
 
+/// Supported: snake_case、lowerCamelCase、UpperCamelCase、kebab-case、
+/// SHOUTY_SNAKE_CASE、SHOUTY-KEBAB-CASE、Title Case、Train-Case
+#[rust2go::r2g_struct_tag(json = "snake_case", yaml = "lowerCamelCase")]
 #[allow(non_snake_case)]
 #[derive(rust2go::R2G, Clone)]
 pub struct PreserveStructAttrsRequest {
@@ -62,6 +65,9 @@ pub struct PreserveStructAttrsRequest {
     pub UserName: String,
 }
 
+/// Supported: snake_case、lowerCamelCase、UpperCamelCase、kebab-case、
+/// SHOUTY_SNAKE_CASE、SHOUTY-KEBAB-CASE、Title Case、Train-Case
+#[rust2go::r2g_struct_tag(json = "snake_case", yaml = "UpperCamelCase")]
 #[allow(non_snake_case)]
 #[derive(rust2go::R2G, Clone)]
 pub struct PreserveStructAttrsResponse {

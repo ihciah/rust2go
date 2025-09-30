@@ -1,7 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
@@ -136,10 +136,7 @@ pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
 /// Mark only
 #[proc_macro_attribute]
 pub fn r2g_struct_tag(_attrs: TokenStream, item: TokenStream) -> TokenStream {
-    let input_struct = parse_macro_input!(item as syn::DeriveInput);
-    TokenStream::from(quote! {
-        #input_struct
-    })
+    item
 }
 
 #[proc_macro_attribute]

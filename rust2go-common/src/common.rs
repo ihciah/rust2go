@@ -2,8 +2,8 @@
 
 use crate::{g2r::G2RTraitRepr, r2g::R2GTraitRepr};
 use heck::{
-    ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase,
-    ToTitleCase, ToTrainCase, ToUpperCamelCase
+    ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase, ToTitleCase,
+    ToTrainCase, ToUpperCamelCase,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};

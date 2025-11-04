@@ -152,7 +152,8 @@ impl<T: ToRef> ToRef for Vec<T> {
     fn to_ref(&self, writer: &mut Writer) -> Self::Ref {
         let mut data = ListRef(DataView::new(self.as_ptr(), self.len()));
 
-        if matches!(Self::MEM_TYPE, MemType::Complex) {
+        if matches!(Self::MEM_TYPE, MemType::Complex) && !self.is_empty() {
+            // prevent passing NonNull::dangling() to Go when self.is_empty()
             data.0.ptr = writer.as_ptr().cast();
             unsafe {
                 let mut children = writer.reserve(self.len() * std::mem::size_of::<T::Ref>());

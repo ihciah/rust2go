@@ -55,6 +55,25 @@ pub struct PMFriendResponse {
     pub message: String,
 }
 
+/// Supported: snake_case、lowerCamelCase、UpperCamelCase、kebab-case、
+/// SHOUTY_SNAKE_CASE、SHOUTY-KEBAB-CASE、Title Case、Train-Case
+#[rust2go::r2g_struct_tag(json = "snake_case", yaml = "lowerCamelCase")]
+#[allow(non_snake_case)]
+#[derive(rust2go::R2G, Clone)]
+pub struct PreserveStructAttrsRequest {
+    pub UserId: u64,
+    pub UserName: String,
+}
+
+/// Supported: snake_case、lowerCamelCase、UpperCamelCase、kebab-case、
+/// SHOUTY_SNAKE_CASE、SHOUTY-KEBAB-CASE、Title Case、Train-Case
+#[rust2go::r2g_struct_tag(json = "snake_case", yaml = "UpperCamelCase")]
+#[allow(non_snake_case)]
+#[derive(rust2go::R2G, Clone)]
+pub struct PreserveStructAttrsResponse {
+    pub Success: bool,
+}
+
 #[rust2go::r2g]
 #[allow(clippy::ptr_arg)]
 #[allow(dead_code)]
@@ -70,4 +89,8 @@ pub trait TestCall {
     async fn pm_friend(req: PMFriendRequest) -> PMFriendResponse;
     #[mem_call]
     async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
+
+    async fn preserve_struct_attrs_test(
+        data: &PreserveStructAttrsRequest,
+    ) -> PreserveStructAttrsResponse;
 }

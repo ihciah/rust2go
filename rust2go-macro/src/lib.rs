@@ -17,6 +17,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
         syn::Data::Struct(d) => d,
         _ => return TokenStream::default(),
     };
+    let attrs = input.attrs;
     let type_name = input.ident;
     let type_name_str = type_name.to_string();
 
@@ -57,6 +58,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
+        #(#attrs)*
         #[repr(C)]
         pub struct #ref_type_name {
             #(#ref_fields),*
@@ -129,6 +131,12 @@ pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
     syn::parse::<syn::ItemTrait>(item)
         .and_then(|trat| r2g_trait(binding_path, queue_size, trat))
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
+}
+
+/// Mark only
+#[proc_macro_attribute]
+pub fn r2g_struct_tag(_attrs: TokenStream, item: TokenStream) -> TokenStream {
+    item
 }
 
 #[proc_macro_attribute]

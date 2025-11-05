@@ -59,6 +59,15 @@ typedef struct PMFriendResponseRef {
   bool succ;
   struct StringRef message;
 } PMFriendResponseRef;
+
+typedef struct PreserveStructAttrsRequestRef {
+  uint64_t UserId;
+  struct StringRef UserName;
+} PreserveStructAttrsRequestRef;
+
+typedef struct PreserveStructAttrsResponseRef {
+  bool Success;
+} PreserveStructAttrsResponseRef;
 */
 import "C"
 import (
@@ -79,6 +88,7 @@ type TestCall interface {
 	delete_friends(req *FriendsListRequest) FriendsListResponse
 	pm_friend(req *PMFriendRequest) PMFriendResponse
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
+	preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse
 }
 
 //export CTestCall_ping
@@ -156,6 +166,19 @@ func CTestCall_multi_param_test(user C.UserRef, message C.StringRef, token C.Lis
 	go func() {
 		resp := TestCallImpl.multi_param_test(&_new_user, &_new_message, &_new_token)
 		resp_ref, buffer := cvt_ref(cntLoginResponse, refLoginResponse)(&resp)
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
+		runtime.KeepAlive(resp)
+		runtime.KeepAlive(buffer)
+	}()
+}
+
+//export CTestCall_preserve_struct_attrs_test
+func CTestCall_preserve_struct_attrs_test(data C.PreserveStructAttrsRequestRef, slot *C.void, cb *C.void) {
+	_new_data := newPreserveStructAttrsRequest(data)
+	go func() {
+		resp := TestCallImpl.preserve_struct_attrs_test(&_new_data)
+		resp_ref, buffer := cvt_ref(cntPreserveStructAttrsResponse, refPreserveStructAttrsResponse)(&resp)
 		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
@@ -563,6 +586,60 @@ func refPMFriendResponse(p *PMFriendResponse, buffer *[]byte) C.PMFriendResponse
 	return C.PMFriendResponseRef{
 		succ:    refC_bool(&p.succ, buffer),
 		message: refString(&p.message, buffer),
+	}
+}
+
+type PreserveStructAttrsRequest struct {
+	UserId   uint64 `json:"user_id" yaml:"userId"`
+	UserName string `json:"user_name" yaml:"userName"`
+}
+
+func newPreserveStructAttrsRequest(p C.PreserveStructAttrsRequestRef) PreserveStructAttrsRequest {
+	return PreserveStructAttrsRequest{
+		UserId:   newC_uint64_t(p.UserId),
+		UserName: newString(p.UserName),
+	}
+}
+func ownPreserveStructAttrsRequest(p C.PreserveStructAttrsRequestRef) PreserveStructAttrsRequest {
+	return PreserveStructAttrsRequest{
+		UserId:   newC_uint64_t(p.UserId),
+		UserName: ownString(p.UserName),
+	}
+}
+func cntPreserveStructAttrsRequest(s *PreserveStructAttrsRequest, cnt *uint) [0]C.PreserveStructAttrsRequestRef {
+	_ = s
+	_ = cnt
+	return [0]C.PreserveStructAttrsRequestRef{}
+}
+func refPreserveStructAttrsRequest(p *PreserveStructAttrsRequest, buffer *[]byte) C.PreserveStructAttrsRequestRef {
+	return C.PreserveStructAttrsRequestRef{
+		UserId:   refC_uint64_t(&p.UserId, buffer),
+		UserName: refString(&p.UserName, buffer),
+	}
+}
+
+type PreserveStructAttrsResponse struct {
+	Success bool `json:"success" yaml:"Success"`
+}
+
+func newPreserveStructAttrsResponse(p C.PreserveStructAttrsResponseRef) PreserveStructAttrsResponse {
+	return PreserveStructAttrsResponse{
+		Success: newC_bool(p.Success),
+	}
+}
+func ownPreserveStructAttrsResponse(p C.PreserveStructAttrsResponseRef) PreserveStructAttrsResponse {
+	return PreserveStructAttrsResponse{
+		Success: newC_bool(p.Success),
+	}
+}
+func cntPreserveStructAttrsResponse(s *PreserveStructAttrsResponse, cnt *uint) [0]C.PreserveStructAttrsResponseRef {
+	_ = s
+	_ = cnt
+	return [0]C.PreserveStructAttrsResponseRef{}
+}
+func refPreserveStructAttrsResponse(p *PreserveStructAttrsResponse, buffer *[]byte) C.PreserveStructAttrsResponseRef {
+	return C.PreserveStructAttrsResponseRef{
+		Success: refC_bool(&p.Success, buffer),
 	}
 }
 func main() {}

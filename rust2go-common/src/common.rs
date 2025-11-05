@@ -536,7 +536,7 @@ typedef struct QueueMeta {
         fn type_to_node(ty: &Type) -> Result<Node> {
             let seg = type_to_segment(ty)?;
             match seg.ident.to_string().as_str() {
-                "Vec" => {
+                "Vec" | "Option" => {
                     let inside = match &seg.arguments {
                         syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
                             syn::GenericArgument::Type(ty) => ty,
@@ -658,7 +658,7 @@ impl TryFrom<&Type> for ParamType {
                 }
                 ParamTypeInner::Primitive(seg.ident.clone())
             }
-            "Vec" => ParamTypeInner::List(ty.clone()),
+            "Vec" | "Option" => ParamTypeInner::List(ty.clone()),
             _ => {
                 if !seg.arguments.is_none() {
                     sbail!("custom types with arguments are not supported")

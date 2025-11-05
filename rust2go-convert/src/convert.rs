@@ -177,6 +177,47 @@ impl<T: FromRef> FromRef for Vec<T> {
     }
 }
 
+// Owned to Ref
+// Option<T> -> ListRef
+impl<T: ToRef> ToRef for Option<T> {
+    const MEM_TYPE: MemType = T::MEM_TYPE.next();
+    type Ref = ListRef;
+
+    fn to_size(&self, acc: &mut usize) {
+        if matches!(Self::MEM_TYPE, MemType::Complex) {
+            *acc += self.as_slice().len() * std::mem::size_of::<T::Ref>();
+            self.iter().for_each(|elem| elem.to_size(acc));
+        }
+    }
+
+    fn to_ref(&self, writer: &mut Writer) -> Self::Ref {
+        let slice = self.as_slice();
+        let mut data = ListRef(DataView::new(slice.as_ptr(), slice.len()));
+
+        if matches!(Self::MEM_TYPE, MemType::Complex) {
+            data.0.ptr = writer.as_ptr().cast();
+            unsafe {
+                let mut children = writer.reserve(slice.len() * std::mem::size_of::<T::Ref>());
+                self.iter()
+                    .for_each(|elem| children.put(ToRef::to_ref(elem, writer)));
+            }
+        }
+        data
+    }
+}
+
+impl<T: FromRef> FromRef for Option<T> {
+    type Ref = ListRef;
+
+    fn from_ref(ref_: &Self::Ref) -> Self {
+        if ref_.0.len == 0 {
+            return None;
+        }
+        let slice = unsafe { std::slice::from_raw_parts(ref_.0.ptr.cast(), ref_.0.len) };
+        slice.iter().map(FromRef::from_ref).next()
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct StringRef(DataView);

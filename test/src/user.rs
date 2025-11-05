@@ -55,6 +55,11 @@ pub struct PMFriendResponse {
     pub message: String,
 }
 
+#[derive(rust2go::R2G, Clone)]
+pub struct Optional {
+    pub optional: Option<String>,
+}
+
 #[rust2go::r2g]
 #[allow(clippy::ptr_arg)]
 #[allow(dead_code)]
@@ -70,4 +75,5 @@ pub trait TestCall {
     async fn pm_friend(req: PMFriendRequest) -> PMFriendResponse;
     #[mem_call]
     async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
+    fn optional_test(optional: Optional) -> Optional;
 }

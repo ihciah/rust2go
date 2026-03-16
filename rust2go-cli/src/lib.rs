@@ -109,7 +109,7 @@ pub fn generate(args: &Args) {
     let import_cgocall = or_empty!(use_cgocall, "\"github.com/ihciah/rust2go/cgocall\"\n");
     let import_asmcall = or_empty!(use_asmcall, "\"github.com/ihciah/rust2go/asmcall\"\n");
     let import_118 = or_empty!(args.go118, "\"reflect\"\n");
-    let package_name = get_package_name(&args);
+    let package_name = get_package_name(args);
 
     let mut go_content = format!(
         "package {package_name}\n\n/*\n{importc}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_runtime}{import_118}{import_shm}\n{import_cgocall}{import_asmcall})\n"

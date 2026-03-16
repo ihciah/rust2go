@@ -20,7 +20,7 @@ pub struct Args {
     /// Package name of generated go file
     #[arg(long, default_value = "main")]
     pub package_name: String,
-    
+
     /// With or without go main function
     #[arg(long, default_value = "false")]
     pub without_main: bool,
@@ -110,7 +110,7 @@ pub fn generate(args: &Args) {
     let import_asmcall = or_empty!(use_asmcall, "\"github.com/ihciah/rust2go/asmcall\"\n");
     let import_118 = or_empty!(args.go118, "\"reflect\"\n");
     let package_name = get_package_name(&args);
-    
+
     let mut go_content = format!(
         "package {package_name}\n\n/*\n{importc}*/\nimport \"C\"\nimport (\n\"unsafe\"\n{import_runtime}{import_118}{import_shm}\n{import_cgocall}{import_asmcall})\n"
     );
@@ -145,10 +145,10 @@ pub fn generate(args: &Args) {
     }
 }
 
-fn get_package_name(args: &Args) -> String {
+fn get_package_name(args: &Args) -> &str {
     if args.package_name.is_empty() {
-        "main".to_string()
+        "main"
     } else {
-        args.package_name.clone()
+        &args.package_name
     }
 }

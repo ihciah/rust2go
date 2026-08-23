@@ -231,7 +231,6 @@ impl<T, A> Drop for SlotWriter<T, A> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};

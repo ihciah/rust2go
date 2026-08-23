@@ -166,7 +166,6 @@ impl Drop for Notifier {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -92,7 +92,6 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;

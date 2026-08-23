@@ -952,16 +952,7 @@ mod tests {
 
     #[test]
     fn waker_slot_transitions() {
-        use std::sync::Arc;
-        use std::task::Wake;
-
-        struct NoopWake;
-
-        impl Wake for NoopWake {
-            fn wake(self: Arc<Self>) {}
-        }
-
-        let waker = std::task::Waker::from(Arc::new(NoopWake));
+        let waker = std::task::Waker::noop().clone();
 
         let mut slot = WakerSlot::None;
         // None -> Some

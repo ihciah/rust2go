@@ -95,19 +95,11 @@ where
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::sync::Arc;
-    use std::task::Wake;
 
     use super::*;
 
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
-
     fn noop_waker() -> std::task::Waker {
-        std::task::Waker::from(Arc::new(NoopWake))
+        std::task::Waker::noop().clone()
     }
 
     #[test]

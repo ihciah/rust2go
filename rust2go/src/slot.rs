@@ -239,16 +239,6 @@ mod tests {
 
     use super::*;
 
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
-
-    fn noop_waker() -> Waker {
-        Waker::from(Arc::new(NoopWake))
-    }
-
     #[test]
     fn write_then_read() {
         let (reader, writer) = new_atomic_slot::<u32, ()>();
@@ -332,7 +322,7 @@ mod tests {
     #[test]
     fn writer_set_waker() {
         let (reader, mut writer) = new_atomic_slot::<u32, ()>();
-        writer.set_waker(noop_waker());
+        writer.set_waker(Waker::noop().clone());
         writer.write(1);
         assert_eq!(reader.read(), Some(1));
     }

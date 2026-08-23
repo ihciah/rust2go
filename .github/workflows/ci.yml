@@ -38,15 +38,16 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: Loop mem-ring tests to measure crash rate
+      - name: Confirm crash discriminant (monoio sync feature)
         run: |
+          cargo test --all-features --all-targets -p mem-ring --no-run 2>/dev/null || true
           cargo test -p mem-ring --all-features --lib --no-run
-          BIN=$(find target/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable | head -1)
-          for i in $(seq 1 5); do
-            env -u MONOIO_FORCE_LEGACY_DRIVER $BIN >/dev/null 2>&1 && echo "uring $i: PASS" || echo "uring $i: CRASH"
-          done
-          for i in $(seq 1 5); do
-            MONOIO_FORCE_LEGACY_DRIVER=1 $BIN >/dev/null 2>&1 && echo "legacy $i: PASS" || echo "legacy $i: CRASH"
+          ls target/debug/deps/mem_ring-* -la 2>/dev/null | awk '{print $NF}'
+          for BIN in $(find target/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable); do
+            echo "== $BIN"
+            for i in 1 2 3 4 5; do
+              $BIN >/dev/null 2>&1 && echo "  $i: PASS" || echo "  $i: CRASH"
+            done
           done
       - name: Test
         run: cargo test --all-features --all-targets || true

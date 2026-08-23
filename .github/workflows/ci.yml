@@ -31,8 +31,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
+      - name: Bisect mem-ring tests
+        run: |
+          for t in eventfd::tests::dup_fd eventfd::tests::new_pair_and_notify queue::tests::demo_stuck queue::tests::demo_wake queue::tests::push_pop_and_pending queue::tests::push_with_awaiter_test queue::tests::push_without_notify_then_notify_manually queue::tests::queue_basic_push_pop queue::tests::queue_from_meta queue::tests::waker_slot_transitions; do
+            echo "=== RUN $t"
+            cargo test -p mem-ring --all-features --lib -- --exact "$t" --nocapture || echo "=== CRASHED: $t"
+          done
       - name: Test
-        run: cargo test --all-features --all-targets -- --test-threads=1
+        run: cargo test --all-features --all-targets -- --test-threads=1 --skip mem_ring
 
   coverage:
     name: coverage

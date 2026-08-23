@@ -22,6 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GODEBUG: invalidptr=0,cgocheck=0
+      # Force monoio's legacy (epoll) driver for tests. With the io_uring
+      # driver, dropping a runtime that still has a parked spawned task
+      # (mem-ring's unstuck_handler can only exit with the runtime) leaves
+      # in-flight ops and delayed close/cancel SQEs in a torn-down ring,
+      # which corrupts the heap on test teardown (monoio 0.2.4).
+      # The legacy driver path is not affected.
+      MONOIO_FORCE_LEGACY_DRIVER: "1"
     steps:
       - uses: actions/checkout@v7
       - name: Setup sccache
@@ -31,8 +38,6 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: Test mem-ring with legacy driver
-        run: MONOIO_FORCE_LEGACY_DRIVER=1 cargo test -p mem-ring --all-features --lib
       - name: Test
         run: cargo test --all-features --all-targets
 
@@ -41,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GODEBUG: invalidptr=0,cgocheck=0
+      # See the build-and-test job for why this is needed.
+      MONOIO_FORCE_LEGACY_DRIVER: "1"
       # sccache does not work well with coverage instrumentation;
       # override the workflow-level cache settings for this job.
       SCCACHE_GHA_ENABLED: "false"

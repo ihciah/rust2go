@@ -912,15 +912,17 @@ mod tests {
         assert_eq!(q.pop(), Some(2));
         assert_eq!(q.len(), 1);
 
-        // wrap around
+        // wrap around: tail indices 3, 0, 1
         q.push(4).unwrap();
         q.push(5).unwrap();
+        q.push(6).unwrap();
         assert!(q.is_full());
-        assert!(q.push(6).is_err());
+        assert!(q.push(7).is_err());
 
         assert_eq!(q.pop(), Some(3));
         assert_eq!(q.pop(), Some(4));
         assert_eq!(q.pop(), Some(5));
+        assert_eq!(q.pop(), Some(6));
         assert!(q.pop().is_none());
         assert!(q.is_empty());
     }

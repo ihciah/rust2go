@@ -735,7 +735,7 @@ impl R2GFnRepr {
 
             let mut body = None;
             if let Some(ret) = self.ret.as_ref() {
-                let resp_ref_ty = ret.to_rust_ref_assoc(None);
+                let resp_ref_ty = ret.to_rust_ref(None);
                 let reqs_ty = self.params().iter().map(|p| &p.ty);
                 let set_result = if self.drop_safe_ret_params {
                     quote! {
@@ -779,7 +779,7 @@ impl R2GFnRepr {
                 // unsafe extern "C" fn demo_check_cb(resp: *const binding::DemoResponseRef, slot: *const ()) {
                 //     *(slot as *mut Option<DemoResponse>) = Some(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                 // }
-                let resp_ref_ty = ret.to_rust_ref_assoc(Some(path_prefix));
+                let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 Ok(quote! {
                     #[allow(clippy::useless_transmute, clippy::transmute_ptr_to_ref)]
                     #[no_mangle]
@@ -796,7 +796,7 @@ impl R2GFnRepr {
                 // ) {
                 //     ::rust2go::SlotWriter::<DemoResponse>::from_ptr(slot).write(::rust2go::FromRef::from_ref(::std::mem::transmute(resp)));
                 // }
-                let resp_ref_ty = ret.to_rust_ref_assoc(Some(path_prefix));
+                let resp_ref_ty = ret.to_rust_ref(Some(path_prefix));
                 let func_param_types = self.params.iter().map(|p| &p.ty);
                 Ok(quote! {
                     #[allow(clippy::useless_transmute, clippy::transmute_ptr_to_ref)]

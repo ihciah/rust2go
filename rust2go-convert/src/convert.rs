@@ -551,7 +551,8 @@ mod tests {
     #[test]
     fn ref_to_ref() {
         let s = "hello".to_string();
-        let (_, r) = (&s).calc_ref();
+        let rs = &s;
+        let (_, r) = rs.calc_ref();
         assert_eq!(String::from_ref(&r), s);
     }
 

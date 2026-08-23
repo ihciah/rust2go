@@ -32,7 +32,7 @@ jobs:
       - name: Build
         run: cargo check --all-features --all-targets
       - name: Test
-        run: cargo test --all-features --all-targets
+        run: cargo test --all-features --all-targets -- --test-threads=1
 
   coverage:
     name: coverage
@@ -53,7 +53,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - name: Collect Rust coverage
-        run: cargo llvm-cov --workspace --all-features --all-targets --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --all-features --all-targets --lcov --output-path lcov.info -- --test-threads=1
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...

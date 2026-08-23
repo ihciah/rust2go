@@ -38,16 +38,11 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: Bisect mem-ring crash by test elimination
+      - name: ASan mem-ring tests
         run: |
-          set -x
-          cargo test -p mem-ring --all-features --lib -- --skip demo || echo "CRASH-A: without demo tests"
-          cargo test -p mem-ring --all-features --lib -- --skip push || echo "CRASH-B: without new async tests"
-          cargo test -p mem-ring --all-features --lib queue::tests::push || echo "CRASH-C: only new async tests"
-          cargo test -p mem-ring --all-features --lib -- --skip demo --skip push --skip eventfd || echo "CRASH-D: only sync tests"
-          for i in 1 2 3 4 5; do
-            cargo test -p mem-ring --all-features --lib queue::tests::demo || echo "CRASH-E$i: demo only"
-          done
+          rustup toolchain install nightly --profile minimal
+          rustup component add rust-src --toolchain nightly
+          MONOIO_FORCE_LEGACY_DRIVER=1 RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -p mem-ring --all-features --lib --target x86_64-unknown-linux-gnu 2>&1 | tail -120 || true
       - name: Test
         run: cargo test --all-features --all-targets || true
 

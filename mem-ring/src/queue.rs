@@ -30,7 +30,7 @@ use monoio::{select, spawn};
 use tokio::{select, spawn};
 
 use crate::{
-    eventfd::{new_pair, Awaiter, Notifier},
+    eventfd::{dup, new_pair, Awaiter, Notifier},
     util::yield_now,
 };
 
@@ -65,7 +65,10 @@ impl<T> ReadQueue<T> {
     where
         T: 'static,
     {
-        let working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
+        // Dup the fd so the awaiter and the queue each own an independent
+        // descriptor (see `Queue::read`).
+        let working_fd = dup(self.queue.working_fd)?;
+        let working_awaiter = unsafe { Awaiter::from_raw_fd(working_fd)? };
         let (tx, rx) = channel();
         spawn(self.working_handler(working_awaiter, handler, tx));
         Ok(Guard { _rx: rx })
@@ -76,7 +79,10 @@ impl<T> ReadQueue<T> {
     where
         T: Send + 'static,
     {
-        let working_awaiter = unsafe { Awaiter::from_raw_fd(self.queue.working_fd)? };
+        // Dup the fd so the awaiter and the queue each own an independent
+        // descriptor (see `Queue::read`).
+        let working_fd = dup(self.queue.working_fd)?;
+        let working_awaiter = unsafe { Awaiter::from_raw_fd(working_fd)? };
         let (tx, rx) = channel();
         if let Some(tokio_handle) = self.tokio_handle.clone() {
             tokio_handle.spawn(self.working_handler(working_awaiter, handler, tx));
@@ -520,7 +526,11 @@ impl<T> Queue<T> {
     }
 
     pub fn read(self) -> ReadQueue<T> {
-        let unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
+        // Dup the fd so the notifier and the queue each own an independent
+        // descriptor; otherwise both would close the same fd on drop, and a
+        // reused descriptor of an unrelated owner could be closed by mistake.
+        let unstuck_fd = dup(self.unstuck_fd).unwrap_or(self.unstuck_fd);
+        let unstuck_notifier = unsafe { Notifier::from_raw_fd(unstuck_fd) };
         ReadQueue {
             queue: self,
             unstuck_notifier,
@@ -531,7 +541,9 @@ impl<T> Queue<T> {
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
     pub fn read_with_tokio_handle(self, tokio_handle: tokio::runtime::Handle) -> ReadQueue<T> {
-        let unstuck_notifier = unsafe { Notifier::from_raw_fd(self.unstuck_fd) };
+        // See `read` for why the fd is dup'ed.
+        let unstuck_fd = dup(self.unstuck_fd).unwrap_or(self.unstuck_fd);
+        let unstuck_notifier = unsafe { Notifier::from_raw_fd(unstuck_fd) };
         ReadQueue {
             queue: self,
             unstuck_notifier,
@@ -544,8 +556,9 @@ impl<T> Queue<T> {
     where
         T: 'static,
     {
-        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
+        let working_notifier =
+            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -577,8 +590,9 @@ impl<T> Queue<T> {
     where
         T: Send + 'static,
     {
-        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
+        let working_notifier =
+            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -603,8 +617,9 @@ impl<T> Queue<T> {
     where
         T: Send + 'static,
     {
-        let working_notifier = unsafe { Notifier::from_raw_fd(self.working_fd) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(self.unstuck_fd) }?;
+        let working_notifier =
+            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
 
         let (tx, rx) = channel();
         let wq = WriteQueue {

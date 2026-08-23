@@ -43,9 +43,11 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
             | "f32" | "f64" | "bool" | "char" => {
                 ref_fields.push(quote! {#name: #ty});
             }
-            ty => {
-                let ref_type = format_ident!("{ty}Ref");
-                ref_fields.push(quote! {#name: #ref_type});
+            _ => {
+                // Use the associated ref type instead of assuming `{ty}Ref`,
+                // so that type aliases also work (a proc macro cannot tell
+                // an alias from a concrete type).
+                ref_fields.push(quote! {#name: <#ty as ::rust2go::ToRef>::Ref});
             }
         }
     }

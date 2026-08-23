@@ -31,13 +31,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: Valgrind mem-ring tests
+      - name: Diagnose mem-ring crash
         run: |
-          sudo apt-get update && sudo apt-get install -y valgrind
+          sudo apt-get update && sudo apt-get install -y gdb
           cargo test -p mem-ring --all-features --lib --no-run
           BIN=$(find target/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable | head -1)
           echo "test binary: $BIN"
-          valgrind --tool=memcheck --error-exitcode=99 --gen-suppressions=all $BIN --test-threads=1 2>&1 | tail -150 || true
+          MALLOC_CHECK_=3 GLIBC_TUNABLES=glibc.malloc.tcache_count=0 gdb -batch -ex run -ex bt -ex 'info threads' --args $BIN --test-threads=1 2>&1 | tail -120 || true
       - name: Test
         run: cargo test --all-features --all-targets -- --test-threads=1 --skip mem_ring
 

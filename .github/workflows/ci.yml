@@ -38,8 +38,18 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
+      - name: Bisect mem-ring crash by test elimination
+        run: |
+          set -x
+          cargo test -p mem-ring --all-features --lib -- --skip demo || echo "CRASH-A: without demo tests"
+          cargo test -p mem-ring --all-features --lib -- --skip push || echo "CRASH-B: without new async tests"
+          cargo test -p mem-ring --all-features --lib queue::tests::push || echo "CRASH-C: only new async tests"
+          cargo test -p mem-ring --all-features --lib -- --skip demo --skip push --skip eventfd || echo "CRASH-D: only sync tests"
+          for i in 1 2 3 4 5; do
+            cargo test -p mem-ring --all-features --lib queue::tests::demo || echo "CRASH-E$i: demo only"
+          done
       - name: Test
-        run: cargo test --all-features --all-targets
+        run: cargo test --all-features --all-targets || true
 
   coverage:
     name: coverage

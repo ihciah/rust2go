@@ -165,3 +165,45 @@ impl Drop for Notifier {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_pair_and_notify() {
+        let (notifier, peer) = Notifier::new().unwrap();
+        assert!(notifier.as_raw_fd() >= 0);
+        assert!(peer >= 0);
+
+        notifier.notify().unwrap();
+        notifier.notify().unwrap();
+
+        let mut buf = [0u8; 8];
+        let n = unsafe { libc::read(peer, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        assert_eq!(n, 2);
+
+        unsafe { libc::close(peer) };
+    }
+
+    #[test]
+    fn dup_fd() {
+        let (notifier, peer) = Notifier::new().unwrap();
+        let fd2 = dup(notifier.as_raw_fd()).unwrap();
+        assert!(fd2 >= 0);
+        assert_ne!(fd2, notifier.as_raw_fd());
+
+        // write via the dup'd fd, read from the peer
+        const DATA: u8 = 0;
+        let written = unsafe { libc::write(fd2, &DATA as *const u8 as *const libc::c_void, 1) };
+        assert_eq!(written, 1);
+
+        let mut buf = [0u8; 8];
+        let n = unsafe { libc::read(peer, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        assert_eq!(n, 1);
+
+        unsafe { libc::close(fd2) };
+        unsafe { libc::close(peer) };
+    }
+}

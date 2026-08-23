@@ -230,3 +230,119 @@ impl<T, A> Drop for SlotWriter<T, A> {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::task::Wake;
+
+    use super::*;
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    fn noop_waker() -> Waker {
+        Waker::from(Arc::new(NoopWake))
+    }
+
+    #[test]
+    fn write_then_read() {
+        let (reader, writer) = new_atomic_slot::<u32, ()>();
+        // nothing written yet
+        assert!(reader.read().is_none());
+
+        writer.write(42);
+        assert_eq!(reader.read(), Some(42));
+        // data can only be read once
+        assert!(reader.read().is_none());
+    }
+
+    #[test]
+    fn read_with_attachment_test() {
+        let (mut reader, mut writer) = new_atomic_slot::<u32, String>();
+        writer.attach("attachment".to_string());
+        writer.write(7);
+
+        let (v, attachment) = unsafe { reader.read_with_attachment() }.unwrap();
+        assert_eq!(v, 7);
+        assert_eq!(attachment, Some("attachment".to_string()));
+        assert!(reader.read().is_none());
+    }
+
+    #[test]
+    fn drop_writer_without_write() {
+        let (reader, writer) = new_atomic_slot::<u32, ()>();
+        drop(writer);
+        assert!(reader.read().is_none());
+    }
+
+    #[test]
+    fn drop_reader_first() {
+        let (reader, writer) = new_atomic_slot::<u32, ()>();
+        drop(reader);
+        // writing after reader dropped must not crash;
+        // the slot is freed when the writer is dropped.
+        writer.write(1);
+    }
+
+    #[test]
+    fn drop_both_without_write() {
+        let (reader, writer) = new_atomic_slot::<u32, ()>();
+        drop(writer);
+        drop(reader);
+    }
+
+    #[test]
+    fn writer_ptr_roundtrip() {
+        let (reader, writer) = new_atomic_slot::<u64, ()>();
+        let ptr = writer.into_ptr();
+        assert!(!ptr.is_null());
+        let writer = unsafe { SlotWriter::<u64, ()>::from_ptr(ptr) };
+        writer.write(0xDEADBEEF);
+        assert_eq!(reader.read(), Some(0xDEADBEEF));
+    }
+
+    #[test]
+    fn write_wakes_reader_waker() {
+        struct Flag(Arc<AtomicBool>);
+
+        impl Wake for Flag {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let woken = Arc::new(AtomicBool::new(false));
+        let waker = Waker::from(Arc::new(Flag(woken.clone())));
+
+        let (mut reader, writer) = new_atomic_slot::<u32, ()>();
+        reader.set_waker(&waker);
+        // updating the waker in place must also work
+        reader.set_waker(&waker);
+
+        writer.write(1);
+        assert!(woken.load(Ordering::SeqCst));
+        assert_eq!(reader.read(), Some(1));
+    }
+
+    #[test]
+    fn writer_set_waker() {
+        let (reader, mut writer) = new_atomic_slot::<u32, ()>();
+        writer.set_waker(noop_waker());
+        writer.write(1);
+        assert_eq!(reader.read(), Some(1));
+    }
+
+    #[test]
+    fn reader_waker_updated_by_writer_write_without_waker() {
+        // write without any waker registered: data is still readable
+        let (reader, writer) = new_atomic_slot::<String, ()>();
+        writer.write("hello".to_string());
+        assert_eq!(reader.read(), Some("hello".to_string()));
+    }
+}

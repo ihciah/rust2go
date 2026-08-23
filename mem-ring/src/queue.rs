@@ -809,6 +809,66 @@ mod tests {
             tx.closed().await;
         }
 
+        async fn push_pop_and_pending() {
+            let (q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            assert!(q_write.is_empty());
+            assert!(q_write.push(1));
+            // queue is full now, item goes into pending tasks
+            assert!(!q_write.push(2));
+            assert!(!q_write.is_empty());
+
+            assert_eq!(q_read.pop(), Some(1));
+            // wait for the unstuck handler to flush pending tasks
+            let mut got = None;
+            for _ in 0..50 {
+                if let Some(v) = q_read.pop() {
+                    got = Some(v);
+                    break;
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+            assert_eq!(got, Some(2));
+            assert!(q_read.pop().is_none());
+        }
+
+        async fn push_without_notify_then_notify_manually() {
+            let (q_read, meta) = Queue::<u32>::new(2).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            assert!(q_write.push_without_notify(1));
+            // first manual notify marks working and notifies the peer
+            assert!(q_write.notify_manually());
+            // already marked working now
+            assert!(!q_write.notify_manually());
+            assert_eq!(q_read.pop(), Some(1));
+        }
+
+        async fn push_with_awaiter_test() {
+            let (q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            // queue has space -> Ok
+            assert!(matches!(q_write.push_with_awaiter(1), PushResult::Ok));
+            // queue is full -> Pending
+            let handle = match q_write.push_with_awaiter(2) {
+                PushResult::Pending(h) => h,
+                PushResult::Ok => panic!("expected pending"),
+            };
+            // pop one item; this notifies the unstuck handler
+            assert_eq!(q_read.pop(), Some(1));
+            // the join handle resolves once the pending item is queued
+            handle.await;
+            assert_eq!(q_read.pop(), Some(2));
+        }
+
         async fn demo_stuck() {
             let (mut tx, mut rx) = channel::<()>();
 
@@ -832,5 +892,85 @@ mod tests {
 
             tx.closed().await;
         }
+    }
+
+    #[test]
+    fn queue_basic_push_pop() {
+        let (mut q, _meta) = Queue::<u32>::new(4).unwrap();
+        assert!(q.is_memory_owner());
+        assert!(q.is_empty());
+        assert!(!q.is_full());
+
+        q.push(1).unwrap();
+        q.push(2).unwrap();
+        q.push(3).unwrap();
+        assert_eq!(q.len(), 3);
+        assert!(!q.is_full());
+
+        // FIFO order
+        assert_eq!(q.pop(), Some(1));
+        assert_eq!(q.pop(), Some(2));
+        assert_eq!(q.len(), 1);
+
+        // wrap around
+        q.push(4).unwrap();
+        q.push(5).unwrap();
+        assert!(q.is_full());
+        assert!(q.push(6).is_err());
+
+        assert_eq!(q.pop(), Some(3));
+        assert_eq!(q.pop(), Some(4));
+        assert_eq!(q.pop(), Some(5));
+        assert!(q.pop().is_none());
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn queue_from_meta() {
+        let (mut owner, meta) = Queue::<u64>::new(2).unwrap();
+        let mut peer = unsafe { Queue::<u64>::new_from_meta(&meta) }.unwrap();
+        assert!(owner.is_memory_owner());
+        assert!(!peer.is_memory_owner());
+
+        peer.push(10).unwrap();
+        peer.push(20).unwrap();
+        assert!(peer.is_full());
+        assert_eq!(owner.len(), 2);
+        assert_eq!(owner.pop(), Some(10));
+        assert_eq!(owner.pop(), Some(20));
+        assert!(owner.is_empty());
+
+        let meta2 = owner.meta();
+        assert_eq!(meta2.buffer_len, 2);
+        assert_eq!(meta2.buffer_ptr, meta.buffer_ptr);
+
+        drop(peer);
+        drop(owner);
+    }
+
+    #[test]
+    fn waker_slot_transitions() {
+        use std::sync::Arc;
+        use std::task::Wake;
+
+        struct NoopWake;
+
+        impl Wake for NoopWake {
+            fn wake(self: Arc<Self>) {}
+        }
+
+        let waker = std::task::Waker::from(Arc::new(NoopWake));
+
+        let mut slot = WakerSlot::None;
+        // None -> Some
+        assert!(!slot.set_waker(&waker));
+        // Some -> Some (replace)
+        assert!(!slot.set_waker(&waker));
+        // wake consumes the waker and marks finished
+        slot.wake();
+        // finished slot reports true
+        assert!(slot.set_waker(&waker));
+        // wake on finished slot is a no-op
+        slot.wake();
     }
 }

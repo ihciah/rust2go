@@ -1,7 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
@@ -43,9 +43,11 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
             | "f32" | "f64" | "bool" | "char" => {
                 ref_fields.push(quote! {#name: #ty});
             }
-            ty => {
-                let ref_type = format_ident!("{ty}Ref");
-                ref_fields.push(quote! {#name: #ref_type});
+            _ => {
+                // Use the associated type form so type aliases also work: the
+                // alias itself cannot be resolved here, but its underlying
+                // type implements `ToRef`.
+                ref_fields.push(quote! {#name: <#ty as ::rust2go::ToRef>::Ref});
             }
         }
     }

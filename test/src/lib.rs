@@ -362,6 +362,22 @@ mod tests {
         assert!(!response.message.is_empty());
     }
 
+    #[test]
+    fn test_type_alias() {
+        let resp = TestCallImpl::get_balance(&BalanceRequest {
+            user_id: 42,
+            friend_ids: vec![1, 2, 3],
+        });
+        assert_eq!(resp.user_id, 42);
+        assert_eq!(resp.balance, 4200);
+    }
+
+    #[monoio::test(timer_enabled = true)]
+    async fn test_type_alias_async() {
+        let total: UserId = TestCallImpl::transfer(20, 22).await;
+        assert_eq!(total, 42);
+    }
+
     #[monoio::test(timer_enabled = true)]
     async fn test_optional() {
         let req = Optional { optional: None };

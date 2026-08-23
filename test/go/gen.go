@@ -13,6 +13,16 @@ typedef struct ListRef {
   uintptr_t len;
 } ListRef;
 
+typedef struct BalanceRequestRef {
+  uint64_t user_id;
+  struct ListRef friend_ids;
+} BalanceRequestRef;
+
+typedef struct BalanceResponseRef {
+  uint64_t user_id;
+  int64_t balance;
+} BalanceResponseRef;
+
 typedef struct FriendsListRequestRef {
   struct ListRef token;
   struct ListRef user_ids;
@@ -94,6 +104,8 @@ type TestCall interface {
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
 	optional_test(optional *Optional) Optional
 	preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse
+	get_balance(req *BalanceRequest) BalanceResponse
+	transfer(from *uint64, to *uint64) uint64
 }
 
 //export CTestCall_ping
@@ -195,6 +207,31 @@ func CTestCall_preserve_struct_attrs_test(data C.PreserveStructAttrsRequestRef, 
 	go func() {
 		resp := TestCallImpl.preserve_struct_attrs_test(&_new_data)
 		resp_ref, buffer := cvt_ref(cntPreserveStructAttrsResponse, refPreserveStructAttrsResponse)(&resp)
+		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+		runtime.KeepAlive(resp_ref)
+		runtime.KeepAlive(resp)
+		runtime.KeepAlive(buffer)
+	}()
+}
+
+//export CTestCall_get_balance
+func CTestCall_get_balance(req C.BalanceRequestRef, slot *C.void, cb *C.void) {
+	_new_req := newBalanceRequest(req)
+	resp := TestCallImpl.get_balance(&_new_req)
+	resp_ref, buffer := cvt_ref(cntBalanceResponse, refBalanceResponse)(&resp)
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
+}
+
+//export CTestCall_transfer
+func CTestCall_transfer(from C.uint64_t, to C.uint64_t, slot *C.void, cb *C.void) {
+	_new_from := newC_uint64_t(from)
+	_new_to := newC_uint64_t(to)
+	go func() {
+		resp := TestCallImpl.transfer(&_new_from, &_new_to)
+		resp_ref, buffer := cvt_ref(cntC_uint64_t, refC_uint64_t)(&resp)
 		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 		runtime.KeepAlive(resp_ref)
 		runtime.KeepAlive(resp)
@@ -680,6 +717,64 @@ func cntPreserveStructAttrsResponse(s *PreserveStructAttrsResponse, cnt *uint) [
 func refPreserveStructAttrsResponse(p *PreserveStructAttrsResponse, buffer *[]byte) C.PreserveStructAttrsResponseRef {
 	return C.PreserveStructAttrsResponseRef{
 		Success: refC_bool(&p.Success, buffer),
+	}
+}
+
+type BalanceRequest struct {
+	user_id    uint64
+	friend_ids []uint64
+}
+
+func newBalanceRequest(p C.BalanceRequestRef) BalanceRequest {
+	return BalanceRequest{
+		user_id:    newC_uint64_t(p.user_id),
+		friend_ids: new_list_mapper_primitive(newC_uint64_t)(p.friend_ids),
+	}
+}
+func ownBalanceRequest(p C.BalanceRequestRef) BalanceRequest {
+	return BalanceRequest{
+		user_id:    newC_uint64_t(p.user_id),
+		friend_ids: new_list_mapper(newC_uint64_t)(p.friend_ids),
+	}
+}
+func cntBalanceRequest(s *BalanceRequest, cnt *uint) [0]C.BalanceRequestRef {
+	_ = s
+	_ = cnt
+	return [0]C.BalanceRequestRef{}
+}
+func refBalanceRequest(p *BalanceRequest, buffer *[]byte) C.BalanceRequestRef {
+	return C.BalanceRequestRef{
+		user_id:    refC_uint64_t(&p.user_id, buffer),
+		friend_ids: ref_list_mapper_primitive(refC_uint64_t)(&p.friend_ids, buffer),
+	}
+}
+
+type BalanceResponse struct {
+	user_id uint64
+	balance int64
+}
+
+func newBalanceResponse(p C.BalanceResponseRef) BalanceResponse {
+	return BalanceResponse{
+		user_id: newC_uint64_t(p.user_id),
+		balance: newC_int64_t(p.balance),
+	}
+}
+func ownBalanceResponse(p C.BalanceResponseRef) BalanceResponse {
+	return BalanceResponse{
+		user_id: newC_uint64_t(p.user_id),
+		balance: newC_int64_t(p.balance),
+	}
+}
+func cntBalanceResponse(s *BalanceResponse, cnt *uint) [0]C.BalanceResponseRef {
+	_ = s
+	_ = cnt
+	return [0]C.BalanceResponseRef{}
+}
+func refBalanceResponse(p *BalanceResponse, buffer *[]byte) C.BalanceResponseRef {
+	return C.BalanceResponseRef{
+		user_id: refC_uint64_t(&p.user_id, buffer),
+		balance: refC_int64_t(&p.balance, buffer),
 	}
 }
 func main() {}

@@ -31,15 +31,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: Diagnose mem-ring crash
-        run: |
-          sudo apt-get update && sudo apt-get install -y gdb
-          cargo test -p mem-ring --all-features --lib --no-run
-          BIN=$(find target/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable | head -1)
-          echo "test binary: $BIN"
-          MALLOC_CHECK_=3 GLIBC_TUNABLES=glibc.malloc.tcache_count=0 gdb -batch -ex run -ex bt -ex 'info threads' --args $BIN --test-threads=1 2>&1 | tail -120 || true
       - name: Test
-        run: cargo test --all-features --all-targets -- --test-threads=1 --skip mem_ring
+        run: cargo test --all-features --all-targets
 
   coverage:
     name: coverage
@@ -60,7 +53,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - name: Collect Rust coverage
-        run: cargo llvm-cov --workspace --all-features --all-targets --lcov --output-path lcov.info -- --test-threads=1
+        run: cargo llvm-cov --workspace --all-features --all-targets --lcov --output-path lcov.info
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...

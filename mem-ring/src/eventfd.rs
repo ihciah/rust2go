@@ -6,7 +6,7 @@ use std::{
 };
 
 #[cfg(feature = "monoio")]
-use monoio::{buf::RawBuf, io::AsyncReadRent, net::UnixStream};
+use monoio::{io::AsyncReadRent, net::UnixStream};
 
 #[cfg(all(feature = "tokio", not(feature = "monoio")))]
 use tokio::{io::AsyncReadExt, net::UnixStream};
@@ -140,14 +140,11 @@ impl Awaiter {
 
     #[cfg(feature = "monoio")]
     pub(crate) async fn wait(&mut self) {
-        use std::cell::UnsafeCell;
-        thread_local! {
-            pub static BUF: UnsafeCell<Vec<u8>> = UnsafeCell::new(vec![0; 64]);
-        }
-        let buf = BUF.with(|buf| {
-            let buf = unsafe { &(*buf.get()) };
-            unsafe { RawBuf::new(buf.as_ptr(), buf.len()) }
-        });
+        // Pass an owned buffer to the read op so the buffer lives as long as
+        // the op itself. Using a thread_local buffer with a raw pointer is
+        // unsound: the spawned task holding this read may leak (outlive the
+        // runtime) and the kernel could write into freed TLS memory.
+        let buf = vec![0; 64];
         let _ = self.unix_stream.read(buf).await;
     }
 

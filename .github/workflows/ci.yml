@@ -34,6 +34,36 @@ jobs:
       - name: Test
         run: cargo test --all-features --all-targets
 
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    env:
+      GODEBUG: invalidptr=0,cgocheck=0
+      # sccache does not work well with coverage instrumentation;
+      # override the workflow-level cache settings for this job.
+      SCCACHE_GHA_ENABLED: "false"
+      RUSTC_WRAPPER: ""
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Collect Rust coverage
+        run: cargo llvm-cov --workspace --all-features --all-targets --lcov --output-path lcov.info
+      - name: Collect Go coverage
+        working-directory: test/go
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info,test/go/coverage.out
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   lint:
     name: lint checks
     runs-on: ubuntu-latest

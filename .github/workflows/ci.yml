@@ -38,42 +38,22 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build
         run: cargo check --all-features --all-targets
-      - name: rr record + reverse watchpoint
+      - name: Loop plain + ASan single-threaded mem-ring tests
         run: |
-          sudo apt-get update && sudo apt-get install -y rr gdb libc6-dbg
-          (sudo sysctl kernel.perf_event_paranoid=1) || true
+          rustup toolchain install nightly --profile minimal
+          rustup component add rust-src --toolchain nightly
           cargo test -p mem-ring --all-features --lib --no-run
           BIN=$(find target/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable | head -1)
-          echo "test binary: $BIN"
-          for i in 1 2 3; do
-            MONOIO_FORCE_LEGACY_DRIVER=1 rr record --chaos $BIN --test-threads=1 && continue
-            echo "recorded crashing trace on attempt $i"
-            break
+          echo "== plain loop (single-threaded)"
+          for i in $(seq 1 8); do
+            MONOIO_FORCE_LEGACY_DRIVER=1 $BIN --test-threads=1 >/dev/null 2>&1 && echo "plain $i: PASS" || echo "plain $i: CRASH"
           done
-          cat > /tmp/rr_cmds <<'GDBEOF'
-          continue
-          set pagination off
-          printf "=== stopped, thread backtrace:\n"
-          bt 15
-          set $tc = (struct tcache_perthread_struct *) tcache
-          set $i = 0
-          set $badslot = 0
-          while $i < 64
-            if ((unsigned long)$tc->entries[$i] & 0xf) != 0
-              printf "bad tcache entry %d -> %p (slot %p)\n", $i, $tc->entries[$i], &$tc->entries[$i]
-              set $badslot = (unsigned long)&$tc->entries[$i]
-            end
-            set $i = $i + 1
-          end
-          if $badslot != 0
-            watch *(unsigned long*)$badslot
-            reverse-continue
-            printf "=== writer of the corrupted slot:\n"
-            x/2i $pc
-            bt 20
-          end
-          GDBEOF
-          rr replay -- --batch -x /tmp/rr_cmds 2>&1 | tail -120 || true
+          echo "== asan build"
+          MONOIO_FORCE_LEGACY_DRIVER=1 RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -p mem-ring --all-features --lib --no-run --target x86_64-unknown-linux-gnu
+          ABIN=$(find target/x86_64-unknown-linux-gnu/debug/deps -maxdepth 1 -name 'mem_ring-*' -type f -executable | head -1)
+          for i in 1 2 3; do
+            MONOIO_FORCE_LEGACY_DRIVER=1 $ABIN --test-threads=1 >/dev/null 2>&1 && echo "asan $i: PASS" || echo "asan $i: CRASH"
+          done
       - name: Test
         run: cargo test --all-features --all-targets || true
 

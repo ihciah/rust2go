@@ -454,3 +454,273 @@ copy_struct_for_tuple!(
     (T15, 14),
     (T16, 15)
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mem_type_next() {
+        assert!(matches!(MemType::Primitive.next(), MemType::SimpleWrapper));
+        assert!(matches!(MemType::SimpleWrapper.next(), MemType::Complex));
+        assert!(matches!(MemType::Complex.next(), MemType::Complex));
+    }
+
+    #[test]
+    fn mem_type_max() {
+        assert!(matches!(
+            MemType::Primitive.max(MemType::Primitive),
+            MemType::Primitive
+        ));
+        assert!(matches!(
+            MemType::Primitive.max(MemType::SimpleWrapper),
+            MemType::SimpleWrapper
+        ));
+        assert!(matches!(
+            MemType::Primitive.max(MemType::Complex),
+            MemType::Complex
+        ));
+        assert!(matches!(
+            MemType::SimpleWrapper.max(MemType::Primitive),
+            MemType::SimpleWrapper
+        ));
+        assert!(matches!(
+            MemType::SimpleWrapper.max(MemType::SimpleWrapper),
+            MemType::SimpleWrapper
+        ));
+        assert!(matches!(
+            MemType::SimpleWrapper.max(MemType::Complex),
+            MemType::Complex
+        ));
+        assert!(matches!(
+            MemType::Complex.max(MemType::Primitive),
+            MemType::Complex
+        ));
+    }
+
+    #[test]
+    fn max_mem_type_macro() {
+        assert!(matches!(crate::max_mem_type!(u32, u64), MemType::Primitive));
+        assert!(matches!(
+            crate::max_mem_type!(u32, String),
+            MemType::SimpleWrapper
+        ));
+        assert!(matches!(
+            crate::max_mem_type!(String, Vec<String>),
+            MemType::Complex
+        ));
+    }
+
+    #[test]
+    fn primitive_roundtrip() {
+        macro_rules! case {
+            ($($ty:ty: $v:expr),*) => { $({
+                let v: $ty = $v;
+                assert!(matches!(<$ty as ToRef>::MEM_TYPE, MemType::Primitive));
+                let (buf, r) = v.calc_ref();
+                assert!(buf.is_empty());
+                assert_eq!(<$ty as FromRef>::from_ref(&r), v);
+            })* };
+        }
+        case!(
+            u8: 1, u16: 2, u32: 3, u64: 4, usize: 5,
+            i8: -1, i16: -2, i32: -3, i64: -4, isize: -5,
+            f32: 1.5, f64: -2.5, bool: true, char: 'x'
+        );
+    }
+
+    #[test]
+    fn string_roundtrip() {
+        let s = "hello rust2go".to_string();
+        assert!(matches!(
+            <String as ToRef>::MEM_TYPE,
+            MemType::SimpleWrapper
+        ));
+        let (buf, r) = s.calc_ref();
+        assert!(buf.is_empty());
+        assert_eq!(String::from_ref(&r), s);
+
+        // empty string -> null ptr
+        let empty = String::new();
+        let (_, r) = empty.calc_ref();
+        assert!(r.0.ptr.is_null());
+        assert_eq!(r.0.len, 0);
+        assert_eq!(String::from_ref(&r), String::new());
+    }
+
+    #[test]
+    fn ref_to_ref() {
+        let s = "hello".to_string();
+        let rs = &s;
+        let (_, r) = rs.calc_ref();
+        assert_eq!(String::from_ref(&r), s);
+    }
+
+    #[test]
+    fn vec_primitive_roundtrip() {
+        let v = vec![1u32, 2, 3, 4];
+        assert!(matches!(
+            <Vec<u32> as ToRef>::MEM_TYPE,
+            MemType::SimpleWrapper
+        ));
+        let (buf, r) = v.calc_ref();
+        assert!(buf.is_empty());
+        assert_eq!(r.0.len, 4);
+        assert_eq!(Vec::<u32>::from_ref(&r), v);
+
+        // empty vec -> null ptr
+        let empty: Vec<u32> = Vec::new();
+        let (_, r) = empty.calc_ref();
+        assert!(r.0.ptr.is_null());
+        assert_eq!(r.0.len, 0);
+        assert_eq!(Vec::<u32>::from_ref(&r), empty);
+    }
+
+    #[test]
+    fn vec_string_roundtrip() {
+        let v = vec!["a".to_string(), "bb".to_string(), "ccc".to_string()];
+        assert!(matches!(<Vec<String> as ToRef>::MEM_TYPE, MemType::Complex));
+        let size = v.calc_size();
+        assert_eq!(size, 3 * std::mem::size_of::<StringRef>());
+        let (buf, r) = v.calc_ref();
+        assert_eq!(buf.len(), size);
+        assert_eq!(Vec::<String>::from_ref(&r), v);
+
+        // empty complex vec -> null ptr
+        let empty: Vec<String> = Vec::new();
+        let (_, r) = empty.calc_ref();
+        assert!(r.0.ptr.is_null());
+        assert_eq!(Vec::<String>::from_ref(&r), empty);
+    }
+
+    #[test]
+    fn vec_vec_roundtrip() {
+        let v = vec![vec![1u32, 2], vec![], vec![3, 4, 5]];
+        assert!(matches!(
+            <Vec<Vec<u32>> as ToRef>::MEM_TYPE,
+            MemType::Complex
+        ));
+        let (buf, r) = v.calc_ref();
+        assert_eq!(buf.len(), v.calc_size());
+        assert_eq!(Vec::<Vec<u32>>::from_ref(&r), v);
+    }
+
+    #[test]
+    fn option_roundtrip() {
+        let some = Some("hello".to_string());
+        assert!(matches!(
+            <Option<String> as ToRef>::MEM_TYPE,
+            MemType::Complex
+        ));
+        let (buf, r) = some.calc_ref();
+        assert_eq!(buf.len(), std::mem::size_of::<StringRef>());
+        assert_eq!(Option::<String>::from_ref(&r), some);
+
+        // None -> null ptr
+        let none: Option<String> = None;
+        let (_, r) = none.calc_ref();
+        assert!(r.0.ptr.is_null());
+        assert_eq!(Option::<String>::from_ref(&r), none);
+
+        // Option of primitive is a simple wrapper
+        let some = Some(42u64);
+        assert!(matches!(
+            <Option<u64> as ToRef>::MEM_TYPE,
+            MemType::SimpleWrapper
+        ));
+        let (buf, r) = some.calc_ref();
+        assert!(buf.is_empty());
+        assert_eq!(Option::<u64>::from_ref(&r), some);
+
+        let none: Option<u64> = None;
+        let (_, r) = none.calc_ref();
+        assert!(r.0.ptr.is_null());
+        assert_eq!(Option::<u64>::from_ref(&r), none);
+    }
+
+    #[test]
+    fn tuple_mem_type() {
+        assert!(matches!(
+            <(u32, u64) as ToRef>::MEM_TYPE,
+            MemType::Primitive
+        ));
+        assert!(matches!(
+            <(u32, String) as ToRef>::MEM_TYPE,
+            MemType::SimpleWrapper
+        ));
+        assert!(matches!(
+            <(u32, Vec<String>) as ToRef>::MEM_TYPE,
+            MemType::Complex
+        ));
+    }
+
+    #[test]
+    fn tuple_to_ref() {
+        let t = (1u32, "two".to_string());
+        let (buf, r) = t.calc_ref();
+        assert!(buf.is_empty());
+        assert_eq!(r.0, 1u32);
+        assert_eq!(String::from_ref(&r.1), "two");
+    }
+
+    #[test]
+    fn copy_struct_primitive() {
+        let s = CopyStruct((1u32, 2u64));
+        assert!(matches!(
+            <CopyStruct<(u32, u64)> as ToRef>::MEM_TYPE,
+            MemType::Complex
+        ));
+        let size = s.calc_size();
+        assert_eq!(
+            size,
+            std::mem::size_of::<u32>() + std::mem::size_of::<u64>()
+        );
+        let (buf, ptr) = s.calc_ref();
+        assert_eq!(buf.len(), size);
+        assert!(!ptr.is_null());
+        let a = unsafe { std::ptr::read_unaligned(ptr as *const u32) };
+        let b = unsafe { std::ptr::read_unaligned(ptr.add(4) as *const u64) };
+        assert_eq!((a, b), (1, 2));
+    }
+
+    #[test]
+    fn copy_struct_with_string() {
+        let s = CopyStruct(("hello".to_string(), 7u32));
+        let size = s.calc_size();
+        assert_eq!(
+            size,
+            std::mem::size_of::<StringRef>() + std::mem::size_of::<u32>()
+        );
+        let (buf, ptr) = s.calc_ref();
+        assert_eq!(buf.len(), size);
+        assert!(!ptr.is_null());
+        let sr = unsafe { std::ptr::read_unaligned(ptr as *const StringRef) };
+        assert_eq!(String::from_ref(&sr), "hello");
+        let n = unsafe {
+            std::ptr::read_unaligned(ptr.add(std::mem::size_of::<StringRef>()) as *const u32)
+        };
+        assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn writer_put_reserve() {
+        let mut storage = [0u8; 16];
+        let base = storage.as_ptr() as usize;
+        let mut w = unsafe { Writer::new(storage.as_mut_ptr()) };
+        unsafe { w.put(0x11223344u32) };
+        assert_eq!(w.as_ptr() as usize - base, 4);
+
+        let mut fork = unsafe { w.reserve(4) };
+        assert_eq!(w.as_ptr() as usize - base, 8);
+        unsafe { fork.put(0x55667788u32) };
+
+        assert_eq!(
+            u32::from_le_bytes(storage[0..4].try_into().unwrap()),
+            0x11223344
+        );
+        assert_eq!(
+            u32::from_le_bytes(storage[4..8].try_into().unwrap()),
+            0x55667788
+        );
+    }
+}

@@ -6,7 +6,7 @@ use std::{
 };
 
 #[cfg(feature = "monoio")]
-use monoio::{buf::RawBuf, io::AsyncReadRent, net::UnixStream};
+use monoio::{io::AsyncReadRent, net::UnixStream};
 
 #[cfg(all(feature = "tokio", not(feature = "monoio")))]
 use tokio::{io::AsyncReadExt, net::UnixStream};
@@ -66,15 +66,6 @@ pub(crate) fn new_pair() -> Result<(RawFd, RawFd), Error> {
     }
 
     Ok((fds[0], fds[1]))
-}
-
-#[allow(unused)]
-pub(crate) fn dup(fd: RawFd) -> Result<RawFd, Error> {
-    let fd = unsafe { libc::dup(fd) };
-    if fd == -1 {
-        return Err(Error::last_os_error());
-    }
-    Ok(fd)
 }
 
 pub(crate) struct Notifier {
@@ -140,14 +131,11 @@ impl Awaiter {
 
     #[cfg(feature = "monoio")]
     pub(crate) async fn wait(&mut self) {
-        use std::cell::UnsafeCell;
-        thread_local! {
-            pub static BUF: UnsafeCell<Vec<u8>> = UnsafeCell::new(vec![0; 64]);
-        }
-        let buf = BUF.with(|buf| {
-            let buf = unsafe { &(*buf.get()) };
-            unsafe { RawBuf::new(buf.as_ptr(), buf.len()) }
-        });
+        // Pass an owned buffer to the read op so the buffer lives as long as
+        // the op itself. Using a thread_local buffer with a raw pointer is
+        // unsound: the spawned task holding this read may leak (outlive the
+        // runtime) and the kernel could write into freed TLS memory.
+        let buf = vec![0; 64];
         let _ = self.unix_stream.read(buf).await;
     }
 
@@ -163,5 +151,26 @@ impl Drop for Notifier {
         unsafe {
             libc::close(self.fd);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_pair_and_notify() {
+        let (notifier, peer) = Notifier::new().unwrap();
+        assert!(notifier.as_raw_fd() >= 0);
+        assert!(peer >= 0);
+
+        notifier.notify().unwrap();
+        notifier.notify().unwrap();
+
+        let mut buf = [0u8; 8];
+        let n = unsafe { libc::read(peer, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        assert_eq!(n, 2);
+
+        unsafe { libc::close(peer) };
     }
 }

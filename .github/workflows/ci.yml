@@ -32,7 +32,54 @@ jobs:
       - name: Build
         run: cargo check --all-features --all-targets
       - name: Test
-        run: cargo test --all-features --all-targets
+        run: cargo test --workspace --exclude mem-ring --all-features --all-targets
+      # Test mem-ring separately with the feature set declared by its own
+      # Cargo.toml. In a workspace-wide build, feature unification pulls
+      # monoio's "sync" feature (required by the `test` crate) into
+      # mem-ring's test binary, and monoio 0.2.4's sync machinery combined
+      # with mem-ring's spawn-and-leak-at-runtime-drop pattern corrupts the
+      # heap on test teardown (glibc "unaligned tcache chunk detected").
+      # mem-ring itself does not use monoio/sync.
+      - name: Test mem-ring
+        run: cargo test -p mem-ring --all-features --all-targets
+      # --all-features only exercises the monoio branch of mem-ring (the
+      # tokio code is cfg'd out when monoio is enabled), so test the tokio
+      # feature set separately.
+      - name: Test mem-ring (tokio)
+        run: cargo test -p mem-ring --no-default-features --features tokio --all-targets
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    env:
+      GODEBUG: invalidptr=0,cgocheck=0
+      # sccache does not work well with coverage instrumentation;
+      # override the workflow-level cache settings for this job.
+      SCCACHE_GHA_ENABLED: "false"
+      RUSTC_WRAPPER: ""
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Collect Rust coverage
+        run: cargo llvm-cov --workspace --exclude mem-ring --all-features --all-targets --lcov --output-path lcov.info
+      # See the build-and-test job for why mem-ring is tested separately.
+      - name: Collect mem-ring coverage
+        run: cargo llvm-cov -p mem-ring --all-features --all-targets --lcov --output-path lcov-mem-ring.info
+      - name: Collect Go coverage
+        working-directory: test/go
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info,lcov-mem-ring.info,test/go/coverage.out
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     name: lint checks

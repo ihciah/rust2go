@@ -5,14 +5,14 @@ import (
 )
 
 func TestPing(t *testing.T) {
-	d := &Demo{}
+	d := TestCallImpl
 	if result := d.ping(1995); result != 1995 {
 		t.Errorf("ping(1995) = %d; want 1995", result)
 	}
 }
 
 func TestLogin(t *testing.T) {
-	d := &Demo{}
+	d := TestCallImpl
 	tests := []struct {
 		name     string
 		req      *LoginRequest
@@ -90,7 +90,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestAddFriends(t *testing.T) {
-	d := &Demo{}
+	d := TestCallImpl
 	tests := []struct {
 		name    string
 		req     *FriendsListRequest
@@ -153,7 +153,7 @@ func TestAddFriends(t *testing.T) {
 }
 
 func TestDeleteFriends(t *testing.T) {
-	d := &Demo{}
+	d := TestCallImpl
 	tests := []struct {
 		name    string
 		req     *FriendsListRequest
@@ -216,7 +216,7 @@ func TestDeleteFriends(t *testing.T) {
 }
 
 func TestPMFriend(t *testing.T) {
-	d := &Demo{}
+	d := TestCallImpl
 	tests := []struct {
 		name     string
 		req      *PMFriendRequest

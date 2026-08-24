@@ -1,6 +1,7 @@
 # Rust2Go
 
 [![Crates.io](https://img.shields.io/crates/v/rust2go.svg)](https://crates.io/crates/rust2go)
+[![codecov](https://codecov.io/github/ihciah/rust2go/graph/badge.svg?token=QIID1C79QI)](https://codecov.io/github/ihciah/rust2go)
 
 Rust2Go is a project that provides users with a simple and efficient way to call Golang from Rust with native async support. It also support user calling Rust from Golang.
 
@@ -78,6 +79,10 @@ Note: Since golang may scan the stack, and when it meets peer pointer, it may pa
 ### Extended Features
 
 - [x] Support calling rust from golang
+
+## Coverage
+
+[![codecov sunburst](https://codecov.io/github/ihciah/rust2go/graphs/sunburst.svg?token=QIID1C79QI)](https://codecov.io/github/ihciah/rust2go)
 
 ## Credit
 

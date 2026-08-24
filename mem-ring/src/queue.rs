@@ -46,6 +46,12 @@ pub struct ReadQueue<T> {
 }
 
 impl<T> ReadQueue<T> {
+    /// Returns the metadata of the inner queue.
+    ///
+    /// Note that only the memory fields of the returned meta are meaningful:
+    /// `unstuck_fd` is `-1` because its ownership was transferred to the
+    /// internal notifier in [`Queue::read`]. To obtain a shareable meta for
+    /// a peer, use the one returned by [`Queue::new`] instead.
     #[inline]
     pub fn meta(&self) -> QueueMeta {
         self.queue.meta()
@@ -365,6 +371,12 @@ pub struct WriteQueueInner<T> {
 }
 
 impl<T> WriteQueue<T> {
+    /// Returns the metadata of the inner queue.
+    ///
+    /// Note that only the memory fields of the returned meta are meaningful:
+    /// both fds are `-1` because their ownership was transferred to the
+    /// internal notifier/awaiter in [`Queue::write`]. To obtain a shareable
+    /// meta for a peer, use the one returned by [`Queue::new`] instead.
     #[inline]
     pub fn meta(&self) -> QueueMeta {
         #[cfg(not(all(feature = "monoio", feature = "tpc")))]
@@ -1039,9 +1051,17 @@ mod tests {
         // read() transfers the unstuck fd to the notifier; the queue still
         // owns the working fd. Both are closed exactly once on drop.
         let (q, meta) = Queue::<u64>::new(2).unwrap();
+        let q_working_fd = q.working_fd;
         let rq = q.read();
         assert!(!peer_end_closed(meta.working_fd));
         assert!(!peer_end_closed(meta.unstuck_fd));
+
+        // Documented behavior: meta() of a ReadQueue reports -1 for the
+        // transferred unstuck fd, while the working fd remains valid.
+        let rq_meta = rq.meta();
+        assert_eq!(rq_meta.unstuck_fd, -1);
+        assert_eq!(rq_meta.working_fd, q_working_fd);
+
         drop(rq);
         assert!(peer_end_closed(meta.working_fd));
         assert!(peer_end_closed(meta.unstuck_fd));

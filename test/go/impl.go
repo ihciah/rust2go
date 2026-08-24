@@ -181,6 +181,17 @@ func (d *Demo) multi_param_test(user *User, message *string, token *[]uint8) Log
 	}
 }
 
+func (d *Demo) get_balance(req *BalanceRequest) BalanceResponse {
+	return BalanceResponse{
+		user_id: req.user_id,
+		balance: int64(req.user_id) * 100,
+	}
+}
+
+func (d *Demo) transfer(from *uint64, to *uint64) uint64 {
+	return *from + *to
+}
+
 func (d *Demo) preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse {
 	// Test implementation for preserve_struct_attrs function
 	fmt.Printf("[go] preserve_struct_attrs_test called with data: %+v \n", data)

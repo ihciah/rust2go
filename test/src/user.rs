@@ -79,6 +79,20 @@ pub struct PreserveStructAttrsResponse {
     pub Success: bool,
 }
 
+pub type UserId = u64;
+
+#[derive(rust2go::R2G, Clone)]
+pub struct BalanceRequest {
+    pub user_id: UserId,
+    pub friend_ids: Vec<UserId>,
+}
+
+#[derive(rust2go::R2G, Clone)]
+pub struct BalanceResponse {
+    pub user_id: UserId,
+    pub balance: i64,
+}
+
 #[rust2go::r2g]
 #[allow(clippy::ptr_arg)]
 #[allow(dead_code)]
@@ -99,4 +113,8 @@ pub trait TestCall {
     async fn preserve_struct_attrs_test(
         data: &PreserveStructAttrsRequest,
     ) -> PreserveStructAttrsResponse;
+
+    fn get_balance(req: &BalanceRequest) -> BalanceResponse;
+    #[drop_safe]
+    async fn transfer(from: UserId, to: UserId) -> UserId;
 }

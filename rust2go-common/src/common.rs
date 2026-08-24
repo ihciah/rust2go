@@ -10,8 +10,8 @@ use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
 use syn::parse::Parser;
 use syn::{
-    Attribute, Error, Expr, ExprLit, File, Ident, Item, Lit, Meta, MetaNameValue, PathSegment,
-    Result, Type,
+    Attribute, Error, Expr, ExprLit, File, FnArg, GenericArgument, Ident, Item, Lit, Meta,
+    MetaNameValue, PathArguments, PathSegment, Result, ReturnType, TraitItem, Type, TypeParamBound,
 };
 
 pub struct RawRsFile {
@@ -21,7 +21,8 @@ pub struct RawRsFile {
 impl RawRsFile {
     pub fn new<S: AsRef<str>>(src: S) -> Self {
         let src = src.as_ref();
-        let syntax = syn::parse_file(src).expect("Unable to parse file");
+        let mut syntax = syn::parse_file(src).expect("Unable to parse file");
+        expand_type_aliases(&mut syntax);
         RawRsFile { file: syntax }
     }
 
@@ -1037,6 +1038,152 @@ impl ParamType {
             }
         }
     }
+
+    // Same as `to_rust_ref`, but renders the ref type as the associated type
+    // `<T as ::rust2go::ToRef>::Ref`. This form also works for type aliases,
+    // which cannot be resolved on the proc-macro side.
+    // The prefix is unused since the types are resolved in the user crate.
+    pub fn to_rust_ref_assoc(&self, prefix: Option<&TokenStream>) -> TokenStream {
+        let _ = prefix;
+        match &self.inner {
+            ParamTypeInner::Primitive(name) => quote!(#name),
+            ParamTypeInner::Custom(name) => {
+                quote!(<#name as ::rust2go::ToRef>::Ref)
+            }
+            ParamTypeInner::List(ty) => {
+                quote!(<#ty as ::rust2go::ToRef>::Ref)
+            }
+        }
+    }
+}
+
+// Expand non-generic type aliases (e.g. `pub type Amount = i64;`) in struct field
+// types and trait method signatures, so the codegen only sees concrete types.
+fn expand_type_aliases(file: &mut File) {
+    // Collect alias definitions. Aliases with generic parameters are not
+    // supported and skipped.
+    let mut aliases = HashMap::<Ident, Type>::new();
+    for item in file.items.iter() {
+        if let Item::Type(t) = item {
+            if t.generics.params.is_empty() {
+                aliases.insert(t.ident.clone(), t.ty.as_ref().clone());
+            }
+        }
+    }
+    if aliases.is_empty() {
+        return;
+    }
+
+    // Resolve alias chains (A -> B -> i64) and detect cycles.
+    let mut resolved = HashMap::<Ident, Type>::new();
+    for name in aliases.keys() {
+        let mut chain = vec![name.clone()];
+        let mut cur = aliases.get(name).unwrap().clone();
+        while let Some(next_ident) =
+            bare_type_ident(&cur).filter(|ident| aliases.contains_key(ident))
+        {
+            if chain.contains(&next_ident) {
+                let mut chain_str = chain
+                    .iter()
+                    .map(|ident| ident.to_string())
+                    .collect::<Vec<_>>();
+                chain_str.push(next_ident.to_string());
+                panic!("cyclic type alias detected: {}", chain_str.join(" -> "));
+            }
+            chain.push(next_ident.clone());
+            cur = aliases.get(&next_ident).unwrap().clone();
+        }
+        resolved.insert(name.clone(), cur);
+    }
+    // Aliases may also be used inside the generic arguments of alias targets
+    // (e.g. `type A = Vec<B>;`), so expand the resolved targets too.
+    let aliases_snapshot = resolved.clone();
+    for ty in resolved.values_mut() {
+        expand_type(ty, &aliases_snapshot);
+    }
+
+    // Expand alias usages in type positions of struct fields and trait methods.
+    for item in file.items.iter_mut() {
+        match item {
+            Item::Struct(s) => {
+                for field in s.fields.iter_mut() {
+                    expand_type(&mut field.ty, &resolved);
+                }
+            }
+            Item::Trait(t) => {
+                for trait_item in t.items.iter_mut() {
+                    if let TraitItem::Fn(f) = trait_item {
+                        for arg in f.sig.inputs.iter_mut() {
+                            if let FnArg::Typed(pat_type) = arg {
+                                expand_type(&mut pat_type.ty, &resolved);
+                            }
+                        }
+                        if let ReturnType::Type(_, ty) = &mut f.sig.output {
+                            expand_type(ty, &resolved);
+                        }
+                    }
+                }
+            }
+            _ => continue,
+        }
+    }
+}
+
+// If the type is a single-segment bare identifier path, return the identifier.
+fn bare_type_ident(ty: &Type) -> Option<Ident> {
+    let Type::Path(p) = ty else {
+        return None;
+    };
+    if p.qself.is_some() || p.path.leading_colon.is_some() || p.path.segments.len() != 1 {
+        return None;
+    }
+    let seg = p.path.segments.first().unwrap();
+    if !seg.arguments.is_none() {
+        return None;
+    }
+    Some(seg.ident.clone())
+}
+
+// Recursively replace alias idents in a type tree. Only type positions are
+// touched: bare single-segment idents and types inside generic arguments.
+fn expand_type(ty: &mut Type, aliases: &HashMap<Ident, Type>) {
+    // Replace the whole type if it is a bare alias ident.
+    if let Some(ident) = bare_type_ident(ty) {
+        if let Some(target) = aliases.get(&ident) {
+            *ty = target.clone();
+            return;
+        }
+    }
+    // Otherwise expand nested types in generic arguments.
+    fn expand_path_args(args: &mut PathArguments, aliases: &HashMap<Ident, Type>) {
+        if let PathArguments::AngleBracketed(args) = args {
+            for arg in args.args.iter_mut() {
+                match arg {
+                    GenericArgument::Type(t) => expand_type(t, aliases),
+                    GenericArgument::AssocType(t) => expand_type(&mut t.ty, aliases),
+                    _ => continue,
+                }
+            }
+        }
+    }
+    match ty {
+        Type::Path(p) => {
+            for seg in p.path.segments.iter_mut() {
+                expand_path_args(&mut seg.arguments, aliases);
+            }
+        }
+        Type::Reference(r) => expand_type(&mut r.elem, aliases),
+        Type::ImplTrait(i) => {
+            for bound in i.bounds.iter_mut() {
+                if let TypeParamBound::Trait(t) = bound {
+                    for seg in t.path.segments.iter_mut() {
+                        expand_path_args(&mut seg.arguments, aliases);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn type_to_segment(ty: &Type) -> Result<&PathSegment> {
@@ -1058,6 +1205,67 @@ pub(crate) fn type_to_segment(ty: &Type) -> Result<&PathSegment> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn type_alias_expansion() {
+        let raw = r#"
+        pub type Amount = i64;
+        pub type Money = Amount;
+        pub type Amounts = Vec<Money>;
+        pub struct DemoRequest {
+            pub amount: Amount,
+            pub tips: Vec<Amount>,
+            pub money: Money,
+            pub amounts: Amounts,
+        }
+        pub struct DemoResponse {
+            pub pass: bool,
+        }
+        #[::rust2go::r2g]
+        pub trait DemoCall {
+            fn demo_check(req: DemoRequest, tip: Amount) -> DemoResponse;
+            fn demo_list(amounts: Vec<Amount>) -> Money;
+            fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
+        }
+        "#;
+        let raw_file = super::RawRsFile::new(raw);
+        let levels = raw_file.convert_structs_levels().unwrap();
+        let go_structs = raw_file.convert_structs_to_go(&levels, false).unwrap();
+        // Struct fields must be expanded to the aliased primitive types.
+        assert!(go_structs.contains("amount int64"), "{go_structs}");
+        assert!(go_structs.contains("tips []int64"), "{go_structs}");
+        assert!(go_structs.contains("money int64"), "{go_structs}");
+        assert!(go_structs.contains("amounts []int64"), "{go_structs}");
+        assert!(!go_structs.contains("Amount"), "{go_structs}");
+
+        // Ref structs must be generated without alias types.
+        let (_mapping, ref_structs) = raw_file.convert_structs_to_ref().unwrap();
+        let ref_structs = ref_structs.to_string();
+        assert!(!ref_structs.contains("Amount"), "{ref_structs}");
+
+        // Trait method params and return types must be expanded too.
+        let traits = raw_file.convert_r2g_trait().unwrap();
+        let fns = traits.first().unwrap().fns();
+        let demo_check = fns.iter().find(|f| f.name() == "demo_check").unwrap();
+        assert_eq!(demo_check.params()[1].ty().to_go(), "int64");
+        let demo_list = fns.iter().find(|f| f.name() == "demo_list").unwrap();
+        assert_eq!(demo_list.params()[0].ty().to_go(), "[]int64");
+        assert_eq!(demo_list.ret().unwrap().to_go(), "int64");
+        fns.iter().find(|f| f.name() == "demo_check_async").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "cyclic type alias detected")]
+    fn type_alias_cycle() {
+        let raw = r#"
+        pub type A = B;
+        pub type B = A;
+        pub struct S {
+            pub a: A,
+        }
+        "#;
+        super::RawRsFile::new(raw);
+    }
+
     #[test]
     fn it_works() {
         let raw = r#"

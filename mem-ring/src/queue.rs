@@ -30,7 +30,7 @@ use monoio::{select, spawn};
 use tokio::{select, spawn};
 
 use crate::{
-    eventfd::{dup, new_pair, Awaiter, Notifier},
+    eventfd::{new_pair, Awaiter, Notifier},
     util::yield_now,
 };
 
@@ -61,13 +61,13 @@ impl<T> ReadQueue<T> {
     }
 
     #[cfg(feature = "monoio")]
-    pub fn run_handler(self, handler: impl FnMut(T) + 'static) -> Result<Guard, io::Error>
+    pub fn run_handler(mut self, handler: impl FnMut(T) + 'static) -> Result<Guard, io::Error>
     where
         T: 'static,
     {
-        // Dup the fd so the awaiter and the queue each own an independent
-        // descriptor (see `Queue::read`).
-        let working_fd = dup(self.queue.working_fd)?;
+        // Transfer the working fd ownership to the awaiter: the queue marks
+        // it as -1 so it will not close it on drop (see `Queue::read`).
+        let working_fd = mem::replace(&mut self.queue.working_fd, -1);
         let working_awaiter = unsafe { Awaiter::from_raw_fd(working_fd)? };
         let (tx, rx) = channel();
         spawn(self.working_handler(working_awaiter, handler, tx));
@@ -75,13 +75,16 @@ impl<T> ReadQueue<T> {
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
-    pub fn run_handler(self, handler: impl FnMut(T) + Send + 'static) -> Result<Guard, io::Error>
+    pub fn run_handler(
+        mut self,
+        handler: impl FnMut(T) + Send + 'static,
+    ) -> Result<Guard, io::Error>
     where
         T: Send + 'static,
     {
-        // Dup the fd so the awaiter and the queue each own an independent
-        // descriptor (see `Queue::read`).
-        let working_fd = dup(self.queue.working_fd)?;
+        // Transfer the working fd ownership to the awaiter: the queue marks
+        // it as -1 so it will not close it on drop (see `Queue::read`).
+        let working_fd = mem::replace(&mut self.queue.working_fd, -1);
         let working_awaiter = unsafe { Awaiter::from_raw_fd(working_fd)? };
         let (tx, rx) = channel();
         if let Some(tokio_handle) = self.tokio_handle.clone() {
@@ -416,9 +419,17 @@ pub struct Queue<T> {
     working_ptr: *mut AtomicU32,
     stuck_ptr: *mut AtomicU32,
 
+    // The queue owns these fds and closes them on drop, no matter whether it
+    // also owns the shared memory (see `do_drop`). An fd whose ownership has
+    // been transferred to a Notifier/Awaiter (e.g. in `read`/`write`) is set
+    // to -1 so it is not closed twice.
     working_fd: RawFd,
     unstuck_fd: RawFd,
 
+    // Whether this queue owns the shared memory (buffer and head/tail/
+    // working/stuck atomics) and frees it on drop. Memory ownership and fd
+    // ownership are tracked separately: queues created by `new_from_meta`
+    // do not own the memory, but do own the fds received via the meta.
     do_drop: bool,
 }
 
@@ -482,7 +493,11 @@ impl<T> Queue<T> {
     }
 
     /// # Safety
-    /// Must make sure the meta is valid until the Queue is dropped
+    /// Must make sure the meta is valid until the Queue is dropped.
+    ///
+    /// The returned queue takes over the ownership of the fds in the meta
+    /// and closes them on drop, but it does not own the shared memory and
+    /// will not free it.
     pub unsafe fn new_from_meta(meta: &QueueMeta) -> Result<Self, io::Error> {
         let buffer_slice =
             std::slice::from_raw_parts_mut(meta.buffer_ptr as *mut MaybeUninit<T>, meta.buffer_len);
@@ -525,11 +540,12 @@ impl<T> Queue<T> {
         }
     }
 
-    pub fn read(self) -> ReadQueue<T> {
-        // Dup the fd so the notifier and the queue each own an independent
-        // descriptor; otherwise both would close the same fd on drop, and a
-        // reused descriptor of an unrelated owner could be closed by mistake.
-        let unstuck_fd = dup(self.unstuck_fd).unwrap_or(self.unstuck_fd);
+    pub fn read(mut self) -> ReadQueue<T> {
+        // Transfer the unstuck fd ownership to the notifier and mark it as
+        // -1 in the queue, so the fd is closed exactly once (by the
+        // notifier). Falling back to a shared descriptor would double-close
+        // it on drop and could close an unrelated reused fd.
+        let unstuck_fd = mem::replace(&mut self.unstuck_fd, -1);
         let unstuck_notifier = unsafe { Notifier::from_raw_fd(unstuck_fd) };
         ReadQueue {
             queue: self,
@@ -540,9 +556,9 @@ impl<T> Queue<T> {
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
-    pub fn read_with_tokio_handle(self, tokio_handle: tokio::runtime::Handle) -> ReadQueue<T> {
-        // See `read` for why the fd is dup'ed.
-        let unstuck_fd = dup(self.unstuck_fd).unwrap_or(self.unstuck_fd);
+    pub fn read_with_tokio_handle(mut self, tokio_handle: tokio::runtime::Handle) -> ReadQueue<T> {
+        // See `read` for the fd ownership transfer.
+        let unstuck_fd = mem::replace(&mut self.unstuck_fd, -1);
         let unstuck_notifier = unsafe { Notifier::from_raw_fd(unstuck_fd) };
         ReadQueue {
             queue: self,
@@ -552,13 +568,16 @@ impl<T> Queue<T> {
     }
 
     #[cfg(feature = "monoio")]
-    pub fn write(self) -> Result<WriteQueue<T>, io::Error>
+    pub fn write(mut self) -> Result<WriteQueue<T>, io::Error>
     where
         T: 'static,
     {
-        let working_notifier =
-            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
+        // Transfer the fd ownership to the notifier and awaiter (see `read`).
+        let working_fd = mem::replace(&mut self.working_fd, -1);
+        let unstuck_fd = mem::replace(&mut self.unstuck_fd, -1);
+        let working_notifier = unsafe { Notifier::from_raw_fd(working_fd) };
+        // On failure the fd is closed by the dropped std UnixStream.
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(unstuck_fd)? };
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -586,13 +605,16 @@ impl<T> Queue<T> {
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
-    pub fn write(self) -> Result<WriteQueue<T>, io::Error>
+    pub fn write(mut self) -> Result<WriteQueue<T>, io::Error>
     where
         T: Send + 'static,
     {
-        let working_notifier =
-            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
+        // Transfer the fd ownership to the notifier and awaiter (see `read`).
+        let working_fd = mem::replace(&mut self.working_fd, -1);
+        let unstuck_fd = mem::replace(&mut self.unstuck_fd, -1);
+        let working_notifier = unsafe { Notifier::from_raw_fd(working_fd) };
+        // On failure the fd is closed by the dropped std UnixStream.
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(unstuck_fd)? };
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -611,15 +633,18 @@ impl<T> Queue<T> {
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
     pub fn write_with_tokio_handle(
-        self,
+        mut self,
         tokio_handle: &tokio::runtime::Handle,
     ) -> Result<WriteQueue<T>, io::Error>
     where
         T: Send + 'static,
     {
-        let working_notifier =
-            unsafe { Notifier::from_raw_fd(dup(self.working_fd).unwrap_or(self.working_fd)) };
-        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(dup(self.unstuck_fd)?) }?;
+        // Transfer the fd ownership to the notifier and awaiter (see `read`).
+        let working_fd = mem::replace(&mut self.working_fd, -1);
+        let unstuck_fd = mem::replace(&mut self.unstuck_fd, -1);
+        let working_notifier = unsafe { Notifier::from_raw_fd(working_fd) };
+        // On failure the fd is closed by the dropped std UnixStream.
+        let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(unstuck_fd)? };
 
         let (tx, rx) = channel();
         let wq = WriteQueue {
@@ -639,16 +664,23 @@ impl<T> Queue<T> {
 
 impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
-        if self.do_drop {
-            unsafe {
+        unsafe {
+            if self.do_drop {
                 let slice = std::slice::from_raw_parts_mut(self.buffer_ptr, self.buffer_len);
                 let _ = Box::from_raw(slice as *mut [MaybeUninit<T>]);
                 let _ = Box::from_raw(self.head_ptr);
                 let _ = Box::from_raw(self.tail_ptr);
                 let _ = Box::from_raw(self.working_ptr);
                 let _ = Box::from_raw(self.stuck_ptr);
-                let _ = Notifier::from_raw_fd(self.unstuck_fd);
-                let _ = Notifier::from_raw_fd(self.working_fd);
+            }
+            // Fd ownership is tracked separately from memory ownership:
+            // close the fds this queue still owns (those not transferred to
+            // a Notifier/Awaiter, which are marked as -1).
+            if self.unstuck_fd != -1 {
+                libc::close(self.unstuck_fd);
+            }
+            if self.working_fd != -1 {
+                libc::close(self.working_fd);
             }
         }
     }
@@ -963,6 +995,61 @@ mod tests {
 
         drop(peer);
         drop(owner);
+    }
+
+    // Returns true if the peer end of the socketpair `fd` belongs to has
+    // been closed. `fd` itself must stay open during the check, so this is
+    // not affected by fd number reuse in other threads.
+    #[cfg(test)]
+    fn peer_end_closed(fd: RawFd) -> bool {
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        (unsafe { libc::poll(&mut pfd, 1, 0) }) >= 0 && (pfd.revents & libc::POLLHUP) != 0
+    }
+
+    #[test]
+    fn drop_closes_fds() {
+        // A queue created from the meta owns the meta fds: it closes them on
+        // drop even though it does not own the shared memory.
+        let (owner, meta) = Queue::<u64>::new(2).unwrap();
+        let peer = unsafe { Queue::<u64>::new_from_meta(&meta) }.unwrap();
+        assert!(!peer.is_memory_owner());
+        drop(peer);
+        assert!(peer_end_closed(owner.working_fd));
+        assert!(peer_end_closed(owner.unstuck_fd));
+        drop(owner);
+
+        // The owner queue closes its own fds on drop.
+        let (owner, meta) = Queue::<u64>::new(2).unwrap();
+        drop(owner);
+        assert!(peer_end_closed(meta.working_fd));
+        assert!(peer_end_closed(meta.unstuck_fd));
+
+        unsafe {
+            libc::close(meta.working_fd);
+            libc::close(meta.unstuck_fd);
+        }
+    }
+
+    #[test]
+    fn drop_after_read_write_transfers() {
+        // read() transfers the unstuck fd to the notifier; the queue still
+        // owns the working fd. Both are closed exactly once on drop.
+        let (q, meta) = Queue::<u64>::new(2).unwrap();
+        let rq = q.read();
+        assert!(!peer_end_closed(meta.working_fd));
+        assert!(!peer_end_closed(meta.unstuck_fd));
+        drop(rq);
+        assert!(peer_end_closed(meta.working_fd));
+        assert!(peer_end_closed(meta.unstuck_fd));
+
+        unsafe {
+            libc::close(meta.working_fd);
+            libc::close(meta.unstuck_fd);
+        }
     }
 
     #[test]

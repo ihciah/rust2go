@@ -42,6 +42,11 @@ jobs:
       # mem-ring itself does not use monoio/sync.
       - name: Test mem-ring
         run: cargo test -p mem-ring --all-features --all-targets
+      # --all-features only exercises the monoio branch of mem-ring (the
+      # tokio code is cfg'd out when monoio is enabled), so test the tokio
+      # feature set separately.
+      - name: Test mem-ring (tokio)
+        run: cargo test -p mem-ring --no-default-features --features tokio --all-targets
 
   coverage:
     name: coverage

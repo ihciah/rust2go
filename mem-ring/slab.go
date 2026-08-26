@@ -7,6 +7,10 @@ import (
 	"sync/atomic"
 )
 
+// freelistEmpty is the sentinel for an empty freelist.
+// It must not be a valid slot index (0 was a bug: slot 0 could never be reused).
+const freelistEmpty = ^uint(0)
+
 // Note: T should be Copy
 type Item[T any] struct {
 	next uint
@@ -33,7 +37,7 @@ type MultiSlab[T any] struct {
 func NewSlab[T any]() *Slab[T] {
 	return &Slab[T]{
 		data: make([]Item[T], 0, 1),
-		next: 0,
+		next: freelistEmpty,
 	}
 }
 
@@ -74,15 +78,15 @@ type MultiSlabOption interface {
 }
 
 func (s *Slab[T]) Push(data T) uint {
-	if s.next == 0 {
-		s.data = append(s.data, Item[T]{next: 0, data: data})
+	if s.next == freelistEmpty {
+		s.data = append(s.data, Item[T]{next: freelistEmpty, data: data})
 		return uint(len(s.data) - 1)
 	}
 	index := s.next
 	item := &s.data[index]
 	item.data = data
 	s.next = item.next
-	item.next = 0
+	item.next = freelistEmpty
 	return index
 }
 
@@ -99,10 +103,16 @@ func (s *MultiSlab[T]) Push(data T) uint {
 }
 
 func (s *Slab[T]) Pop(index uint) T {
+	if index >= uint(len(s.data)) {
+		panic("mem_ring: Slab.Pop index out of range")
+	}
 	item := &s.data[index]
+	data := item.data
+	var zero T
+	item.data = zero // clear the reference so GC can reclaim it
 	item.next = s.next
 	s.next = index
-	return item.data
+	return data
 }
 
 func (s *LockedSlab[T]) Pop(index uint) T {

@@ -159,6 +159,9 @@ func (q Queue[T]) Write() WriteQueue[T] {
 			if !wq.pendingTasks.IsEmpty() {
 				wq.q.markStuck()
 				if !wq.q.isFull() {
+					// Unlock before continue: jumping back to the loop top
+					// while holding the lock would self-deadlock.
+					wq.Lock.Unlock()
 					continue
 				}
 			}

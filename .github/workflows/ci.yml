@@ -47,6 +47,11 @@ jobs:
       # feature set separately.
       - name: Test mem-ring (tokio)
         run: cargo test -p mem-ring --no-default-features --features tokio --all-targets
+      # Building the workspace above regenerates the committed Go bindings
+      # (test/go/gen.go, examples/*/go/gen.go) via build.rs scripts; fail if
+      # the committed copies have drifted from what the .rs sources generate.
+      - name: Check generated Go files are up to date
+        run: git diff --exit-code -- '**/gen.go'
 
   coverage:
     name: coverage

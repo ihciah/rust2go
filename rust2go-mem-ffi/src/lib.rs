@@ -284,10 +284,10 @@ mod tests {
 
     #[test]
     fn payload_layout_and_copy() {
-        // repr(C): two usize fields followed by two u32 fields, no padding.
+        // repr(C): three usize fields followed by two u32 fields, no padding.
         assert_eq!(
             std::mem::size_of::<Payload>(),
-            2 * std::mem::size_of::<usize>() + 2 * std::mem::size_of::<u32>()
+            3 * std::mem::size_of::<usize>() + 2 * std::mem::size_of::<u32>()
         );
         let p = Payload::new_call(1, 2, 3);
         let copied = p; // Payload is Copy

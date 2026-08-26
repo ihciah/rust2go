@@ -190,3 +190,194 @@ pub unsafe fn init_rings<T: 'static + Send>(
 
     Ok((rqueue.read(), wqueue.write()?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_desc(buf: &[u8], params_ptr: usize, slot_ptr: usize) -> TaskDesc {
+        TaskDesc {
+            buf: buf.to_vec(),
+            params_ptr,
+            slot_ptr,
+        }
+    }
+
+    #[test]
+    fn payload_new_call() {
+        let p = Payload::new_call(7, 100, 0xdead_beef);
+        assert_eq!(p.ptr, 0xdead_beef);
+        assert_eq!(p.user_data, 100);
+        assert_eq!(p.next_user_data, 0);
+        assert_eq!(p.call_id, 7);
+        assert_eq!(p.flag, 0b0101);
+    }
+
+    #[test]
+    fn payload_new_reply() {
+        let p = Payload::new_reply(3, 10, 20, 0xbeef);
+        assert_eq!(p.ptr, 0xbeef);
+        assert_eq!(p.user_data, 10);
+        assert_eq!(p.next_user_data, 20);
+        assert_eq!(p.call_id, 3);
+        assert_eq!(p.flag, 0b1110);
+    }
+
+    #[test]
+    fn payload_new_drop() {
+        let p = Payload::new_drop(5, 42);
+        assert_eq!(p.ptr, 0);
+        assert_eq!(p.user_data, 42);
+        assert_eq!(p.next_user_data, 0);
+        assert_eq!(p.call_id, 5);
+        assert_eq!(p.flag, 0b1000);
+    }
+
+    #[test]
+    fn payload_new_quit() {
+        let init = Payload::new_quit_init();
+        assert_eq!(init.ptr, 0);
+        assert_eq!(init.user_data, 0);
+        assert_eq!(init.next_user_data, 0);
+        assert_eq!(init.call_id, 0);
+        assert_eq!(init.flag, 0b10100);
+
+        let ack = Payload::new_quit_ack();
+        assert_eq!(ack.ptr, 0);
+        assert_eq!(ack.user_data, 0);
+        assert_eq!(ack.next_user_data, 0);
+        assert_eq!(ack.call_id, 0);
+        assert_eq!(ack.flag, 0b10000);
+    }
+
+    #[test]
+    fn payload_flag_protocol() {
+        let call = Payload::new_call(0, 0, 0).flag;
+        let reply = Payload::new_reply(0, 0, 0, 0).flag;
+        let drop = Payload::new_drop(0, 0).flag;
+        let quit_init = Payload::new_quit_init().flag;
+        let quit_ack = Payload::new_quit_ack().flag;
+
+        // These constants are part of the wire protocol with the Go side
+        // (see go_shm_ring_init codegen: CALL=0b0101, REPLY=0b1110, DROP=0b1000).
+        assert_eq!(call, 0b0101);
+        assert_eq!(reply, 0b1110);
+        assert_eq!(drop, 0b1000);
+        assert_eq!(quit_init, 0b10100);
+        assert_eq!(quit_ack, 0b10000);
+
+        // The dispatcher in init_mem_ffi ignores payloads whose QUIT_ACK bit
+        // is set; QUIT_INIT also carries that bit.
+        assert_eq!(quit_init & quit_ack, quit_ack);
+        assert_ne!(call & quit_ack, quit_ack);
+        assert_ne!(reply & quit_ack, quit_ack);
+        assert_ne!(drop & quit_ack, quit_ack);
+
+        // All five flags must be distinct.
+        let flags = [call, reply, drop, quit_init, quit_ack];
+        for (i, a) in flags.iter().enumerate() {
+            for b in &flags[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn payload_layout_and_copy() {
+        // repr(C): three usize fields followed by two u32 fields, no padding.
+        assert_eq!(
+            std::mem::size_of::<Payload>(),
+            3 * std::mem::size_of::<usize>() + 2 * std::mem::size_of::<u32>()
+        );
+        let p = Payload::new_call(1, 2, 3);
+        let copied = p; // Payload is Copy
+        assert_eq!(copied.ptr, p.ptr);
+        assert_eq!(copied.user_data, p.user_data);
+        assert_eq!(copied.call_id, p.call_id);
+        assert_eq!(copied.flag, p.flag);
+    }
+
+    #[test]
+    fn task_desc_fields_and_handler_signature() {
+        fn handler(ptr: usize, desc: TaskDesc) -> bool {
+            assert_eq!(ptr, 0x10);
+            assert_eq!(desc.buf, b"hello");
+            true
+        }
+        let h: TaskHandler = handler;
+        assert!(h(0x10, task_desc(b"hello", 1, 2)));
+
+        let desc = task_desc(&[1, 2, 3], 0x10, 0x20);
+        assert_eq!(desc.buf, [1, 2, 3]);
+        assert_eq!(desc.params_ptr, 0x10);
+        assert_eq!(desc.slot_ptr, 0x20);
+    }
+
+    #[test]
+    fn slab_push_pop_roundtrip() {
+        let slab: SharedSlab = new_shared_mut(Slab::new());
+        let key1 = push_slab(&slab, task_desc(b"hello", 1, 2));
+        let key2 = push_slab(&slab, task_desc(b"", 3, 4));
+        assert_ne!(key1, key2);
+
+        let d1 = pop_slab(&slab, key1);
+        assert_eq!(d1.buf, b"hello");
+        assert_eq!(d1.params_ptr, 1);
+        assert_eq!(d1.slot_ptr, 2);
+
+        let d2 = pop_slab(&slab, key2);
+        assert!(d2.buf.is_empty());
+        assert_eq!(d2.params_ptr, 3);
+        assert_eq!(d2.slot_ptr, 4);
+    }
+
+    #[test]
+    fn slot_inner_basics() {
+        let mut slot = SlotInner::<u32>::new();
+        assert!(slot.value.is_none());
+        assert!(slot.waker.is_none());
+        slot.set_result(7);
+        assert_eq!(slot.value, Some(7));
+
+        let slot = SlotInner::<u32>::default();
+        assert!(slot.value.is_none());
+        assert!(slot.waker.is_none());
+    }
+
+    #[test]
+    fn new_shared_deref() {
+        let shared = new_shared(5u32);
+        assert_eq!(*shared, 5);
+        let cloned = shared.clone();
+        assert_eq!(*cloned, 5);
+    }
+
+    #[test]
+    fn local_fut_resolves_after_set_result() {
+        use std::future::Future;
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+        fn noop_waker() -> Waker {
+            unsafe fn clone(_: *const ()) -> RawWaker {
+                RawWaker::new(std::ptr::null(), &VTABLE)
+            }
+            unsafe fn wake(_: *const ()) {}
+            unsafe fn wake_by_ref(_: *const ()) {}
+            unsafe fn drop(_: *const ()) {}
+            const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+            unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
+        }
+
+        let slot = new_shared_mut(SlotInner::<u32>::new());
+        let fut = LocalFut { slot: slot.clone() };
+        let mut fut = std::pin::pin!(fut);
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        // No value yet: pending, and the waker is registered.
+        assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Pending));
+        set_result_for_shared_mut_slot(&slot, 42);
+        assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Ready(42)));
+    }
+}

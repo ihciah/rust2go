@@ -1296,4 +1296,407 @@ mod tests {
         let levels = raw_file.convert_structs_levels().unwrap();
         levels.iter().for_each(|f| println!("{}: {}", f.0, f.1));
     }
+
+    const DEMO_SRC: &str = r#"
+    pub struct DemoNested {
+        pub id: u32,
+        pub score: f64,
+    }
+    pub struct DemoRequest {
+        pub name: String,
+        pub age: u8,
+        pub tags: Vec<String>,
+        pub scores: Vec<u32>,
+        pub maybe_count: Option<u32>,
+        pub nested: DemoNested,
+        pub nested_list: Vec<DemoNested>,
+    }
+    pub struct DemoResponse {
+        pub pass: bool,
+    }
+    "#;
+
+    fn ident(name: &str) -> proc_macro2::Ident {
+        proc_macro2::Ident::new(name, proc_macro2::Span::call_site())
+    }
+
+    fn param_type(src: &str) -> super::ParamType {
+        let ty: syn::Type = syn::parse_str(src).expect("unable to parse type");
+        super::ParamType::try_from(&ty).expect("unable to convert type")
+    }
+
+    fn normalize_tokens(tokens: proc_macro2::TokenStream) -> String {
+        tokens
+            .to_string()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn go_struct_generation_golden() {
+        let raw_file = super::RawRsFile::new(DEMO_SRC);
+        let levels = raw_file.convert_structs_levels().unwrap();
+        let go = raw_file.convert_structs_to_go(&levels, false).unwrap();
+
+        // Go struct definitions with converted field types.
+        assert!(go.contains("type DemoNested struct {"), "{go}");
+        assert!(go.contains("id uint32"), "{go}");
+        assert!(go.contains("score float64"), "{go}");
+        assert!(go.contains("type DemoRequest struct {"), "{go}");
+        assert!(go.contains("name string"), "{go}");
+        assert!(go.contains("age uint8"), "{go}");
+        assert!(go.contains("tags []string"), "{go}");
+        assert!(go.contains("scores []uint32"), "{go}");
+        assert!(go.contains("maybe_count []uint32"), "{go}");
+        assert!(go.contains("nested DemoNested"), "{go}");
+        assert!(go.contains("nested_list []DemoNested"), "{go}");
+        assert!(go.contains("type DemoResponse struct {"), "{go}");
+        assert!(go.contains("pass bool"), "{go}");
+
+        // newStruct: C ref -> Go struct converters.
+        assert!(
+            go.contains("func newDemoRequest(p C.DemoRequestRef) DemoRequest{"),
+            "{go}"
+        );
+        assert!(go.contains("return DemoRequest{"), "{go}");
+        assert!(go.contains("name: newString(p.name),"), "{go}");
+        assert!(go.contains("age: newC_uint8_t(p.age),"), "{go}");
+        assert!(
+            go.contains("tags: new_list_mapper(newString)(p.tags),"),
+            "{go}"
+        );
+        assert!(
+            go.contains("scores: new_list_mapper_primitive(newC_uint32_t)(p.scores),"),
+            "{go}"
+        );
+        assert!(
+            go.contains("maybe_count: new_list_mapper_primitive(newC_uint32_t)(p.maybe_count),"),
+            "{go}"
+        );
+        assert!(go.contains("nested: newDemoNested(p.nested),"), "{go}");
+        assert!(
+            go.contains("nested_list: new_list_mapper_primitive(newDemoNested)(p.nested_list),"),
+            "{go}"
+        );
+        assert!(
+            go.contains("func newDemoNested(p C.DemoNestedRef) DemoNested{"),
+            "{go}"
+        );
+        assert!(go.contains("id: newC_uint32_t(p.id),"), "{go}");
+        assert!(go.contains("score: newC_double(p.score),"), "{go}");
+
+        // ownStruct: C ref -> Go struct with full ownership.
+        assert!(
+            go.contains("func ownDemoRequest(p C.DemoRequestRef) DemoRequest{"),
+            "{go}"
+        );
+        assert!(go.contains("name: ownString(p.name),"), "{go}");
+        assert!(
+            go.contains("tags: new_list_mapper(ownString)(p.tags),"),
+            "{go}"
+        );
+
+        // cntStruct: only level-2 fields are counted.
+        assert!(
+            go.contains("func cntDemoRequest(s *DemoRequest, cnt *uint) [0]C.DemoRequestRef {"),
+            "{go}"
+        );
+        assert!(
+            go.contains("cnt_list_mapper(cntString)(&s.tags, cnt)"),
+            "{go}"
+        );
+        assert!(
+            go.contains("func cntDemoNested(s *DemoNested, cnt *uint) [0]C.DemoNestedRef {"),
+            "{go}"
+        );
+
+        // refStruct: Go struct -> C ref converters.
+        assert!(
+            go.contains("func refDemoRequest(p *DemoRequest, buffer *[]byte) C.DemoRequestRef{"),
+            "{go}"
+        );
+        assert!(go.contains("return C.DemoRequestRef{"), "{go}");
+        assert!(go.contains("name: refString(&p.name, buffer),"), "{go}");
+        assert!(go.contains("age: refC_uint8_t(&p.age, buffer),"), "{go}");
+        assert!(
+            go.contains("tags: ref_list_mapper(refString)(&p.tags, buffer),"),
+            "{go}"
+        );
+        assert!(
+            go.contains("scores: ref_list_mapper_primitive(refC_uint32_t)(&p.scores, buffer),"),
+            "{go}"
+        );
+        assert!(
+            go.contains("nested: refDemoNested(&p.nested, buffer),"),
+            "{go}"
+        );
+        assert!(
+            go.contains(
+                "nested_list: ref_list_mapper_primitive(refDemoNested)(&p.nested_list, buffer),"
+            ),
+            "{go}"
+        );
+
+        // Common helpers preamble (go1.21+ variant).
+        assert!(
+            go.contains("func newString(s_ref C.StringRef) string {"),
+            "{go}"
+        );
+        assert!(go.contains("unsafe.StringData"), "{go}");
+        assert!(
+            go.contains("func ownString(s_ref C.StringRef) string {"),
+            "{go}"
+        );
+        assert!(
+            go.contains("func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {"),
+            "{go}"
+        );
+
+        // go1.18 variant emits the reflect-based string helpers instead.
+        let go118 = raw_file.convert_structs_to_go(&levels, true).unwrap();
+        assert!(
+            go118.contains("func unsafeString(ptr *byte, length int) string {"),
+            "{go118}"
+        );
+        assert!(
+            go118.contains("func unsafeStringData(s string) *byte {"),
+            "{go118}"
+        );
+    }
+
+    #[test]
+    fn ref_struct_generation() {
+        let raw_file = super::RawRsFile::new(DEMO_SRC);
+        let (mapping, ref_structs) = raw_file.convert_structs_to_ref().unwrap();
+
+        // Name mapping: OriginalType -> RefType.
+        assert_eq!(mapping[&ident("String")].to_string(), "StringRef");
+        assert_eq!(mapping[&ident("Vec")].to_string(), "ListRef");
+        assert_eq!(mapping[&ident("DemoNested")].to_string(), "DemoNestedRef");
+        assert_eq!(mapping[&ident("DemoRequest")].to_string(), "DemoRequestRef");
+        assert_eq!(
+            mapping[&ident("DemoResponse")].to_string(),
+            "DemoResponseRef"
+        );
+
+        // Generated #[repr(C)] ref structs.
+        let norm = normalize_tokens(ref_structs);
+        assert!(norm.contains("pub struct StringRef {"), "{norm}");
+        assert!(norm.contains("pub struct ListRef {"), "{norm}");
+        assert!(norm.contains("pub struct DemoNestedRef {"), "{norm}");
+        assert!(norm.contains("pub struct DemoRequestRef {"), "{norm}");
+        assert!(norm.contains("pub struct DemoResponseRef {"), "{norm}");
+        assert!(norm.contains("name : StringRef"), "{norm}");
+        assert!(norm.contains("age : u8"), "{norm}");
+        assert!(norm.contains("tags : ListRef"), "{norm}");
+        assert!(norm.contains("scores : ListRef"), "{norm}");
+        assert!(norm.contains("maybe_count : ListRef"), "{norm}");
+        assert!(norm.contains("nested : DemoNestedRef"), "{norm}");
+        assert!(norm.contains("nested_list : ListRef"), "{norm}");
+        assert!(norm.contains("id : u32"), "{norm}");
+        assert!(norm.contains("score : f64"), "{norm}");
+        assert!(norm.contains("pass : bool"), "{norm}");
+    }
+
+    #[test]
+    fn struct_levels() {
+        let raw_file = super::RawRsFile::new(DEMO_SRC);
+        let levels = raw_file.convert_structs_levels().unwrap();
+        // All-primitive struct.
+        assert_eq!(levels.get(&ident("DemoNested")), Some(&0));
+        // Struct with String/Vec<String> fields.
+        assert_eq!(levels.get(&ident("DemoRequest")), Some(&2));
+        // Single bool field.
+        assert_eq!(levels.get(&ident("DemoResponse")), Some(&0));
+        // String is always registered as level 1.
+        assert_eq!(levels.get(&ident("String")), Some(&1));
+    }
+
+    #[test]
+    fn go_struct_tag_generation() {
+        let raw = r#"
+        #[r2g_struct_tag(json = "snake_case")]
+        pub struct TaggedUser {
+            pub user_name: String,
+            pub login_count: u32,
+        }
+        "#;
+        let raw_file = super::RawRsFile::new(raw);
+        let levels = raw_file.convert_structs_levels().unwrap();
+        let go = raw_file.convert_structs_to_go(&levels, false).unwrap();
+        assert!(go.contains("type TaggedUser struct {"), "{go}");
+        assert!(go.contains("user_name string `json:\"user_name\"`"), "{go}");
+        assert!(
+            go.contains("login_count uint32 `json:\"login_count\"`"),
+            "{go}"
+        );
+    }
+
+    #[test]
+    fn param_type_conversions() {
+        // Primitive.
+        let pt = param_type("u8");
+        assert!(!pt.is_reference);
+        assert!(matches!(pt.inner, super::ParamTypeInner::Primitive(_)));
+        assert_eq!(pt.to_go(), "uint8");
+        assert_eq!(pt.to_c(false), "uint8_t");
+        assert_eq!(pt.to_c(true), "uint8_t");
+        assert_eq!(pt.to_rust_ref(None).to_string(), "u8");
+
+        // Reference to primitive.
+        let pt = param_type("&i64");
+        assert!(pt.is_reference);
+        assert_eq!(pt.to_go(), "int64");
+        assert_eq!(pt.to_c(false), "int64_t");
+
+        // Other primitives.
+        assert_eq!(param_type("usize").to_go(), "uint");
+        assert_eq!(param_type("usize").to_c(false), "uintptr_t");
+        assert_eq!(param_type("isize").to_go(), "int");
+        assert_eq!(param_type("isize").to_c(false), "intptr_t");
+        assert_eq!(param_type("f32").to_go(), "float32");
+        assert_eq!(param_type("f32").to_c(false), "float");
+        assert_eq!(param_type("f64").to_go(), "float64");
+        assert_eq!(param_type("f64").to_c(false), "double");
+        assert_eq!(param_type("bool").to_go(), "bool");
+        assert_eq!(param_type("bool").to_c(false), "bool");
+        assert_eq!(param_type("char").to_go(), "rune");
+        assert_eq!(param_type("char").to_c(false), "uint32_t");
+
+        // String.
+        let pt = param_type("String");
+        assert!(matches!(pt.inner, super::ParamTypeInner::Custom(_)));
+        assert_eq!(pt.to_go(), "string");
+        assert_eq!(pt.to_c(false), "StringRef");
+        assert_eq!(pt.to_c(true), "struct StringRef");
+        assert_eq!(pt.to_rust_ref(None).to_string(), "StringRef");
+
+        // Custom struct type.
+        let pt = param_type("DemoNested");
+        assert!(matches!(pt.inner, super::ParamTypeInner::Custom(_)));
+        assert_eq!(pt.to_go(), "DemoNested");
+        assert_eq!(pt.to_c(false), "DemoNestedRef");
+        assert_eq!(pt.to_c(true), "struct DemoNestedRef");
+        assert_eq!(pt.to_rust_ref(None).to_string(), "DemoNestedRef");
+
+        // Vec / Option list types.
+        let pt = param_type("Vec<u32>");
+        assert!(matches!(pt.inner, super::ParamTypeInner::List(_)));
+        assert_eq!(pt.to_go(), "[]uint32");
+        assert_eq!(pt.to_c(false), "ListRef");
+        assert_eq!(pt.to_c(true), "struct ListRef");
+        assert_eq!(pt.to_rust_ref(None).to_string(), "ListRef");
+        assert_eq!(param_type("Option<String>").to_go(), "[]string");
+        assert_eq!(param_type("Vec<Vec<u8>>").to_go(), "[][]uint8");
+        assert_eq!(param_type("Option<DemoNested>").to_go(), "[]DemoNested");
+
+        // Associated-type ref form resolves via rust2go::ToRef.
+        let norm = normalize_tokens(param_type("String").to_rust_ref_assoc(None));
+        assert!(norm.contains("rust2go :: ToRef"), "{norm}");
+    }
+
+    #[test]
+    fn param_type_field_converters() {
+        let levels = super::RawRsFile::new("pub struct DemoNested { pub id: u32, }")
+            .convert_structs_levels()
+            .unwrap();
+
+        // Primitive.
+        let pt = param_type("u16");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("newC_uint16_t".to_string(), 0)
+        );
+        assert_eq!(pt.c_to_go_field_converter_owned(), "newC_uint16_t");
+        assert_eq!(
+            pt.go_to_c_field_counter(&levels),
+            ("cntC_uint16_t".to_string(), 0)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("refC_uint16_t".to_string(), 0)
+        );
+
+        // String (level 1 custom).
+        let pt = param_type("String");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("newString".to_string(), 1)
+        );
+        assert_eq!(pt.c_to_go_field_converter_owned(), "ownString");
+        assert_eq!(
+            pt.go_to_c_field_counter(&levels),
+            ("cntString".to_string(), 1)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("refString".to_string(), 1)
+        );
+
+        // Level-0 custom struct.
+        let pt = param_type("DemoNested");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("newDemoNested".to_string(), 0)
+        );
+        assert_eq!(pt.c_to_go_field_converter_owned(), "ownDemoNested");
+        assert_eq!(
+            pt.go_to_c_field_counter(&levels),
+            ("cntDemoNested".to_string(), 0)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("refDemoNested".to_string(), 0)
+        );
+
+        // List of primitives uses the primitive mappers (level 1).
+        let pt = param_type("Vec<u8>");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("new_list_mapper_primitive(newC_uint8_t)".to_string(), 1)
+        );
+        assert_eq!(
+            pt.c_to_go_field_converter_owned(),
+            "new_list_mapper(newC_uint8_t)"
+        );
+        assert_eq!(
+            pt.go_to_c_field_counter(&levels),
+            ("cnt_list_mapper_primitive(cntC_uint8_t)".to_string(), 1)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("ref_list_mapper_primitive(refC_uint8_t)".to_string(), 1)
+        );
+
+        // Option<String> wraps a level-1 type, becoming level 2.
+        let pt = param_type("Option<String>");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("new_list_mapper(newString)".to_string(), 2)
+        );
+        assert_eq!(
+            pt.c_to_go_field_converter_owned(),
+            "new_list_mapper(ownString)"
+        );
+        assert_eq!(
+            pt.go_to_c_field_counter(&levels),
+            ("cnt_list_mapper(cntString)".to_string(), 2)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("ref_list_mapper(refString)".to_string(), 2)
+        );
+
+        // List of level-0 structs still uses the primitive mappers (level 1).
+        let pt = param_type("Vec<DemoNested>");
+        assert_eq!(
+            pt.c_to_go_field_converter(&levels),
+            ("new_list_mapper_primitive(newDemoNested)".to_string(), 1)
+        );
+        assert_eq!(
+            pt.go_to_c_field_converter(&levels),
+            ("ref_list_mapper_primitive(refDemoNested)".to_string(), 1)
+        );
+    }
 }

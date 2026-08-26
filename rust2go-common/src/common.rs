@@ -1362,7 +1362,10 @@ mod tests {
         assert!(go.contains("return DemoRequest{"), "{go}");
         assert!(go.contains("name: newString(p.name),"), "{go}");
         assert!(go.contains("age: newC_uint8_t(p.age),"), "{go}");
-        assert!(go.contains("tags: new_list_mapper(newString)(p.tags),"), "{go}");
+        assert!(
+            go.contains("tags: new_list_mapper(newString)(p.tags),"),
+            "{go}"
+        );
         assert!(
             go.contains("scores: new_list_mapper_primitive(newC_uint32_t)(p.scores),"),
             "{go}"
@@ -1399,7 +1402,10 @@ mod tests {
             go.contains("func cntDemoRequest(s *DemoRequest, cnt *uint) [0]C.DemoRequestRef {"),
             "{go}"
         );
-        assert!(go.contains("cnt_list_mapper(cntString)(&s.tags, cnt)"), "{go}");
+        assert!(
+            go.contains("cnt_list_mapper(cntString)(&s.tags, cnt)"),
+            "{go}"
+        );
         assert!(
             go.contains("func cntDemoNested(s *DemoNested, cnt *uint) [0]C.DemoNestedRef {"),
             "{go}"
@@ -1426,14 +1432,22 @@ mod tests {
             "{go}"
         );
         assert!(
-            go.contains("nested_list: ref_list_mapper_primitive(refDemoNested)(&p.nested_list, buffer),"),
+            go.contains(
+                "nested_list: ref_list_mapper_primitive(refDemoNested)(&p.nested_list, buffer),"
+            ),
             "{go}"
         );
 
         // Common helpers preamble (go1.21+ variant).
-        assert!(go.contains("func newString(s_ref C.StringRef) string {"), "{go}");
+        assert!(
+            go.contains("func newString(s_ref C.StringRef) string {"),
+            "{go}"
+        );
         assert!(go.contains("unsafe.StringData"), "{go}");
-        assert!(go.contains("func ownString(s_ref C.StringRef) string {"), "{go}");
+        assert!(
+            go.contains("func ownString(s_ref C.StringRef) string {"),
+            "{go}"
+        );
         assert!(
             go.contains("func new_list_mapper[T1, T2 any](f func(T1) T2) func(C.ListRef) []T2 {"),
             "{go}"
@@ -1461,7 +1475,10 @@ mod tests {
         assert_eq!(mapping[&ident("Vec")].to_string(), "ListRef");
         assert_eq!(mapping[&ident("DemoNested")].to_string(), "DemoNestedRef");
         assert_eq!(mapping[&ident("DemoRequest")].to_string(), "DemoRequestRef");
-        assert_eq!(mapping[&ident("DemoResponse")].to_string(), "DemoResponseRef");
+        assert_eq!(
+            mapping[&ident("DemoResponse")].to_string(),
+            "DemoResponseRef"
+        );
 
         // Generated #[repr(C)] ref structs.
         let norm = normalize_tokens(ref_structs);
@@ -1510,7 +1527,10 @@ mod tests {
         let go = raw_file.convert_structs_to_go(&levels, false).unwrap();
         assert!(go.contains("type TaggedUser struct {"), "{go}");
         assert!(go.contains("user_name string `json:\"user_name\"`"), "{go}");
-        assert!(go.contains("login_count uint32 `json:\"login_count\"`"), "{go}");
+        assert!(
+            go.contains("login_count uint32 `json:\"login_count\"`"),
+            "{go}"
+        );
     }
 
     #[test]
@@ -1655,7 +1675,10 @@ mod tests {
             pt.c_to_go_field_converter(&levels),
             ("new_list_mapper(newString)".to_string(), 2)
         );
-        assert_eq!(pt.c_to_go_field_converter_owned(), "new_list_mapper(ownString)");
+        assert_eq!(
+            pt.c_to_go_field_converter_owned(),
+            "new_list_mapper(ownString)"
+        );
         assert_eq!(
             pt.go_to_c_field_counter(&levels),
             ("cnt_list_mapper(cntString)".to_string(), 2)

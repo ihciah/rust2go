@@ -4,7 +4,7 @@
 
 // Copyright 2024 ihciah. All Rights Reserved.
 
-package asmcall
+package calltest
 
 /*
 #include <stdint.h>
@@ -24,6 +24,8 @@ import "C"
 import (
 	"testing"
 	"unsafe"
+
+	"github.com/ihciah/rust2go/asmcall"
 )
 
 // The CallFunc* entry points return nothing, so results are observed
@@ -31,8 +33,8 @@ import (
 
 func TestCallFuncG0P0(t *testing.T) {
 	C.reset_counter()
-	CallFuncG0P0(C.bump_counter)
-	CallFuncG0P0(C.bump_counter)
+	asmcall.CallFuncG0P0(C.bump_counter)
+	asmcall.CallFuncG0P0(C.bump_counter)
 	if got := uintptr(C.read_counter()); got != 2 {
 		t.Fatalf("counter = %d, want 2", got)
 	}
@@ -40,7 +42,7 @@ func TestCallFuncG0P0(t *testing.T) {
 
 func TestCallFuncG0P1(t *testing.T) {
 	var v uintptr = 41
-	CallFuncG0P1(C.inc_ptr, unsafe.Pointer(&v))
+	asmcall.CallFuncG0P1(C.inc_ptr, unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -48,7 +50,7 @@ func TestCallFuncG0P1(t *testing.T) {
 
 func TestCallFuncG0P2(t *testing.T) {
 	var v uintptr = 40
-	CallFuncG0P2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
+	asmcall.CallFuncG0P2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -56,7 +58,7 @@ func TestCallFuncG0P2(t *testing.T) {
 
 func TestCallFuncG0P3(t *testing.T) {
 	var out uintptr
-	CallFuncG0P3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
+	asmcall.CallFuncG0P3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
 	if out != 42 {
 		t.Fatalf("out = %d, want 42", out)
 	}
@@ -66,7 +68,7 @@ func TestCallFuncG0P3(t *testing.T) {
 // space; all callees above are trivial single-expression functions.
 func TestCallFuncP0(t *testing.T) {
 	C.reset_counter()
-	CallFuncP0(C.bump_counter)
+	asmcall.CallFuncP0(C.bump_counter)
 	if got := uintptr(C.read_counter()); got != 1 {
 		t.Fatalf("counter = %d, want 1", got)
 	}
@@ -74,7 +76,7 @@ func TestCallFuncP0(t *testing.T) {
 
 func TestCallFuncP1(t *testing.T) {
 	var v uintptr = 41
-	CallFuncP1(C.inc_ptr, unsafe.Pointer(&v))
+	asmcall.CallFuncP1(C.inc_ptr, unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -82,7 +84,7 @@ func TestCallFuncP1(t *testing.T) {
 
 func TestCallFuncP2(t *testing.T) {
 	var v uintptr = 40
-	CallFuncP2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
+	asmcall.CallFuncP2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -90,7 +92,7 @@ func TestCallFuncP2(t *testing.T) {
 
 func TestCallFuncP3(t *testing.T) {
 	var out uintptr
-	CallFuncP3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
+	asmcall.CallFuncP3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
 	if out != 42 {
 		t.Fatalf("out = %d, want 42", out)
 	}

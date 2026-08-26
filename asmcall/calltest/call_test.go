@@ -6,43 +6,26 @@
 
 package calltest
 
-/*
-#include <stdint.h>
-
-uintptr_t p0_counter = 0;
-
-void reset_counter(void) { p0_counter = 0; }
-void bump_counter(void) { p0_counter += 1; }
-uintptr_t read_counter(void) { return p0_counter; }
-
-void inc_ptr(uintptr_t *p) { *p = *p + 1; }
-void add_to(uintptr_t a, uintptr_t *p) { *p = *p + a; }
-void sum_into(uintptr_t a, uintptr_t b, uintptr_t *out) { *out = a + b; }
-*/
-import "C"
-
 import (
 	"testing"
 	"unsafe"
-
-	"github.com/ihciah/rust2go/asmcall"
 )
 
-// The CallFunc* entry points return nothing, so results are observed
-// through a C global (0-arg callees) or an out pointer (1..3-arg callees).
+// The goroutine-stack (non-G0) variants require callees that use no stack
+// space; all callees are trivial single-expression C functions.
 
 func TestCallFuncG0P0(t *testing.T) {
-	C.reset_counter()
-	asmcall.CallFuncG0P0(C.bump_counter)
-	asmcall.CallFuncG0P0(C.bump_counter)
-	if got := uintptr(C.read_counter()); got != 2 {
+	ResetCounter()
+	CallG0P0Bump()
+	CallG0P0Bump()
+	if got := ReadCounter(); got != 2 {
 		t.Fatalf("counter = %d, want 2", got)
 	}
 }
 
 func TestCallFuncG0P1(t *testing.T) {
 	var v uintptr = 41
-	asmcall.CallFuncG0P1(C.inc_ptr, unsafe.Pointer(&v))
+	CallG0P1Inc(unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -50,7 +33,7 @@ func TestCallFuncG0P1(t *testing.T) {
 
 func TestCallFuncG0P2(t *testing.T) {
 	var v uintptr = 40
-	asmcall.CallFuncG0P2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
+	CallG0P2AddTo(2, unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -58,25 +41,23 @@ func TestCallFuncG0P2(t *testing.T) {
 
 func TestCallFuncG0P3(t *testing.T) {
 	var out uintptr
-	asmcall.CallFuncG0P3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
+	CallG0P3SumInto(20, 22, unsafe.Pointer(&out))
 	if out != 42 {
 		t.Fatalf("out = %d, want 42", out)
 	}
 }
 
-// The goroutine-stack (non-G0) variants require callees that use no stack
-// space; all callees above are trivial single-expression functions.
 func TestCallFuncP0(t *testing.T) {
-	C.reset_counter()
-	asmcall.CallFuncP0(C.bump_counter)
-	if got := uintptr(C.read_counter()); got != 1 {
+	ResetCounter()
+	CallP0Bump()
+	if got := ReadCounter(); got != 1 {
 		t.Fatalf("counter = %d, want 1", got)
 	}
 }
 
 func TestCallFuncP1(t *testing.T) {
 	var v uintptr = 41
-	asmcall.CallFuncP1(C.inc_ptr, unsafe.Pointer(&v))
+	CallP1Inc(unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -84,7 +65,7 @@ func TestCallFuncP1(t *testing.T) {
 
 func TestCallFuncP2(t *testing.T) {
 	var v uintptr = 40
-	asmcall.CallFuncP2(C.add_to, unsafe.Pointer(uintptr(2)), unsafe.Pointer(&v))
+	CallP2AddTo(2, unsafe.Pointer(&v))
 	if v != 42 {
 		t.Fatalf("v = %d, want 42", v)
 	}
@@ -92,7 +73,7 @@ func TestCallFuncP2(t *testing.T) {
 
 func TestCallFuncP3(t *testing.T) {
 	var out uintptr
-	asmcall.CallFuncP3(C.sum_into, unsafe.Pointer(uintptr(20)), unsafe.Pointer(uintptr(22)), unsafe.Pointer(&out))
+	CallP3SumInto(20, 22, unsafe.Pointer(&out))
 	if out != 42 {
 		t.Fatalf("out = %d, want 42", out)
 	}

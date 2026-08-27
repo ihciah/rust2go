@@ -77,7 +77,7 @@ TEXT ·CallFuncG0P3(SB), NOSPLIT|NOPTR|NOFRAME, $0
     MOVQ    fn+0x0(FP), AX
     MOVQ    arg0+0x8(FP), RARG0
     MOVQ    arg1+0x10(FP), RARG1
-    MOVQ    arg1+0x18(FP), RARG2
+    MOVQ    arg2+0x18(FP), RARG2
     G0ASMCALL
 
 TEXT ·CallFuncP0(SB), NOSPLIT|NOPTR|NOFRAME, $0
@@ -103,5 +103,5 @@ TEXT ·CallFuncP3(SB), NOSPLIT|NOPTR|NOFRAME, $0
     MOVQ    fn+0x0(FP), AX
     MOVQ    arg0+0x8(FP), RARG0
     MOVQ    arg1+0x10(FP), RARG1
-    MOVQ    arg1+0x18(FP), RARG2
+    MOVQ    arg2+0x18(FP), RARG2
     ASMCALL

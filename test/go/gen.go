@@ -82,9 +82,22 @@ typedef struct PreserveStructAttrsRequestRef {
 typedef struct PreserveStructAttrsResponseRef {
   bool Success;
 } PreserveStructAttrsResponseRef;
+
+typedef struct QueueMeta {
+    uintptr_t buffer_ptr;
+    uintptr_t buffer_len;
+    uintptr_t head_ptr;
+    uintptr_t tail_ptr;
+    uintptr_t working_ptr;
+    uintptr_t stuck_ptr;
+    int32_t working_fd;
+    int32_t unstuck_fd;
+    } QueueMeta;
 */
 import "C"
 import (
+	mem_ring "github.com/ihciah/rust2go/mem-ring"
+	"github.com/panjf2000/ants/v2"
 	"reflect"
 	"runtime"
 	"unsafe"
@@ -175,19 +188,23 @@ func CTestCall_pm_friend(req C.PMFriendRequestRef, slot *C.void, cb *C.void) {
 	}()
 }
 
-//export CTestCall_multi_param_test
-func CTestCall_multi_param_test(user C.UserRef, message C.StringRef, token C.ListRef, slot *C.void, cb *C.void) {
-	_new_user := newUser(user)
-	_new_message := newString(message)
-	_new_token := new_list_mapper_primitive(newC_uint8_t)(token)
-	go func() {
-		resp := TestCallImpl.multi_param_test(&_new_user, &_new_message, &_new_token)
-		resp_ref, buffer := cvt_ref(cntLoginResponse, refLoginResponse)(&resp)
-		asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
-		runtime.KeepAlive(resp_ref)
-		runtime.KeepAlive(resp)
-		runtime.KeepAlive(buffer)
-	}()
+func ringHandleTestCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
+	user := *(*C.UserRef)(ptr)
+	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(user))
+	user_ := newUser(user)
+	message := *(*C.StringRef)(ptr)
+	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(message))
+	message_ := newString(message)
+	token := *(*C.ListRef)(ptr)
+	token_ := new_list_mapper_primitive(newC_uint8_t)(token)
+	pool.Submit(func() {
+		resp := TestCallImpl.multi_param_test(&user_, &message_, &token_)
+		resp_ref_size := uint(unsafe.Sizeof(C.LoginResponseRef{}))
+		resp_ref, buffer := cvt_ref_cap(cntLoginResponse, refLoginResponse, resp_ref_size)(&resp)
+		offset := uint(len(buffer))
+		buffer = append(buffer, unsafe.Slice((*byte)(unsafe.Pointer(&resp_ref)), resp_ref_size)...)
+		post_func(resp, buffer, offset)
+	})
 }
 
 //export CTestCall_optional_test
@@ -237,6 +254,11 @@ func CTestCall_transfer(from C.uint64_t, to C.uint64_t, slot *C.void, cb *C.void
 		runtime.KeepAlive(resp)
 		runtime.KeepAlive(buffer)
 	}()
+}
+
+//export RingsInitTestCall
+func RingsInitTestCall(crr, crw C.QueueMeta) {
+	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0})
 }
 
 // An alternative impl of unsafe.String for go1.18
@@ -776,5 +798,88 @@ func refBalanceResponse(p *BalanceResponse, buffer *[]byte) C.BalanceResponseRef
 		user_id: refC_uint64_t(&p.user_id, buffer),
 		balance: refC_int64_t(&p.balance, buffer),
 	}
+}
+
+func ringsInit(crr, crw C.QueueMeta, fns []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint))) {
+	const MULTIPOOL_SIZE = 8
+	const SIZE_PER_POOL = -1
+
+	type Storage struct {
+		resp   interface{}
+		buffer []byte
+	}
+
+	type Payload struct {
+		Ptr          uint
+		UserData     uint
+		NextUserData uint
+		CallId       uint32
+		Flag         uint32
+	}
+
+	const CALL = 0b0101
+	const REPLY = 0b1110
+	const DROP = 0b1000
+
+	queueMetaCvt := func(cq C.QueueMeta) mem_ring.QueueMeta {
+		return mem_ring.QueueMeta{
+			BufferPtr:  uintptr(cq.buffer_ptr),
+			BufferLen:  uintptr(cq.buffer_len),
+			HeadPtr:    uintptr(cq.head_ptr),
+			TailPtr:    uintptr(cq.tail_ptr),
+			WorkingPtr: uintptr(cq.working_ptr),
+			StuckPtr:   uintptr(cq.stuck_ptr),
+			WorkingFd:  int32(cq.working_fd),
+			UnstuckFd:  int32(cq.unstuck_fd),
+		}
+	}
+
+	rr := queueMetaCvt(crr)
+	rw := queueMetaCvt(crw)
+
+	rrq := mem_ring.NewQueue[Payload](rr)
+	rwq := mem_ring.NewQueue[Payload](rw)
+
+	gr := rwq.Read()
+	gw := rrq.Write()
+
+	slab := mem_ring.NewMultiSlab[Storage]()
+	pool, _ := ants.NewMultiPool(MULTIPOOL_SIZE, SIZE_PER_POOL, ants.RoundRobin)
+
+	gr.RunHandler(func(p Payload) {
+		if p.Flag == CALL {
+			post_func := func(resp interface{}, buffer []byte, offset uint) {
+				if resp == nil {
+					payload := Payload{
+						Ptr:          0,
+						UserData:     p.UserData,
+						NextUserData: 0,
+						CallId:       p.CallId,
+						Flag:         DROP,
+					}
+					gw.Push(payload)
+					return
+				}
+
+				// Use slab to hold reference of resp and buffer
+				sid := slab.Push(Storage{
+					resp,
+					buffer,
+				})
+				payload := Payload{
+					Ptr:          uint(uintptr(unsafe.Pointer(&buffer[offset]))),
+					UserData:     p.UserData,
+					NextUserData: sid,
+					CallId:       p.CallId,
+					Flag:         REPLY,
+				}
+				gw.Push(payload)
+			}
+			fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)), pool, post_func)
+		} else if p.Flag == DROP {
+			// drop memory instantly
+			slab.Pop(p.UserData)
+		}
+	})
 }
 func main() {}

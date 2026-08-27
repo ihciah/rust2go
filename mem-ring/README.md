@@ -27,3 +27,7 @@ I suggest using the second mode if you use monoio, which is the default feature.
 mem-ring = { version = "0.1" }
 ```
 
+## Custom Waiter (Go side)
+
+`ReadQueue.RunHandler(handler, w ...TinyWaiter)` consumes the queue in a loop and yields the CPU through a `TinyWaiter` (see `waiter.go`) while there is nothing to read. The default is `GoSchedWaiter`, which is based on `runtime.Gosched`. To customize the wait strategy, pass your own implementation of the `TinyWaiter` interface.
+

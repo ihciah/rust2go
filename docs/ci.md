@@ -1,3 +1,9 @@
+---
+title: CI Pipeline
+date: 2026-08-24
+author: lirenjie95
+---
+
 # CI Pipeline
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs three jobs on every PR and on pushes to `master`. This document describes what each job covers and the non-obvious constraints behind the current shape.

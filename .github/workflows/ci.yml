@@ -29,10 +29,24 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      # rust2go-mem-ffi and mem-ring reject enabling `monoio` and `tokio`
+      # together (compile_error!), so --all-features is not usable here.
+      # Build with default features (monoio) and cover the tokio branch and
+      # the non-default rust2go/build feature with the steps below.
+      # example-tokio-mem is excluded because feature unification with
+      # example-monoio-mem would enable both runtimes on rust2go-mem-ffi.
       - name: Build
-        run: cargo check --all-features --all-targets
+        run: cargo check --workspace --exclude example-tokio-mem --all-targets
+      - name: Build example-tokio-mem
+        run: cargo check -p example-tokio-mem --all-targets
+      - name: Build rust2go-mem-ffi (tokio)
+        run: cargo check -p rust2go-mem-ffi --no-default-features --features tokio --all-targets
+      - name: Build rust2go (build feature)
+        run: cargo check -p rust2go --features build --all-targets
       - name: Test
-        run: cargo test --workspace --exclude mem-ring --all-features --all-targets
+        run: cargo test --workspace --exclude mem-ring --exclude example-tokio-mem --all-targets
+      - name: Test rust2go-mem-ffi (tokio)
+        run: cargo test -p rust2go-mem-ffi --no-default-features --features tokio --all-targets
       # Test mem-ring separately with the feature set declared by its own
       # Cargo.toml. In a workspace-wide build, feature unification pulls
       # monoio's "sync" feature (required by the `test` crate) into
@@ -41,10 +55,10 @@ jobs:
       # heap on test teardown (glibc "unaligned tcache chunk detected").
       # mem-ring itself does not use monoio/sync.
       - name: Test mem-ring
-        run: cargo test -p mem-ring --all-features --all-targets
-      # --all-features only exercises the monoio branch of mem-ring (the
-      # tokio code is cfg'd out when monoio is enabled), so test the tokio
-      # feature set separately.
+        run: cargo test -p mem-ring --all-targets
+      # Default features only exercise the monoio branch of mem-ring (monoio
+      # and tokio are mutually exclusive), so test the tokio feature set
+      # separately.
       - name: Test mem-ring (tokio)
         run: cargo test -p mem-ring --no-default-features --features tokio --all-targets
       - name: Test Go packages
@@ -74,10 +88,12 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - name: Collect Rust coverage
-        run: cargo llvm-cov --workspace --exclude mem-ring --all-features --all-targets --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --exclude mem-ring --exclude example-tokio-mem --all-targets --lcov --output-path lcov.info
       # See the build-and-test job for why mem-ring is tested separately.
+      # Default features (monoio) are used: monoio and tokio are mutually
+      # exclusive, so --all-features is not usable.
       - name: Collect mem-ring coverage
-        run: cargo llvm-cov -p mem-ring --all-features --all-targets --lcov --output-path lcov-mem-ring.info
+        run: cargo llvm-cov -p mem-ring --all-targets --lcov --output-path lcov-mem-ring.info
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
@@ -103,4 +119,9 @@ jobs:
       - name: Install clippy
         run: rustup component add clippy
       - run: cargo fmt --check
-      - run: cargo clippy --all-features --all-targets -- --deny warnings
+      # See the build-and-test job for why --all-features is not usable and
+      # example-tokio-mem is linted separately.
+      - run: cargo clippy --workspace --exclude example-tokio-mem --all-targets -- --deny warnings
+      - run: cargo clippy -p example-tokio-mem --all-targets -- --deny warnings
+      - run: cargo clippy -p rust2go-mem-ffi --no-default-features --features tokio --all-targets -- --deny warnings
+      - run: cargo clippy -p rust2go --features build --all-targets -- --deny warnings

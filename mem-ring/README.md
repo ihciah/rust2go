@@ -8,6 +8,9 @@ With 2 rings, users can simulate calls between rust and go(Both sides can start 
 TODO
 
 ## How to Choose Mode for Rust
+
+The `monoio` (default) and `tokio` features are mutually exclusive: enable exactly one of them. Enabling both fails at compile time, because the runtime branches are selected with `all(feature = "tokio", not(feature = "monoio"))` gates and the combination would otherwise silently pick the monoio internals.
+
 ### For Tokio Users
 ```toml
 [dependencies]

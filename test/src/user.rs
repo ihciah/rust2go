@@ -106,7 +106,7 @@ pub trait TestCall {
     async fn delete_friends(req: FriendsListRequest) -> FriendsListResponse;
     #[drop_safe_ret]
     async fn pm_friend(req: PMFriendRequest) -> PMFriendResponse;
-    #[mem_call]
+    #[mem]
     async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
     fn optional_test(optional: Optional) -> Optional;
 

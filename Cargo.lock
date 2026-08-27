@@ -1001,6 +1001,7 @@ version = "0.1.0"
 dependencies = [
  "monoio",
  "rust2go",
+ "rust2go-mem-ffi",
 ]
 
 [[package]]

@@ -16,10 +16,18 @@ Rust2Go is a project that provides users with a simple and efficient way to call
 
 1. Define the structs and calling interfaces in restricted Rust syntax, and include generated code in the same file.
 2. Generate golang code with `rust2go-cli --src src/user.rs --dst go/gen.go`
+   - Use `--package-name <name>` to set the package name of the generated go file (defaults to `main`).
+   - Use `--without-main` to omit the go main function, `--go118` for Go 1.18/1.19 compatibility, and `--no-fmt` to skip formatting the generated file.
 3. Write a `build.rs` for you project.
 4. You can then use generated implementation to call golang in your Rust project!
 
 For detailed example, please checkout [the example projects](./examples).
+
+### Binding File Notes
+
+- `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
+- Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation.
+- Structs keep their own attribute macros (e.g. `#[derive(...)]`) in the generated code, and `#[rust2go::r2g_struct_tag(json = "snake_case")]` adds tags to the generated Go struct fields. See [docs/trait-attrs.md](./docs/trait-attrs.md) for the full attribute reference.
 
 ## Key Design
 
@@ -49,6 +57,12 @@ Note: Since golang may scan the stack, and when it meets peer pointer, it may pa
   - For >=1.18 && < 1.20: generate golang code with `--go118`
   - For >=1.20: generate golang code normally
 - Rust: >=1.75 if you want to use async
+
+## Platform Support
+
+- Linux, macOS and Windows are supported.
+- The ASM-based callback is available on amd64 and arm64; on other platforms it falls back to the CGO implementation automatically.
+- The shared memory based implementation (`#[mem]`/`#[shm]`) requires unix.
 
 ## Milestones
 

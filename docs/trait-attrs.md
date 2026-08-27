@@ -4,13 +4,49 @@ date: 2023-12-22 15:12:00
 author: ihciah
 ---
 
-Now rust2go supports 3 attributes on trait's async function:
+Now rust2go supports 6 attributes on trait's async function:
 1. `#[send]`: the function will be generated as `impl Future<Output=..> + Send + Sync`. Use it when you need it.
 2. `#[drop_safe]`: this makes the function safe, but requires all parameters passing ownership. Use it when you cannot make sure the future may cancel.
 3. `#[drop_safe_ret]`: to make the function safe, it requires passing ownership; this attribute allow users to get the parameters ownership back. Use it when you cannot make sure the future may cancel, and you want to get back the parameters ownership after the calling.
 4. `#[mem]` or `#[shm]`: make this function implemented based on shared memory, whose performance is highly improved(but it requires unix now). Unless you find obvious performance bottlenecks, there is no need to enable it.
 5. `#[go_pass_struct]`: make the generated go side code use pointer instead of value at parameters. This is useful when the parameter is large. This does not affect the rust side code. It is not recommended to enable this unless you explicitly want to pass the structure itself.
-6. `#[cgo_callback]`: make the generated go side code use CGO based method instead of ASM. It is not recommended to enable it unless you find some failures caused by ASMCALL.
+6. `#[cgo_callback]` (alias: `#[cgo]`): make the generated go side code use CGO based method instead of ASM. It is not recommended to enable it unless you find some failures caused by ASMCALL.
+
+## Trait-level parameters
+
+The `#[rust2go::r2g(...)]` attribute itself accepts optional parameters:
+
+- `binding` (or `binding = path::to::binding`): path of the module that includes the generated bindings. Example: `#[rust2go::r2g(binding = binding)]`.
+- `queue_size = <N>`: capacity of the shared memory queue used by `#[mem]`/`#[shm]` functions. Defaults to `4096`.
+
+They can be combined: `#[rust2go::r2g(binding = binding, queue_size = 4096)]`.
+
+## Struct-level attributes
+
+- Structs deriving `rust2go::R2G` keep their own attribute macros: attributes like `#[derive(Clone)]` or `#[allow(non_snake_case)]` are preserved on the generated `XxxRef` struct.
+- `#[rust2go::r2g_struct_tag(key = "case", ...)]` adds tags to the fields of the generated Go struct. The key is the tag name (e.g. `json`, `yaml`) and the value is the field naming convention. Supported conventions: `snake_case`, `lowerCamelCase`, `UpperCamelCase`, `kebab-case`, `SHOUTY_SNAKE_CASE`, `SHOUTY-KEBAB-CASE`, `Title Case`, `Train-Case`.
+
+For example:
+```rust
+#[rust2go::r2g_struct_tag(json = "snake_case", yaml = "lowerCamelCase")]
+#[derive(rust2go::R2G, Clone)]
+pub struct TaggedUser {
+    pub user_name: String,
+    pub login_count: u32,
+}
+```
+generates the Go struct:
+```go
+type TaggedUser struct {
+    UserName   string `json:"user_name" yaml:"userName"`
+    LoginCount uint32 `json:"login_count" yaml:"loginCount"`
+}
+```
+
+## Type mapping notes
+
+- `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
+- Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation. Cyclic aliases are rejected with a compile error.
 
 For example, here is the original trait:
 ```rust

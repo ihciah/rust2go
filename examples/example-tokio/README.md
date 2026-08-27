@@ -2,7 +2,7 @@
 
 Runtime: Tokio
 Calling Direction: Rust -> Go
-Backend Technology: Shared Memory Lockless Queue
+Backend Technology: CGO
 
 ## Steps
 

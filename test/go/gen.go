@@ -187,7 +187,6 @@ func CTestCall_pm_friend(req C.PMFriendRequestRef, slot *C.void, cb *C.void) {
 		runtime.KeepAlive(buffer)
 	}()
 }
-
 func ringHandleTestCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
 	user := *(*C.UserRef)(ptr)
 	ptr = unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(user))

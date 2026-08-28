@@ -12,6 +12,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+rust2go-convert = { version = "0.1.1", path = "../rust2go-convert" }
+
 syn = { version = "2", features = ["full"] }
 quote = { version = "1" }
 proc-macro2 = { version = "1" }

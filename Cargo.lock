@@ -799,6 +799,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
+ "rust2go-convert",
  "syn",
 ]
 

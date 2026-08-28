@@ -249,7 +249,7 @@ impl FromRef for String {
 }
 
 macro_rules! primitive_impl {
-    ($($ty:ty),*) => {
+    ($(($ty:ty, $c:literal, $go:literal, $conv:literal)),*) => {
         $(
             impl ToRef for $ty {
                 const MEM_TYPE: MemType = MemType::Primitive;
@@ -275,7 +275,9 @@ macro_rules! primitive_impl {
     };
 }
 
-primitive_impl!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64, bool, char);
+// The impl list comes from the shared primitive table definition, so the
+// impls and the table always cover the same set of types.
+with_primitives!(primitive_impl);
 
 macro_rules! tuple_impl {
     (($ty:ident, $name:tt)) => {

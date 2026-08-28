@@ -7,6 +7,7 @@ use heck::{
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
+use rust2go_convert::primitive_by_rust_ident;
 use std::collections::HashMap;
 use syn::parse::Parser;
 use syn::{
@@ -549,8 +550,8 @@ typedef struct QueueMeta {
         }
         fn type_to_node(ty: &Type) -> Result<Node> {
             let seg = type_to_segment(ty)?;
-            match seg.ident.to_string().as_str() {
-                "Vec" | "Option" => {
+            match classify_ref_field(&seg.ident) {
+                RefFieldClass::List => {
                     let inside = match &seg.arguments {
                         syn::PathArguments::AngleBracketed(ga) => match ga.args.last().unwrap() {
                             syn::GenericArgument::Type(ty) => ty,
@@ -560,8 +561,7 @@ typedef struct QueueMeta {
                     };
                     Ok(Node::List(Box::new(type_to_node(inside)?)))
                 }
-                "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize"
-                | "bool" | "char" | "f32" | "f64" => Ok(Node::Primitive),
+                RefFieldClass::Primitive => Ok(Node::Primitive),
                 _ => Ok(Node::NamedStruct(seg.ident.clone())),
             }
         }
@@ -736,6 +736,43 @@ impl ToTokens for ParamType {
     }
 }
 
+/// Classification of a type for ref-struct field generation. Shared by the
+/// CLI codegen (`convert_structs_to_ref`) and the `R2G` derive macro so both
+/// paths apply the exact same rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefFieldClass {
+    /// Primitives are kept as-is in the ref struct.
+    Primitive,
+    /// `String` maps to `StringRef`.
+    String,
+    /// `Vec<T>` and `Option<T>` map to `ListRef`.
+    List,
+    /// Any other type is a custom (struct) type.
+    Custom,
+}
+
+/// Classify a type by its (first) path segment ident.
+pub fn classify_ref_field(ident: &Ident) -> RefFieldClass {
+    match ident.to_string().as_str() {
+        "Vec" | "Option" => RefFieldClass::List,
+        "String" => RefFieldClass::String,
+        name if primitive_by_rust_ident(name).is_some() => RefFieldClass::Primitive,
+        _ => RefFieldClass::Custom,
+    }
+}
+
+// Go converter function name for a primitive type: the prefix (`newC_`,
+// `cntC_` or `refC_`) followed by its C type name, e.g. `newC_uint8_t`.
+// Returns None for unknown primitives and for primitives without generated
+// converters (currently `char`).
+fn go_primitive_converter(name: &Ident, prefix: &str) -> Option<String> {
+    let info = primitive_by_rust_ident(&name.to_string())?;
+    if !info.has_go_converters {
+        return None;
+    }
+    Some(format!("{prefix}{}", info.c_name))
+}
+
 impl TryFrom<&Type> for ParamType {
     type Error = Error;
 
@@ -748,15 +785,14 @@ impl TryFrom<&Type> for ParamType {
 
         // TypePath -> ParamType
         let seg = type_to_segment(ty)?;
-        let param_type_inner = match seg.ident.to_string().as_str() {
-            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "isize"
-            | "bool" | "char" | "f32" | "f64" => {
+        let param_type_inner = match classify_ref_field(&seg.ident) {
+            RefFieldClass::Primitive => {
                 if !seg.arguments.is_none() {
                     sbail!("primitive types with arguments are not supported")
                 }
                 ParamTypeInner::Primitive(seg.ident.clone())
             }
-            "Vec" | "Option" => ParamTypeInner::List(ty.clone()),
+            RefFieldClass::List => ParamTypeInner::List(ty.clone()),
             _ => {
                 if !seg.arguments.is_none() {
                     sbail!("custom types with arguments are not supported")
@@ -775,24 +811,10 @@ impl ParamType {
     pub fn to_c(&self, with_struct: bool) -> String {
         let struct_ = if with_struct { "struct " } else { "" };
         match &self.inner {
-            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "uint8_t",
-                "u16" => "uint16_t",
-                "u32" => "uint32_t",
-                "u64" => "uint64_t",
-                "i8" => "int8_t",
-                "i16" => "int16_t",
-                "i32" => "int32_t",
-                "i64" => "int64_t",
-                "bool" => "bool",
-                "char" => "uint32_t",
-                "usize" => "uintptr_t",
-                "isize" => "intptr_t",
-                "f32" => "float",
-                "f64" => "double",
-                _ => panic!("unreconigzed rust primitive type {name}"),
-            }
-            .to_string(),
+            ParamTypeInner::Primitive(name) => match primitive_by_rust_ident(&name.to_string()) {
+                Some(info) => info.c_name.to_string(),
+                None => panic!("unreconigzed rust primitive type {name}"),
+            },
             ParamTypeInner::Custom(c) => format!("{struct_}{c}Ref"),
             ParamTypeInner::List(_) => format!("{struct_}ListRef"),
         }
@@ -800,24 +822,10 @@ impl ParamType {
 
     pub fn to_go(&self) -> String {
         match &self.inner {
-            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "uint8",
-                "u16" => "uint16",
-                "u32" => "uint32",
-                "u64" => "uint64",
-                "i8" => "int8",
-                "i16" => "int16",
-                "i32" => "int32",
-                "i64" => "int64",
-                "bool" => "bool",
-                "char" => "rune",
-                "usize" => "uint",
-                "isize" => "int",
-                "f32" => "float32",
-                "f64" => "float64",
-                _ => panic!("unreconigzed rust primitive type {name}"),
-            }
-            .to_string(),
+            ParamTypeInner::Primitive(name) => match primitive_by_rust_ident(&name.to_string()) {
+                Some(info) => info.go_name.to_string(),
+                None => panic!("unreconigzed rust primitive type {name}"),
+            },
             ParamTypeInner::Custom(c) => {
                 let s = c.to_string();
                 match s.as_str() {
@@ -848,23 +856,8 @@ impl ParamType {
     pub fn c_to_go_field_converter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
-                match name.to_string().as_str() {
-                    "u8" => "newC_uint8_t",
-                    "u16" => "newC_uint16_t",
-                    "u32" => "newC_uint32_t",
-                    "u64" => "newC_uint64_t",
-                    "i8" => "newC_int8_t",
-                    "i16" => "newC_int16_t",
-                    "i32" => "newC_int32_t",
-                    "i64" => "newC_int64_t",
-                    "bool" => "newC_bool",
-                    "usize" => "newC_uintptr_t",
-                    "isize" => "newC_intptr_t",
-                    "f32" => "newC_float",
-                    "f64" => "newC_double",
-                    _ => panic!("unrecognized rust primitive type {name}"),
-                }
-                .to_string(),
+                go_primitive_converter(name, "newC_")
+                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -895,23 +888,8 @@ impl ParamType {
     // f: StructRef -> Struct with fully ownership
     pub fn c_to_go_field_converter_owned(&self) -> String {
         match &self.inner {
-            ParamTypeInner::Primitive(name) => match name.to_string().as_str() {
-                "u8" => "newC_uint8_t",
-                "u16" => "newC_uint16_t",
-                "u32" => "newC_uint32_t",
-                "u64" => "newC_uint64_t",
-                "i8" => "newC_int8_t",
-                "i16" => "newC_int16_t",
-                "i32" => "newC_int32_t",
-                "i64" => "newC_int64_t",
-                "bool" => "newC_bool",
-                "usize" => "newC_uintptr_t",
-                "isize" => "newC_intptr_t",
-                "f32" => "newC_float",
-                "f64" => "newC_double",
-                _ => panic!("unrecognized rust primitive type {name}"),
-            }
-            .to_string(),
+            ParamTypeInner::Primitive(name) => go_primitive_converter(name, "newC_")
+                .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
             ParamTypeInner::Custom(c) => format!("own{}", c.to_string().as_str()),
             ParamTypeInner::List(inner) => {
                 let seg = type_to_segment(inner).unwrap();
@@ -933,23 +911,8 @@ impl ParamType {
     pub fn go_to_c_field_counter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
-                match name.to_string().as_str() {
-                    "u8" => "cntC_uint8_t",
-                    "u16" => "cntC_uint16_t",
-                    "u32" => "cntC_uint32_t",
-                    "u64" => "cntC_uint64_t",
-                    "i8" => "cntC_int8_t",
-                    "i16" => "cntC_int16_t",
-                    "i32" => "cntC_int32_t",
-                    "i64" => "cntC_int64_t",
-                    "bool" => "cntC_bool",
-                    "usize" => "cntC_uintptr_t",
-                    "isize" => "cntC_intptr_t",
-                    "f32" => "cntC_float",
-                    "f64" => "cntC_double",
-                    _ => panic!("unrecognized rust primitive type {name}"),
-                }
-                .to_string(),
+                go_primitive_converter(name, "cntC_")
+                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -981,23 +944,8 @@ impl ParamType {
     pub fn go_to_c_field_converter(&self, mapping: &HashMap<Ident, u8>) -> (String, u8) {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
-                match name.to_string().as_str() {
-                    "u8" => "refC_uint8_t",
-                    "u16" => "refC_uint16_t",
-                    "u32" => "refC_uint32_t",
-                    "u64" => "refC_uint64_t",
-                    "i8" => "refC_int8_t",
-                    "i16" => "refC_int16_t",
-                    "i32" => "refC_int32_t",
-                    "i64" => "refC_int64_t",
-                    "bool" => "refC_bool",
-                    "usize" => "refC_uintptr_t",
-                    "isize" => "refC_intptr_t",
-                    "f32" => "refC_float",
-                    "f64" => "refC_double",
-                    _ => panic!("unreconigzed rust primitive type {name}"),
-                }
-                .to_string(),
+                go_primitive_converter(name, "refC_")
+                    .unwrap_or_else(|| panic!("unreconigzed rust primitive type {name}")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (

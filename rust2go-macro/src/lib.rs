@@ -2,6 +2,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use rust2go_common::common::{classify_ref_field, RefFieldClass};
 use rust2go_common::{g2r::G2RTraitRepr, r2g::R2GTraitRepr, sbail};
 use syn::{parse::Parser, parse_macro_input, DeriveInput, Ident};
 
@@ -32,18 +33,17 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
         let Some(first_seg) = path.path.segments.first() else {
             return TokenStream::default();
         };
-        match first_seg.ident.to_string().as_str() {
-            "Vec" | "Option" => {
+        match classify_ref_field(&first_seg.ident) {
+            RefFieldClass::List => {
                 ref_fields.push(quote! {#name: ::rust2go::ListRef});
             }
-            "String" => {
+            RefFieldClass::String => {
                 ref_fields.push(quote! {#name: ::rust2go::StringRef});
             }
-            "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64" | "usize"
-            | "f32" | "f64" | "bool" | "char" => {
+            RefFieldClass::Primitive => {
                 ref_fields.push(quote! {#name: #ty});
             }
-            _ => {
+            RefFieldClass::Custom => {
                 // Use the associated type form so type aliases also work: the
                 // alias itself cannot be resolved here, but its underlying
                 // type implements `ToRef`.

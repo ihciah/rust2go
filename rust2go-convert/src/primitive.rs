@@ -22,7 +22,7 @@ pub struct PrimitiveInfo {
 macro_rules! with_primitives {
     ($cb:ident) => {
         $cb!(
-            (u8, "uint8_t", "uint", true),
+            (u8, "uint8_t", "uint8", true),
             (u16, "uint16_t", "uint16", true),
             (u32, "uint32_t", "uint32", true),
             (u64, "uint64_t", "uint64", true),
@@ -84,6 +84,34 @@ mod tests {
 
         assert!(primitive_by_rust_ident("String").is_none());
         assert_eq!(PRIMITIVES.len(), 14);
+    }
+
+    #[test]
+    fn table_matches_expected_mappings() {
+        // Full mapping cross-check: (rust, c, go, has_go_converters).
+        let expected: &[(&str, &str, &str, bool)] = &[
+            ("u8", "uint8_t", "uint8", true),
+            ("u16", "uint16_t", "uint16", true),
+            ("u32", "uint32_t", "uint32", true),
+            ("u64", "uint64_t", "uint64", true),
+            ("usize", "uintptr_t", "uint", true),
+            ("i8", "int8_t", "int8", true),
+            ("i16", "int16_t", "int16", true),
+            ("i32", "int32_t", "int32", true),
+            ("i64", "int64_t", "int64", true),
+            ("isize", "intptr_t", "int", true),
+            ("f32", "float", "float32", true),
+            ("f64", "double", "float64", true),
+            ("bool", "bool", "bool", true),
+            ("char", "uint32_t", "rune", false),
+        ];
+        assert_eq!(PRIMITIVES.len(), expected.len());
+        for &(rust, c, go, conv) in expected {
+            let info = primitive_by_rust_ident(rust).unwrap();
+            assert_eq!(info.c_name, c, "c_name of {rust}");
+            assert_eq!(info.go_name, go, "go_name of {rust}");
+            assert_eq!(info.has_go_converters, conv, "has_go_converters of {rust}");
+        }
     }
 
     #[test]

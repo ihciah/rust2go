@@ -12,6 +12,8 @@ Now rust2go supports 6 attributes on trait's async function:
 5. `#[go_pass_struct]`: make the generated go side code use pointer instead of value at parameters. This is useful when the parameter is large. This does not affect the rust side code. It is not recommended to enable this unless you explicitly want to pass the structure itself.
 6. `#[cgo_callback]` (alias: `#[cgo]`): make the generated go side code use CGO based method instead of ASM. It is not recommended to enable it unless you find some failures caused by ASMCALL.
 
+In the Go-to-Rust direction (`#[rust2go::g2r]`, see `examples/example-bidirectional`), a function-level `#[cgo_call]` (alias: `#[cgo]`) similarly makes the call CGO based instead of ASM.
+
 ## Trait-level parameters
 
 The `#[rust2go::r2g(...)]` attribute itself accepts optional parameters:
@@ -49,7 +51,7 @@ Note that Go field names are copied verbatim from the Rust field names; only the
 ## Type mapping notes
 
 - `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
-- Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation. Cyclic aliases are rejected with a compile error.
+- Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation. Cyclic aliases are rejected: the code generator fails the build with a `cyclic type alias detected` error.
 
 For example, here is the original trait:
 ```rust

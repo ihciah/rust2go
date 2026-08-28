@@ -225,7 +225,6 @@ fn r2g_trait(
     Ok(out.into())
 }
 
-
 #[cfg(test)]
 mod tests {
     use quote::ToTokens as _;

@@ -67,6 +67,12 @@ fn main() {
 
 The library file name follows the platform convention: `libgo.a`/`go.lib` for static linking, `libgo.so`/`libgo.dylib`/`go.dll` for dynamic linking.
 
+Note that `with_copy_lib` only copies the library file; it does not configure the runtime loader. `cargo run` works because cargo sets the library search path for you, but when you execute the binary directly (or deploy it), the dynamic linker must be able to find the library:
+
+- Linux: set `LD_LIBRARY_PATH`, or install the library into a system library directory.
+- macOS: set `DYLD_LIBRARY_PATH`, or link with an rpath (e.g. `RUSTFLAGS="-C link-args=-Wl,-rpath,<dir>"`).
+- Windows: put `go.dll` next to the executable or on `PATH`.
+
 ## Custom binding file name
 
 `with_binding("my_bindings.rs")` changes the generated Rust binding file name (default `_go_bindings.rs`). Include it with `rust2go::r2g_include_binding!("my_bindings.rs")`.
@@ -91,4 +97,4 @@ For full control over the build, implement the `GoCompiler` trait and plug it in
 
 - On Windows the generated header is named `go.h` and the static library has the `.lib` extension; this is handled automatically.
 - When the generated C header is unchanged between builds, the helper restores its atime/mtime so that dependent crates are not recompiled unnecessarily.
-- Crates using rust2go may use Rust edition 2021 or 2024.
+- Crates using rust2go may use Rust edition 2021 or 2024 (edition 2024 requires Rust >=1.85).

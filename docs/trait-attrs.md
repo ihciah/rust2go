@@ -29,10 +29,11 @@ They can be combined: `#[rust2go::r2g(binding = binding, queue_size = 4096)]`.
 For example:
 ```rust
 #[rust2go::r2g_struct_tag(json = "snake_case", yaml = "lowerCamelCase")]
+#[allow(non_snake_case)]
 #[derive(rust2go::R2G, Clone)]
 pub struct TaggedUser {
-    pub user_name: String,
-    pub login_count: u32,
+    pub UserName: String,
+    pub LoginCount: u32,
 }
 ```
 generates the Go struct:
@@ -42,6 +43,8 @@ type TaggedUser struct {
     LoginCount uint32 `json:"login_count" yaml:"loginCount"`
 }
 ```
+
+Note that Go field names are copied verbatim from the Rust field names; only the tag values are converted. Use exported-style Rust field names (with `#[allow(non_snake_case)]`) if you need exported Go fields.
 
 ## Type mapping notes
 

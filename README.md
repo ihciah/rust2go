@@ -56,7 +56,7 @@ Note: Since golang may scan the stack, and when it meets peer pointer, it may pa
 - Golang: >=1.18
   - For >=1.18 && < 1.20: generate golang code with `--go118`
   - For >=1.20: generate golang code normally
-- Rust: >=1.75 if you want to use async; crates using rust2go may use edition 2021 or 2024
+- Rust: >=1.75 if you want to use async; crates using rust2go may use edition 2021 or 2024 (edition 2024 requires Rust >=1.85)
 
 ## Platform Support
 

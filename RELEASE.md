@@ -136,7 +136,7 @@ git push origin your-branch
 ### Build Targets
 
 - `x86_64-unknown-linux-gnu` (Linux x64)
-- `x86_64-pc-windows-gnu` (Windows x64) 
+- `x86_64-pc-windows-msvc` (Windows x64) 
 - `x86_64-apple-darwin` (macOS x64)
 - `aarch64-apple-darwin` (macOS ARM64)
 

@@ -1,7 +1,7 @@
 name: Release
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -23,6 +23,8 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the GitHub release
     outputs:
       git_version: ${{ steps.get_version.outputs.git_version }}
       rust_version: ${{ steps.get_version.outputs.rust_version }}
@@ -52,8 +54,14 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Get previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 2 | tail -n 1)
+          # Get previous tag. On tag push the newest tag is the one just
+          # pushed, so take the second newest; on workflow_dispatch the new
+          # tag does not exist yet, so take the newest existing one.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+          else
+            PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 2 | tail -n 1)
+          fi
           if [ -z "$PREV_TAG" ]; then
             PREV_TAG=$(git rev-list --max-parents=0 HEAD)
           fi
@@ -102,6 +110,8 @@ jobs:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     needs: create-release
+    permissions:
+      contents: write  # upload release assets
     strategy:
       matrix:
         include:
@@ -150,7 +160,11 @@ jobs:
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             cp "target/${{ matrix.target }}/release/rust2go-cli.exe" "$TARGET_DIR/"
             ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.zip"
-            (cd artifacts && zip -r "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}/")
+            # Git for Windows bash shadows bsdtar with GNU tar (which cannot
+            # write zip), so call the system bsdtar by absolute path; `-a`
+            # selects the zip format from the .zip suffix. No trailing slash
+            # on the directory argument: MSYS argument conversion breaks it.
+            (cd artifacts && /c/Windows/System32/tar.exe -a -cf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}")
           else
             cp "target/${{ matrix.target }}/release/rust2go-cli" "$TARGET_DIR/"
             ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.tar.gz"
@@ -202,9 +216,21 @@ jobs:
 
           # Publish one crate, then wait until the sparse index serves the new
           # version, since following crates depend on it via path deps.
+          # Tolerate "already uploaded" so a re-run after a partial failure
+          # can continue with the remaining crates.
           publish_and_wait() {
             local crate="$1"
-            cargo publish -p "$crate"
+            local output
+            if output=$(cargo publish -p "$crate" 2>&1); then
+              echo "$output"
+            else
+              echo "$output"
+              if grep -q "already uploaded" <<< "$output"; then
+                echo "::notice::$crate $RUST_VERSION already published; skipping"
+              else
+                return 1
+              fi
+            fi
             for i in $(seq 1 30); do
               if curl -sf "$(index_url "$crate")" | grep -q "\"vers\":\"$RUST_VERSION\""; then
                 echo "$crate $RUST_VERSION is visible in the index"

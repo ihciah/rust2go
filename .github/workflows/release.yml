@@ -43,7 +43,14 @@ jobs:
           else
             GIT_VERSION="${GITHUB_REF#refs/tags/}"
           fi
-          
+
+          # Validate the version format early so a typo cannot create a
+          # garbage tag or silently skip the crates.io publish.
+          if ! [[ "$GIT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::invalid version '$GIT_VERSION' (expected v1.2.3 or v1.2.3-beta.1)"
+            exit 1
+          fi
+
           # Extract version without 'v' prefix for Rust crates
           RUST_VERSION="${GIT_VERSION#v}"
           
@@ -54,14 +61,11 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Get previous tag. On tag push the newest tag is the one just
-          # pushed, so take the second newest; on workflow_dispatch the new
-          # tag does not exist yet, so take the newest existing one.
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
-          else
-            PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 2 | tail -n 1)
-          fi
+          # Get previous tag: the newest existing semver tag, excluding the
+          # version being released (which already exists on tag push or when
+          # re-releasing, but not on a fresh workflow_dispatch).
+          NEW_VERSION="${{ steps.get_version.outputs.git_version }}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$NEW_VERSION" | head -n 1 || true)
           if [ -z "$PREV_TAG" ]; then
             PREV_TAG=$(git rev-list --max-parents=0 HEAD)
           fi
@@ -138,11 +142,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.22'
-
       - name: Build CLI
         run: |
           cargo build --release --target ${{ matrix.target }} -p rust2go-cli
@@ -151,31 +150,33 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          
+
           # Create target-specific directory
           TARGET_DIR="artifacts/rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}"
           mkdir -p "$TARGET_DIR"
-          
-          # Copy files based on target platform
+
+          # Copy the binary and important files before archiving
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             cp "target/${{ matrix.target }}/release/rust2go-cli.exe" "$TARGET_DIR/"
             ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.zip"
+          else
+            cp "target/${{ matrix.target }}/release/rust2go-cli" "$TARGET_DIR/"
+            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.tar.gz"
+          fi
+          cp README.md "$TARGET_DIR/"
+          cp LICENSE-MIT "$TARGET_DIR/"
+          cp LICENSE-APACHE "$TARGET_DIR/"
+
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             # Git for Windows bash shadows bsdtar with GNU tar (which cannot
             # write zip), so call the system bsdtar by absolute path; `-a`
             # selects the zip format from the .zip suffix. No trailing slash
             # on the directory argument: MSYS argument conversion breaks it.
             (cd artifacts && /c/Windows/System32/tar.exe -a -cf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}")
           else
-            cp "target/${{ matrix.target }}/release/rust2go-cli" "$TARGET_DIR/"
-            ARCHIVE_NAME="rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}.tar.gz"
             (cd artifacts && tar -czf "$ARCHIVE_NAME" "rust2go-${{ needs.create-release.outputs.git_version }}-${{ matrix.target }}/")
           fi
-          
-          # Copy important files
-          cp README.md "$TARGET_DIR/"
-          cp LICENSE-MIT "$TARGET_DIR/"
-          cp LICENSE-APACHE "$TARGET_DIR/"
-          
+
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Upload artifacts

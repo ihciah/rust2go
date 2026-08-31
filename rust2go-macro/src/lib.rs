@@ -96,17 +96,21 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_attrs(attrs: TokenStream) -> (Option<syn::Path>, Option<usize>) {
+fn parse_attrs(attrs: proc_macro2::TokenStream) -> (Option<syn::Path>, Option<usize>) {
     let mut binding_path = None;
     let mut queue_size = None;
 
     type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
-    if let Ok(attrs) = AttributeArgs::parse_terminated.parse(attrs) {
+    if let Ok(attrs) = AttributeArgs::parse_terminated.parse2(attrs) {
         for attr in attrs {
             match attr {
                 syn::Meta::NameValue(nv) => {
                     if nv.path.is_ident("binding") {
-                        binding_path = Some(nv.path);
+                        // `binding = path::to::binding`: the value is the path
+                        // of the module that includes the generated bindings.
+                        if let syn::Expr::Path(expr_path) = nv.value {
+                            binding_path = Some(expr_path.path);
+                        }
                     } else if nv.path.is_ident("queue_size") {
                         if let syn::Expr::Lit(syn::ExprLit {
                             lit: syn::Lit::Int(litint),
@@ -129,7 +133,7 @@ fn parse_attrs(attrs: TokenStream) -> (Option<syn::Path>, Option<usize>) {
 
 #[proc_macro_attribute]
 pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
-    let (binding_path, queue_size) = parse_attrs(attrs);
+    let (binding_path, queue_size) = parse_attrs(attrs.into());
     syn::parse::<syn::ItemTrait>(item)
         .and_then(|trat| r2g_trait(binding_path, queue_size, trat))
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
@@ -219,4 +223,33 @@ fn r2g_trait(
     let mut out = quote! {#trat};
     out.extend(trat_repr.generate_rs(binding_path.as_ref(), queue_size)?);
     Ok(out.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use quote::ToTokens as _;
+
+    #[test]
+    fn parse_binding_path_from_name_value() {
+        let (binding, queue_size) =
+            super::parse_attrs(quote::quote! { binding = crate::binding, queue_size = 16 });
+        let path = binding.expect("binding path should be parsed from the value");
+        assert_eq!(path.to_token_stream().to_string(), "crate :: binding");
+        assert_eq!(queue_size, Some(16));
+    }
+
+    #[test]
+    fn parse_bare_binding_path() {
+        let (binding, queue_size) = super::parse_attrs(quote::quote! { my_binding });
+        let path = binding.expect("bare path should be used as binding path");
+        assert_eq!(path.to_token_stream().to_string(), "my_binding");
+        assert_eq!(queue_size, None);
+    }
+
+    #[test]
+    fn parse_empty_attrs() {
+        let (binding, queue_size) = super::parse_attrs(proc_macro2::TokenStream::new());
+        assert!(binding.is_none());
+        assert!(queue_size.is_none());
+    }
 }

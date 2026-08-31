@@ -344,6 +344,9 @@ impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
         // Regenerate go code.
         if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
             rust2go_gen::generate(&self.regen_arg);
+            // Watch the Rust binding source so that editing it re-runs the
+            // build script (and therefore the regeneration above).
+            println!("cargo:rerun-if-changed={}", self.regen_arg.src);
         }
         self.go_comp
             .build(&self.go_src, binding_name, self.link, &self.copy_lib);

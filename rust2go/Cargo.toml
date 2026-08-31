@@ -14,7 +14,7 @@ repository.workspace = true
 [dependencies]
 rust2go-macro = { version = "0.4.1", path = "../rust2go-macro" }
 rust2go-convert = { version = "0.1.1", path = "../rust2go-convert" }
-rust2go-cli = { version = "0.4.2", path = "../rust2go-cli", optional = true }
+rust2go-gen = { version = "0.1.0", path = "../rust2go-gen", optional = true }
 
 bindgen = { version = "0.72", optional = true }
 syn = { version = "2", features = ["full"], optional = true }
@@ -22,4 +22,4 @@ fs-set-times = { version = "0.20", optional = true }
 
 [features]
 default = []
-build = ["syn", "bindgen", "rust2go-cli", "fs-set-times"]
+build = ["syn", "bindgen", "rust2go-gen", "fs-set-times"]

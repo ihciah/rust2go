@@ -49,7 +49,7 @@ fn main() {
 }
 ```
 
-`RegenArgs` mirrors the `rust2go-cli` flags: `package_name`, `without_main`, `go118` and `no_fmt`.
+`RegenArgs` (re-exported from the `rust2go-gen` crate, which also backs the `rust2go-cli` binary) mirrors the CLI flags: `package_name`, `without_main`, `go118` and `no_fmt`.
 
 ## Dynamic linking
 

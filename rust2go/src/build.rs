@@ -7,7 +7,7 @@ use std::{
     process::Command,
 };
 
-use rust2go_cli::Args;
+use rust2go_gen::GenArgs;
 
 /// Static lib extension on non-Windows platforms.
 #[cfg(not(windows))]
@@ -28,7 +28,7 @@ pub struct Builder<GOSRC = (), GOC = CustomArgGoCompiler> {
     out_dir: Option<PathBuf>,
     binding_name: Option<String>,
     link: LinkType,
-    regen_arg: Args,
+    regen_arg: GenArgs,
     copy_lib: CopyLib,
     go_comp: GOC,
 }
@@ -53,7 +53,7 @@ impl Builder {
             out_dir: None,
             binding_name: None,
             link: LinkType::Static,
-            regen_arg: Args::default(),
+            regen_arg: GenArgs::default(),
             copy_lib: CopyLib::Disabled,
             go_comp: CustomArgGoCompiler::new(),
         }
@@ -118,7 +118,7 @@ impl<GOSRC, GOC> Builder<GOSRC, GOC> {
     /// Regenerate go code.
     /// Note: you should generate go code before build with rust2go-cli.
     /// This function is to make sure the go code is updated.
-    pub fn with_regen_arg(mut self, arg: Args) -> Self {
+    pub fn with_regen_arg(mut self, arg: GenArgs) -> Self {
         self.regen_arg = arg;
         self
     }
@@ -343,7 +343,7 @@ impl<GOC: GoCompiler> Builder<PathBuf, GOC> {
             .unwrap_or(crate::DEFAULT_BINDING_FILE);
         // Regenerate go code.
         if !self.regen_arg.src.is_empty() && !self.regen_arg.dst.is_empty() {
-            rust2go_cli::generate(&self.regen_arg);
+            rust2go_gen::generate(&self.regen_arg);
         }
         self.go_comp
             .build(&self.go_src, binding_name, self.link, &self.copy_lib);

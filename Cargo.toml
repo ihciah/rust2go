@@ -2,6 +2,7 @@
 members = [
     "rust2go",
     "rust2go-cli",
+    "rust2go-gen",
     "rust2go-macro",
     "rust2go-common",
     "rust2go-mem-ffi",

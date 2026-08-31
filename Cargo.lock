@@ -776,8 +776,8 @@ version = "0.4.3"
 dependencies = [
  "bindgen",
  "fs-set-times",
- "rust2go-cli",
  "rust2go-convert",
+ "rust2go-gen",
  "rust2go-macro",
  "syn",
 ]
@@ -786,10 +786,8 @@ dependencies = [
 name = "rust2go-cli"
 version = "0.4.2"
 dependencies = [
- "cbindgen",
  "clap",
- "itertools 0.15.0",
- "rust2go-common",
+ "rust2go-gen",
 ]
 
 [[package]]
@@ -806,6 +804,15 @@ dependencies = [
 [[package]]
 name = "rust2go-convert"
 version = "0.1.1"
+
+[[package]]
+name = "rust2go-gen"
+version = "0.1.0"
+dependencies = [
+ "cbindgen",
+ "itertools 0.15.0",
+ "rust2go-common",
+]
 
 [[package]]
 name = "rust2go-macro"

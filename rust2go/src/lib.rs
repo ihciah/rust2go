@@ -30,7 +30,7 @@ mod build;
 #[cfg(feature = "build")]
 pub use build::{Builder, CopyLib, CustomArgGoCompiler, DefaultGoCompiler, GoCompiler, LinkType};
 #[cfg(feature = "build")]
-pub use rust2go_cli::Args as RegenArgs;
+pub use rust2go_gen::GenArgs as RegenArgs;
 
 #[no_mangle]
 unsafe extern "C" fn c_rust2go_internal_drop(ptr: *mut ()) {

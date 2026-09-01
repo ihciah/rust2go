@@ -1,0 +1,11 @@
+
+typedef struct QueueMeta {
+    uintptr_t buffer_ptr;
+    uintptr_t buffer_len;
+    uintptr_t head_ptr;
+    uintptr_t tail_ptr;
+    uintptr_t working_ptr;
+    uintptr_t stuck_ptr;
+    int32_t working_fd;
+    int32_t unstuck_fd;
+    } QueueMeta;

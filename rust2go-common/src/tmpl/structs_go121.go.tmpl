@@ -1,0 +1,11 @@
+
+        func newString(s_ref C.StringRef) string {
+            return unsafe.String((*byte)(unsafe.Pointer(s_ref.ptr)), s_ref.len)
+        }
+        func refString(s *string, _ *[]byte) C.StringRef {
+            return C.StringRef{
+                ptr: (*C.uint8_t)(unsafe.StringData(*s)),
+                len: C.uintptr_t(len(*s)),
+            }
+        }
+        

@@ -1,0 +1,84 @@
+
+        func ringsInit(crr, crw C.QueueMeta, fns []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint))) {
+            const MULTIPOOL_SIZE = 8
+            const SIZE_PER_POOL = -1
+
+            type Storage struct {
+                resp   interface{}
+                buffer []byte
+            }
+
+            type Payload struct {
+                Ptr          uint
+                UserData     uint
+                NextUserData uint
+                CallId       uint32
+                Flag         uint32
+            }
+
+            const CALL = 0b0101
+            const REPLY = 0b1110
+            const DROP = 0b1000
+
+            queueMetaCvt := func(cq C.QueueMeta) mem_ring.QueueMeta {
+                return mem_ring.QueueMeta{
+                    BufferPtr:  uintptr(cq.buffer_ptr),
+                    BufferLen:  uintptr(cq.buffer_len),
+                    HeadPtr:    uintptr(cq.head_ptr),
+                    TailPtr:    uintptr(cq.tail_ptr),
+                    WorkingPtr: uintptr(cq.working_ptr),
+                    StuckPtr:   uintptr(cq.stuck_ptr),
+                    WorkingFd:  int32(cq.working_fd),
+                    UnstuckFd:  int32(cq.unstuck_fd),
+                }
+            }
+
+            rr := queueMetaCvt(crr)
+            rw := queueMetaCvt(crw)
+
+            rrq := mem_ring.NewQueue[Payload](rr)
+            rwq := mem_ring.NewQueue[Payload](rw)
+
+            gr := rwq.Read()
+            gw := rrq.Write()
+
+            slab := mem_ring.NewMultiSlab[Storage]()
+            pool, _ := ants.NewMultiPool(MULTIPOOL_SIZE, SIZE_PER_POOL, ants.RoundRobin)
+
+            gr.RunHandler(func(p Payload) {
+                if p.Flag == CALL {
+                    post_func := func(resp interface{}, buffer []byte, offset uint) {
+                        if resp == nil {
+                            payload := Payload{
+                                Ptr:          0,
+                                UserData:     p.UserData,
+                                NextUserData: 0,
+                                CallId:       p.CallId,
+                                Flag:         DROP,
+                            }
+                            gw.Push(payload)
+                            return
+                        }
+
+                        // Use slab to hold reference of resp and buffer
+                        sid := slab.Push(Storage{
+                            resp,
+                            buffer,
+                        })
+                        payload := Payload{
+                            Ptr:          uint(uintptr(unsafe.Pointer(&buffer[offset]))),
+                            UserData:     p.UserData,
+                            NextUserData: sid,
+                            CallId:       p.CallId,
+                            Flag:         REPLY,
+                        }
+                        gw.Push(payload)
+                    }
+                    fns[p.CallId](unsafe.Pointer(uintptr(p.Ptr)), pool, post_func)
+                } else if p.Flag == DROP {
+                    // drop memory instantly
+                    slab.Pop(p.UserData)
+                }
+            })
+        }
+        

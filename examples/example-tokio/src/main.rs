@@ -16,6 +16,12 @@ async fn main() {
     println!("========== Start oneway demo ==========");
     DemoCallImpl::demo_oneway(&user);
     println!("[Rust-oneway] done");
+    println!("========== Start get_n demo ==========");
+    let n = DemoCallImpl::demo_get_n();
+    println!("[Rust-get_n] n={n}");
+    println!("========== Start sum demo ==========");
+    let sum = DemoCallImpl::demo_sum(1, 2);
+    println!("[Rust-get_n] 1+2={sum}");
 
     let req = DemoComplicatedRequest {
         users: vec![user.clone(), user],

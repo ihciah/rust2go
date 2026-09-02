@@ -1,3 +1,4 @@
+#[path = "../../shared/user_cgo.rs"]
 mod user;
 use std::{
     cell::UnsafeCell,

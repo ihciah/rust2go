@@ -64,10 +64,21 @@ jobs:
       - name: Test Go packages
         run: go test ./asmcall/... ./mem-ring/...
       # Building the workspace above regenerates the committed Go bindings
-      # (test/go/gen.go, examples/*/go/gen.go) via build.rs scripts; fail if
-      # the committed copies have drifted from what the .rs sources generate.
+      # (test/go/gen.go, examples/example-bidirectional/go/gen.go) via
+      # build.rs scripts; fail if the committed copies have drifted from
+      # what the .rs sources generate. The four r2g examples' gen.go files
+      # are gitignored build artifacts regenerated from examples/shared on
+      # every build.
       - name: Check generated Go files are up to date
         run: git diff --exit-code -- '**/gen.go'
+      # The four r2g examples keep a byte-identical copy of the shared Go demo
+      # implementation (examples/shared/impl.go.tmpl) at go/impl.go; fail if
+      # any copy has drifted from the template.
+      - name: Check example impl.go copies are in sync
+        run: |
+          for ex in example-tokio example-monoio example-tokio-mem example-monoio-mem; do
+            diff -u examples/shared/impl.go.tmpl "examples/$ex/go/impl.go"
+          done
 
   coverage:
     name: coverage

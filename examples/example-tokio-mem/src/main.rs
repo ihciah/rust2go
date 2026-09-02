@@ -1,3 +1,4 @@
+#[path = "../../shared/user_mem.rs"]
 mod user;
 use std::{
     future::{poll_fn, Future},

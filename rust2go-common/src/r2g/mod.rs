@@ -71,7 +71,8 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                             if a.args.len() != 1 {
                                 continue;
                             }
-                            let Some(syn::GenericArgument::AssocType(assoc)) = a.args.first() else {
+                            let Some(syn::GenericArgument::AssocType(assoc)) = a.args.first()
+                            else {
                                 continue;
                             };
                             if assoc.ident != "Output" {

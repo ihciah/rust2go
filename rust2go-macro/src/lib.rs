@@ -96,9 +96,7 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_attrs(
-    attrs: proc_macro2::TokenStream,
-) -> syn::Result<(Option<syn::Path>, Option<usize>)> {
+fn parse_attrs(attrs: proc_macro2::TokenStream) -> syn::Result<(Option<syn::Path>, Option<usize>)> {
     let mut binding_path = None;
     let mut queue_size = None;
 

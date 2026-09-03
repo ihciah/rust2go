@@ -34,11 +34,11 @@ pub struct G2RFnRepr {
 impl TryFrom<&ItemTrait> for G2RTraitRepr {
     type Error = Error;
 
-    fn try_from(trat: &ItemTrait) -> Result<Self> {
-        let trait_name = trat.ident.clone();
+    fn try_from(item_trait: &ItemTrait) -> Result<Self> {
+        let trait_name = item_trait.ident.clone();
         let mut fns = Vec::new();
 
-        for item in trat.items.iter() {
+        for item in item_trait.items.iter() {
             let TraitItem::Fn(fn_item) = item else {
                 sbail!("only fn items are supported");
             };

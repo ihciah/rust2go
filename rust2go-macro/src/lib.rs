@@ -96,7 +96,9 @@ pub fn r2g_derive(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn parse_attrs(attrs: proc_macro2::TokenStream) -> (Option<syn::Path>, Option<usize>) {
+fn parse_attrs(
+    attrs: proc_macro2::TokenStream,
+) -> syn::Result<(Option<syn::Path>, Option<usize>)> {
     let mut binding_path = None;
     let mut queue_size = None;
 
@@ -117,7 +119,12 @@ fn parse_attrs(attrs: proc_macro2::TokenStream) -> (Option<syn::Path>, Option<us
                             ..
                         }) = nv.value
                         {
-                            queue_size = Some(litint.base10_parse::<usize>().unwrap());
+                            queue_size = Some(litint.base10_parse::<usize>().map_err(|_| {
+                                syn::Error::new(
+                                    litint.span(),
+                                    "queue_size must be a positive integer that fits into usize",
+                                )
+                            })?);
                         }
                     }
                 }
@@ -128,14 +135,16 @@ fn parse_attrs(attrs: proc_macro2::TokenStream) -> (Option<syn::Path>, Option<us
             }
         }
     }
-    (binding_path, queue_size)
+    Ok((binding_path, queue_size))
 }
 
 #[proc_macro_attribute]
 pub fn r2g(attrs: TokenStream, item: TokenStream) -> TokenStream {
-    let (binding_path, queue_size) = parse_attrs(attrs.into());
-    syn::parse::<syn::ItemTrait>(item)
-        .and_then(|trat| r2g_trait(binding_path, queue_size, trat))
+    parse_attrs(attrs.into())
+        .and_then(|(binding_path, queue_size)| {
+            syn::parse::<syn::ItemTrait>(item)
+                .and_then(|item_trait| r2g_trait(binding_path, queue_size, item_trait))
+        })
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
 }
 
@@ -152,11 +161,11 @@ pub fn g2r(_attrs: TokenStream, item: TokenStream) -> TokenStream {
         .unwrap_or_else(|e| TokenStream::from(e.to_compile_error()))
 }
 
-fn g2r_trait(mut trat: syn::ItemTrait) -> syn::Result<TokenStream> {
-    let trat_repr = G2RTraitRepr::try_from(&trat)?;
+fn g2r_trait(mut item_trait: syn::ItemTrait) -> syn::Result<TokenStream> {
+    let trait_repr = G2RTraitRepr::try_from(&item_trait)?;
 
-    for trat_fn in trat.items.iter_mut() {
-        match trat_fn {
+    for trait_fn in item_trait.items.iter_mut() {
+        match trait_fn {
             syn::TraitItem::Fn(f) => {
                 // remove attributes of all functions
                 f.attrs.clear();
@@ -165,20 +174,20 @@ fn g2r_trait(mut trat: syn::ItemTrait) -> syn::Result<TokenStream> {
         }
     }
 
-    let mut out = quote! {#trat};
-    out.extend(trat_repr.generate_rs()?);
+    let mut out = quote! {#item_trait};
+    out.extend(trait_repr.generate_rs()?);
     Ok(out.into())
 }
 
 fn r2g_trait(
     binding_path: Option<syn::Path>,
     queue_size: Option<usize>,
-    mut trat: syn::ItemTrait,
+    mut item_trait: syn::ItemTrait,
 ) -> syn::Result<TokenStream> {
-    let trat_repr = R2GTraitRepr::try_from(&trat)?;
+    let trait_repr = R2GTraitRepr::try_from(&item_trait)?;
 
-    for (fn_repr, trat_fn) in trat_repr.fns().iter().zip(trat.items.iter_mut()) {
-        match trat_fn {
+    for (fn_repr, trait_fn) in trait_repr.fns().iter().zip(item_trait.items.iter_mut()) {
+        match trait_fn {
             syn::TraitItem::Fn(f) => {
                 // remove attributes of all functions
                 f.attrs.clear();
@@ -220,8 +229,8 @@ fn r2g_trait(
         }
     }
 
-    let mut out = quote! {#trat};
-    out.extend(trat_repr.generate_rs(binding_path.as_ref(), queue_size)?);
+    let mut out = quote! {#item_trait};
+    out.extend(trait_repr.generate_rs(binding_path.as_ref(), queue_size)?);
     Ok(out.into())
 }
 
@@ -232,7 +241,8 @@ mod tests {
     #[test]
     fn parse_binding_path_from_name_value() {
         let (binding, queue_size) =
-            super::parse_attrs(quote::quote! { binding = crate::binding, queue_size = 16 });
+            super::parse_attrs(quote::quote! { binding = crate::binding, queue_size = 16 })
+                .expect("attrs should parse");
         let path = binding.expect("binding path should be parsed from the value");
         assert_eq!(path.to_token_stream().to_string(), "crate :: binding");
         assert_eq!(queue_size, Some(16));
@@ -240,7 +250,8 @@ mod tests {
 
     #[test]
     fn parse_bare_binding_path() {
-        let (binding, queue_size) = super::parse_attrs(quote::quote! { my_binding });
+        let (binding, queue_size) =
+            super::parse_attrs(quote::quote! { my_binding }).expect("attrs should parse");
         let path = binding.expect("bare path should be used as binding path");
         assert_eq!(path.to_token_stream().to_string(), "my_binding");
         assert_eq!(queue_size, None);
@@ -248,8 +259,18 @@ mod tests {
 
     #[test]
     fn parse_empty_attrs() {
-        let (binding, queue_size) = super::parse_attrs(proc_macro2::TokenStream::new());
+        let (binding, queue_size) =
+            super::parse_attrs(proc_macro2::TokenStream::new()).expect("attrs should parse");
         assert!(binding.is_none());
         assert!(queue_size.is_none());
+    }
+
+    #[test]
+    fn parse_overflowing_queue_size_errors() {
+        // A queue_size literal that does not fit into usize is a compile
+        // error, not a panic.
+        let result =
+            super::parse_attrs(quote::quote! { queue_size = 999999999999999999999999999999 });
+        assert!(result.is_err());
     }
 }

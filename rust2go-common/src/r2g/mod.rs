@@ -16,12 +16,12 @@ pub struct R2GTraitRepr {
 impl TryFrom<&ItemTrait> for R2GTraitRepr {
     type Error = Error;
 
-    fn try_from(trat: &ItemTrait) -> Result<Self> {
-        let trait_name = trat.ident.clone();
+    fn try_from(item_trait: &ItemTrait) -> Result<Self> {
+        let trait_name = item_trait.ident.clone();
         let mut fns = Vec::new();
 
         let mut mem_cnt = 0;
-        for item in trat.items.iter() {
+        for item in item_trait.items.iter() {
             let TraitItem::Fn(fn_item) = item else {
                 sbail!("only fn items are supported");
             };
@@ -52,43 +52,44 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     }
                     // Check if it's a future.
                     Type::ImplTrait(i) => {
-                        let t_str = i
-                            .bounds
-                            .iter()
-                            .find_map(|b| match b {
-                                syn::TypeParamBound::Trait(t) => {
-                                    let last_seg = t.path.segments.last().unwrap();
-                                    if last_seg.ident != "Future" {
-                                        return None;
-                                    }
-                                    // extract the Output type of the future.
-                                    let arg = match &last_seg.arguments {
-                                        syn::PathArguments::AngleBracketed(a)
-                                            if a.args.len() == 1 =>
-                                        {
-                                            a.args.first().unwrap()
-                                        }
-                                        _ => return None,
-                                    };
-                                    match arg {
-                                        syn::GenericArgument::AssocType(t)
-                                            if t.ident == "Output" =>
-                                        {
-                                            // extract the type of the Output.
-                                            let ret = Some(ParamType::try_from(&t.ty).unwrap());
-                                            if is_async {
-                                                panic!("async cannot be used with impl Future");
-                                            }
-                                            is_async = true;
-                                            ret
-                                        }
-                                        _ => None,
-                                    }
-                                }
-                                _ => None,
-                            })
-                            .ok_or_else(|| serr!("only future types are supported"))?;
-                        Some(t_str)
+                        // Find the Output type of the future.
+                        let mut output_ty = None;
+                        for bound in i.bounds.iter() {
+                            let syn::TypeParamBound::Trait(t) = bound else {
+                                continue;
+                            };
+                            let Some(last_seg) = t.path.segments.last() else {
+                                continue;
+                            };
+                            if last_seg.ident != "Future" {
+                                continue;
+                            }
+                            // extract the Output type of the future.
+                            let syn::PathArguments::AngleBracketed(a) = &last_seg.arguments else {
+                                continue;
+                            };
+                            if a.args.len() != 1 {
+                                continue;
+                            }
+                            let Some(syn::GenericArgument::AssocType(assoc)) = a.args.first()
+                            else {
+                                continue;
+                            };
+                            if assoc.ident != "Output" {
+                                continue;
+                            }
+                            output_ty = Some(&assoc.ty);
+                            break;
+                        }
+                        let output_ty =
+                            output_ty.ok_or_else(|| serr!("only future types are supported"))?;
+                        // extract the type of the Output.
+                        let ret = Some(ParamType::try_from(output_ty)?);
+                        if is_async {
+                            sbail!("async cannot be used with impl Future");
+                        }
+                        is_async = true;
+                        ret
                     }
                     _ => sbail!("only path type or impl trait returns are supported"),
                 },

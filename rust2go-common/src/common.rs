@@ -160,7 +160,7 @@ impl RawRsFile {
                             "    {} {} {}\n",
                             field_name,
                             field_type.to_go(),
-                            Self::gen_tag(&field_name, &go_struct_tag)
+                            Self::gen_tag(&field_name, &go_struct_tag)?
                         ));
                     }
                     out.push_str("}\n");
@@ -247,7 +247,7 @@ impl RawRsFile {
                 }
                 _ => None,
             })
-            .map(|trat| trat.try_into())
+            .map(|item_trait| item_trait.try_into())
             .collect::<Result<Vec<R2GTraitRepr>>>()?;
         Ok(out)
     }
@@ -267,7 +267,7 @@ impl RawRsFile {
                 }
                 _ => None,
             })
-            .map(|trat| trat.try_into())
+            .map(|item_trait| item_trait.try_into())
             .collect::<Result<Vec<G2RTraitRepr>>>()?;
         Ok(out)
     }
@@ -404,23 +404,23 @@ impl RawRsFile {
         Ok(hash_set)
     }
 
-    fn gen_tag(field_name: &str, tag_list: &[(String, String)]) -> String {
+    fn gen_tag(field_name: &str, tag_list: &[(String, String)]) -> Result<String> {
         let mut tags = vec![];
         for (key, heck_type) in tag_list {
             tags.push(format!(
                 "{}:{:?}",
                 key,
-                Self::heck_field_name(field_name, heck_type)
+                Self::heck_field_name(field_name, heck_type)?
             ));
         }
         if tags.is_empty() {
-            return String::new();
+            return Ok(String::new());
         }
-        format!("`{}`", tags.join(" "))
+        Ok(format!("`{}`", tags.join(" ")))
     }
 
-    fn heck_field_name(field_name: &str, heck_type: &str) -> String {
-        match heck_type {
+    fn heck_field_name(field_name: &str, heck_type: &str) -> Result<String> {
+        Ok(match heck_type {
             "snake_case" => field_name.to_snake_case(),
             "lowerCamelCase" => field_name.to_lower_camel_case(),
             "UpperCamelCase" => field_name.to_upper_camel_case(),
@@ -429,8 +429,8 @@ impl RawRsFile {
             "SHOUTY-KEBAB-CASE" => field_name.to_shouty_kebab_case(),
             "Title Case" => field_name.to_title_case(),
             "Train-Case" => field_name.to_train_case(),
-            _ => panic!("unknown heck type"),
-        }
+            _ => sbail!("unknown heck type"),
+        })
     }
 }
 
@@ -546,7 +546,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => match primitive_by_rust_ident(&name.to_string()) {
                 Some(info) => info.c_name.to_string(),
-                None => panic!("unreconigzed rust primitive type {name}"),
+                None => panic!("unrecognized rust primitive type {name}"),
             },
             ParamTypeInner::Custom(c) => format!("{struct_}{c}Ref"),
             ParamTypeInner::List(_) => format!("{struct_}ListRef"),
@@ -557,7 +557,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => match primitive_by_rust_ident(&name.to_string()) {
                 Some(info) => info.go_name.to_string(),
-                None => panic!("unreconigzed rust primitive type {name}"),
+                None => panic!("unrecognized rust primitive type {name}"),
             },
             ParamTypeInner::Custom(c) => {
                 let s = c.to_string();
@@ -678,7 +678,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "refC_")
-                    .unwrap_or_else(|| panic!("unreconigzed rust primitive type {name}")),
+                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (

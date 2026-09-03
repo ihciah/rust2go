@@ -26,9 +26,9 @@ macro_rules! r2g_include_binding {
 }
 
 #[cfg(feature = "build")]
-mod build;
+mod builder;
 #[cfg(feature = "build")]
-pub use build::{Builder, CopyLib, CustomArgGoCompiler, DefaultGoCompiler, GoCompiler, LinkType};
+pub use builder::{Builder, CopyLib, CustomArgGoCompiler, DefaultGoCompiler, GoCompiler, LinkType};
 #[cfg(feature = "build")]
 pub use rust2go_gen::GenArgs as RegenArgs;
 

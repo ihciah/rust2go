@@ -282,7 +282,17 @@ func TestRunHandlerStop(t *testing.T) {
 	}
 	rq := q.Read()
 	got := make(chan uint64, 1)
-	guard := rq.RunHandler(func(v uint64) { got <- v })
+	var mu sync.Mutex
+	var vals []uint64
+	guard := rq.RunHandler(func(v uint64) {
+		mu.Lock()
+		vals = append(vals, v)
+		mu.Unlock()
+		select {
+		case got <- v:
+		default:
+		}
+	})
 	select {
 	case v := <-got:
 		if v != 7 {
@@ -295,6 +305,12 @@ func TestRunHandlerStop(t *testing.T) {
 	waitStopped(t, guard.Done())
 	// Stop is idempotent.
 	guard.Stop()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(vals) != 1 {
+		t.Fatalf("handler called %d times, want 1: vals=%v head=%d tail=%d",
+			len(vals), vals, atomic.LoadUint64(q.headPtr), atomic.LoadUint64(q.tailPtr))
+	}
 }
 
 // NewQueue must wire QueueMeta pointers up the same way as manual

@@ -193,26 +193,38 @@ func newFdPair(t *testing.T) (int32, *testFd) {
 	return int32(fds[0]), b
 }
 
+// fdQueueState keeps the ring memory and counters in one heap-allocated
+// struct referenced by real pointers. Routing them through QueueMeta's
+// uintptr fields would escape the GC's liveness tracking and risk the
+// backing storage being reclaimed or the stack frame reused (see the
+// unsafe.Pointer rules on uintptr conversions).
+type fdQueueState[T any] struct {
+	buf     []T
+	head    uint64
+	tail    uint64
+	working uint32
+	stuck   uint32
+}
+
 // newFdQueue builds a Queue over local memory with real socketpair fds so
 // the Write/RunHandler goroutines and their stop mechanism can be tested.
 // It returns the queue and the peer ends of the working/unstuck channels.
+// The returned Queue keeps the state alive via its pointer fields.
 func newFdQueue[T any](t *testing.T, n int) (q Queue[T], workingPeer, unstuckPeer *testFd) {
 	t.Helper()
-	buf := make([]T, n)
-	var head, tail uint64
-	var working, stuck uint32
+	state := &fdQueueState[T]{buf: make([]T, n)}
 	workingFd, wp := newFdPair(t)
 	unstuckFd, up := newFdPair(t)
-	return NewQueue[T](QueueMeta{
-		BufferPtr:  uintptr(unsafe.Pointer(&buf[0])),
-		BufferLen:  uintptr(n),
-		HeadPtr:    uintptr(unsafe.Pointer(&head)),
-		TailPtr:    uintptr(unsafe.Pointer(&tail)),
-		WorkingPtr: uintptr(unsafe.Pointer(&working)),
-		StuckPtr:   uintptr(unsafe.Pointer(&stuck)),
-		WorkingFd:  workingFd,
-		UnstuckFd:  unstuckFd,
-	}), wp, up
+	return Queue[T]{
+		bufferPtr:  unsafe.Pointer(&state.buf[0]),
+		bufferLen:  uintptr(n),
+		headPtr:    &state.head,
+		tailPtr:    &state.tail,
+		workingPtr: &state.working,
+		stuckPtr:   &state.stuck,
+		workingFd:  workingFd,
+		unstuckFd:  unstuckFd,
+	}, wp, up
 }
 
 func waitStopped(t *testing.T, done <-chan struct{}) {
@@ -317,16 +329,16 @@ func TestRunHandlerStop(t *testing.T) {
 // construction (fds are irrelevant for push/pop and left unset).
 func TestNewQueueFromMeta(t *testing.T) {
 	const n = 8
-	buf := make([]uint64, n)
-	var head, tail uint64
-	var working, stuck uint32
+	// Heap-allocated state kept alive across the QueueMeta uintptr
+	// conversions; see fdQueueState for why real liveness matters here.
+	state := &fdQueueState[uint64]{buf: make([]uint64, n)}
 	q := NewQueue[uint64](QueueMeta{
-		BufferPtr:  uintptr(unsafe.Pointer(&buf[0])),
+		BufferPtr:  uintptr(unsafe.Pointer(&state.buf[0])),
 		BufferLen:  n,
-		HeadPtr:    uintptr(unsafe.Pointer(&head)),
-		TailPtr:    uintptr(unsafe.Pointer(&tail)),
-		WorkingPtr: uintptr(unsafe.Pointer(&working)),
-		StuckPtr:   uintptr(unsafe.Pointer(&stuck)),
+		HeadPtr:    uintptr(unsafe.Pointer(&state.head)),
+		TailPtr:    uintptr(unsafe.Pointer(&state.tail)),
+		WorkingPtr: uintptr(unsafe.Pointer(&state.working)),
+		StuckPtr:   uintptr(unsafe.Pointer(&state.stuck)),
 	})
 	for i := uint64(0); i < n; i++ {
 		if !q.push(i + 100) {
@@ -342,7 +354,8 @@ func TestNewQueueFromMeta(t *testing.T) {
 			t.Fatalf("pop %d = %v, want %d", i, item, i+100)
 		}
 	}
-	if head != n || tail != n {
-		t.Fatalf("head/tail = %d/%d, want %d/%d", head, tail, n, n)
+	if state.head != n || state.tail != n {
+		t.Fatalf("head/tail = %d/%d, want %d/%d", state.head, state.tail, n, n)
 	}
+	runtime.KeepAlive(state)
 }

@@ -5,6 +5,7 @@
 package mem_ring
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -219,7 +220,9 @@ func waitStopped(t *testing.T, done <-chan struct{}) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("background goroutine did not exit after Stop")
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		t.Fatalf("background goroutine did not exit after Stop\ngoroutines:\n%s", buf[:n])
 	}
 }
 
@@ -235,8 +238,13 @@ func TestWriteQueueStop(t *testing.T) {
 	wq.Stop()
 	// The item pushed before Stop stays in the ring.
 	item := q.pop()
-	if item == nil || *item != 42 {
-		t.Fatalf("pop = %v, want 42", item)
+	if item == nil {
+		t.Fatalf("pop = nil, want 42 (head=%d tail=%d)",
+			atomic.LoadUint64(q.headPtr), atomic.LoadUint64(q.tailPtr))
+	}
+	if *item != 42 {
+		t.Fatalf("pop = %d, want 42 (head=%d tail=%d)",
+			*item, atomic.LoadUint64(q.headPtr), atomic.LoadUint64(q.tailPtr))
 	}
 }
 

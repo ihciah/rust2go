@@ -1,14 +1,59 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
+//go:build unix
+
 package mem_ring
 
 import (
+	"io"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/edwingeng/deque/v2"
 )
+
+// Guard controls the lifetime of the background goroutine started by
+// ReadQueue.RunHandler or Queue.Write.
+type Guard struct {
+	stop    chan struct{}
+	stopped chan struct{}
+	once    sync.Once
+	closer  io.Closer
+}
+
+func newGuard(closer io.Closer) *Guard {
+	return &Guard{
+		stop:    make(chan struct{}),
+		stopped: make(chan struct{}),
+		closer:  closer,
+	}
+}
+
+// Stop requests the background goroutine to exit and closes the notification
+// socket so a goroutine blocked in Wait wakes up. It is idempotent and does
+// not wait for the goroutine to finish; use Done for that.
+func (g *Guard) Stop() {
+	g.once.Do(func() {
+		close(g.stop)
+		g.closer.Close()
+	})
+}
+
+// Done returns a channel that is closed once the background goroutine has
+// fully exited.
+func (g *Guard) Done() <-chan struct{} {
+	return g.stopped
+}
+
+func (g *Guard) exiting() bool {
+	select {
+	case <-g.stop:
+		return true
+	default:
+		return false
+	}
+}
 
 type QueueMeta struct {
 	BufferPtr  uintptr
@@ -33,8 +78,7 @@ type Queue[T any] struct {
 }
 
 type ReadQueue[T any] struct {
-	q               Queue[T]
-	unstuckNotifier Notifier
+	q Queue[T]
 }
 
 type WriteQueue[T any] struct {
@@ -42,6 +86,7 @@ type WriteQueue[T any] struct {
 	Lock            *sync.Mutex
 	pendingTasks    *deque.Deque[T]
 	workingNotifier Notifier
+	guard           *Guard
 }
 
 func NewQueue[T any](meta QueueMeta) Queue[T] {
@@ -115,36 +160,35 @@ func (q *Queue[T]) working() bool {
 	return atomic.LoadUint32(q.workingPtr) == 1
 }
 
+// markStuck tells the peer reader that this writer has pending tasks; the
+// peer clears the flag and notifies the unstuck fd when it drains the ring.
 func (q *Queue[T]) markStuck() {
 	atomic.StoreUint32(q.stuckPtr, 1)
 }
 
-func (q *Queue[T]) markUnstuck() {
-	atomic.StoreUint32(q.stuckPtr, 0)
-}
-
-func (q *Queue[T]) stuck() bool {
-	return atomic.LoadUint32(q.stuckPtr) == 1
-}
-
 func (q Queue[T]) Read() ReadQueue[T] {
-	unstuckNotifier := NewNotifier(q.unstuckFd)
-	return ReadQueue[T]{
-		q,
-		unstuckNotifier,
-	}
+	return ReadQueue[T]{q: q}
 }
 
 func (q Queue[T]) Write() WriteQueue[T] {
-	awaiter := NewAwaiter(q.unstuckFd)
+	awaiter, err := NewAwaiter(q.unstuckFd)
+	if err != nil {
+		panic(err)
+	}
+	guard := newGuard(&awaiter)
 	wq := WriteQueue[T]{
 		q:               q,
 		Lock:            &sync.Mutex{},
 		pendingTasks:    deque.NewDeque[T](),
 		workingNotifier: NewNotifier(q.workingFd),
+		guard:           guard,
 	}
 	go func() {
+		defer close(guard.stopped)
 		for {
+			if guard.exiting() {
+				return
+			}
 			wq.Lock.Lock()
 			for item, ok := wq.pendingTasks.TryPopFront(); ok; item, ok = wq.pendingTasks.TryPopFront() {
 				if !wq.q.push(item) {
@@ -154,7 +198,9 @@ func (q Queue[T]) Write() WriteQueue[T] {
 			}
 			if !wq.q.working() {
 				wq.q.markWorking()
-				wq.workingNotifier.Notify()
+				// Best effort: if the peer is gone, the next Wait reports
+				// the broken fd and this goroutine exits.
+				_ = wq.workingNotifier.Notify()
 			}
 			if !wq.pendingTasks.IsEmpty() {
 				wq.q.markStuck()
@@ -166,22 +212,46 @@ func (q Queue[T]) Write() WriteQueue[T] {
 				}
 			}
 			wq.Lock.Unlock()
-			awaiter.Wait()
+			if err := awaiter.Wait(); err != nil {
+				// The socket was closed by Stop or is broken; exit instead
+				// of spinning on a dead fd.
+				return
+			}
 		}
 	}()
 	return wq
 }
 
-func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
-	// TODO: return channel-based guard
+// Stop shuts down the background flusher goroutine. Items still in
+// pendingTasks are not flushed after Stop.
+func (wq *WriteQueue[T]) Stop() {
+	wq.guard.Stop()
+}
+
+// Done returns a channel that is closed once the background flusher
+// goroutine has fully exited.
+func (wq *WriteQueue[T]) Done() <-chan struct{} {
+	return wq.guard.Done()
+}
+
+// RunHandler consumes items from the queue in a background goroutine and
+// returns a Guard that stops it. While the queue is empty the goroutine
+// yields the CPU through the given TinyWaiter (GoSchedWaiter by default)
+// and then blocks on the working fd until the peer writer notifies.
+func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) *Guard {
 	var waiter TinyWaiter
 	if len(w) == 0 {
 		waiter = &GoSchedWaiter{}
 	} else {
 		waiter = w[0]
 	}
+	awaiter, err := NewAwaiter(rq.q.workingFd)
+	if err != nil {
+		panic(err)
+	}
+	guard := newGuard(&awaiter)
 	go func() {
-		awaiter := NewAwaiter(rq.q.workingFd)
+		defer close(guard.stopped)
 		rq.q.markWorking()
 		var waited bool
 	c:
@@ -194,6 +264,9 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 			waiter.Reset(cnt, waited)
 			waited = false
 			for {
+				if guard.exiting() {
+					return
+				}
 				stop_wait := waiter.Wait()
 				if !rq.q.isEmpty() || !rq.q.markUnworking() {
 					continue c
@@ -203,11 +276,19 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) {
 				}
 			}
 
-			awaiter.Wait()
+			if err := awaiter.Wait(); err != nil {
+				// The socket was closed by Stop or is broken; exit instead
+				// of spinning on a dead fd.
+				return
+			}
+			if guard.exiting() {
+				return
+			}
 			rq.q.markWorking()
 			waited = true
 		}
 	}()
+	return guard
 }
 
 func (wq *WriteQueue[T]) Push(item T) {
@@ -216,7 +297,7 @@ func (wq *WriteQueue[T]) Push(item T) {
 		if !wq.q.working() {
 			wq.q.markWorking()
 			wq.Lock.Unlock()
-			wq.workingNotifier.Notify()
+			_ = wq.workingNotifier.Notify()
 			return
 		}
 	} else {

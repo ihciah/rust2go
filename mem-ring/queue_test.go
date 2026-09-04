@@ -256,7 +256,8 @@ func TestWriteQueueExitsOnBrokenFd(t *testing.T) {
 // channel without Stop being called, instead of spinning on the dead fd.
 func TestRunHandlerExitsOnBrokenFd(t *testing.T) {
 	q, workingPeer, _ := newFdQueue[uint64](t, 8)
-	guard := q.Read().RunHandler(func(uint64) {})
+	rq := q.Read()
+	guard := rq.RunHandler(func(uint64) {})
 	// Closing the peer end makes the awaiter's next read report EOF.
 	workingPeer.Close()
 	waitStopped(t, guard.Done())

@@ -4,6 +4,8 @@ A ring based on shared memory bridging rust and go. It support both tokio and mo
 
 With 2 rings, users can simulate calls between rust and go(Both sides can start calls).
 
+The Go package (`mem-ring`) is unix-only (`//go:build unix`): it relies on `x/sys/unix` and socketpair fds, and does not compile on Windows.
+
 ## How it Works
 TODO
 
@@ -30,4 +32,10 @@ mem-ring = { version = "0.1" }
 ## Custom Waiter (Go side)
 
 `ReadQueue.RunHandler(handler, w ...TinyWaiter)` consumes the queue in a loop and yields the CPU through a `TinyWaiter` (see `waiter.go`) while there is nothing to read. The default is `GoSchedWaiter`, which is based on `runtime.Gosched`. To customize the wait strategy, pass your own implementation of the `TinyWaiter` interface.
+
+## Stopping background goroutines (Go side)
+
+`ReadQueue.RunHandler` returns a `*Guard`, and `Queue.Write` returns a `WriteQueue` with `Stop`/`Done` methods. `Stop` is idempotent: it signals the background goroutine and closes the notification socket so a goroutine blocked in `Awaiter.Wait` wakes up and exits instead of spinning on a dead fd. `Done` returns a channel that closes once the goroutine has fully exited.
+
+`Notifier.Notify`, `Awaiter.Wait` and `NewAwaiter` report errors to make this possible: a closed or broken fd surfaces as an error rather than a silent busy loop.
 

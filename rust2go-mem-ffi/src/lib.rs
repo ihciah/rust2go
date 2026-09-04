@@ -41,11 +41,6 @@ pub struct Payload {
     // 3. 0b1000=only drop(for response)
     // For a oneway call: send 1, recv 3
     // For a normal call: send 1, recv 2, send 3
-    // last 5th bit: want peer quit
-    // so:
-    // 1. 0b10100=notify peer to quit and wait peer quit reply
-    // 2. 0b10000=notify peer to quit
-    // For a quit call: send 1, recv 2
     pub flag: u32,
 }
 
@@ -53,8 +48,6 @@ impl Payload {
     const CALL: u32 = 0b0101;
     const REPLY: u32 = 0b1110;
     const DROP: u32 = 0b1000;
-    const QUIT_INIT: u32 = 0b10100;
-    const QUIT_ACK: u32 = 0b10000;
 
     #[inline]
     pub const fn new_call(call_id: u32, user_data: usize, ptr: usize) -> Self {
@@ -88,28 +81,6 @@ impl Payload {
             flag: Self::DROP,
         }
     }
-
-    #[inline]
-    pub const fn new_quit_init() -> Self {
-        Self {
-            ptr: 0,
-            user_data: 0,
-            next_user_data: 0,
-            call_id: 0,
-            flag: Self::QUIT_INIT,
-        }
-    }
-
-    #[inline]
-    pub const fn new_quit_ack() -> Self {
-        Self {
-            ptr: 0,
-            user_data: 0,
-            next_user_data: 0,
-            call_id: 0,
-            flag: Self::QUIT_ACK,
-        }
-    }
 }
 
 pub struct TaskDesc {
@@ -138,9 +109,6 @@ pub unsafe fn init_mem_ffi<const N: usize>(
     let sb = shared_slab.clone();
     let guard = read_queue
         .run_handler(move |payload: Payload| {
-            if payload.flag & Payload::QUIT_ACK == Payload::QUIT_ACK {
-                return;
-            }
             let Some(call_handle) = handlers.get(payload.call_id as usize) else {
                 panic!("call handler {} not found", payload.call_id);
             };
@@ -240,47 +208,19 @@ mod tests {
     }
 
     #[test]
-    fn payload_new_quit() {
-        let init = Payload::new_quit_init();
-        assert_eq!(init.ptr, 0);
-        assert_eq!(init.user_data, 0);
-        assert_eq!(init.next_user_data, 0);
-        assert_eq!(init.call_id, 0);
-        assert_eq!(init.flag, 0b10100);
-
-        let ack = Payload::new_quit_ack();
-        assert_eq!(ack.ptr, 0);
-        assert_eq!(ack.user_data, 0);
-        assert_eq!(ack.next_user_data, 0);
-        assert_eq!(ack.call_id, 0);
-        assert_eq!(ack.flag, 0b10000);
-    }
-
-    #[test]
     fn payload_flag_protocol() {
         let call = Payload::new_call(0, 0, 0).flag;
         let reply = Payload::new_reply(0, 0, 0, 0).flag;
         let drop = Payload::new_drop(0, 0).flag;
-        let quit_init = Payload::new_quit_init().flag;
-        let quit_ack = Payload::new_quit_ack().flag;
 
         // These constants are part of the wire protocol with the Go side
         // (see go_shm_ring_init codegen: CALL=0b0101, REPLY=0b1110, DROP=0b1000).
         assert_eq!(call, 0b0101);
         assert_eq!(reply, 0b1110);
         assert_eq!(drop, 0b1000);
-        assert_eq!(quit_init, 0b10100);
-        assert_eq!(quit_ack, 0b10000);
 
-        // The dispatcher in init_mem_ffi ignores payloads whose QUIT_ACK bit
-        // is set; QUIT_INIT also carries that bit.
-        assert_eq!(quit_init & quit_ack, quit_ack);
-        assert_ne!(call & quit_ack, quit_ack);
-        assert_ne!(reply & quit_ack, quit_ack);
-        assert_ne!(drop & quit_ack, quit_ack);
-
-        // All five flags must be distinct.
-        let flags = [call, reply, drop, quit_init, quit_ack];
+        // All flags must be distinct.
+        let flags = [call, reply, drop];
         for (i, a) in flags.iter().enumerate() {
             for b in &flags[i + 1..] {
                 assert_ne!(a, b);

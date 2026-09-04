@@ -1,5 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
+//go:build unix
+
 package mem_ring
 
 import (

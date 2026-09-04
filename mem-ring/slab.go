@@ -1,5 +1,7 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
+//go:build unix
+
 package mem_ring
 
 import (
@@ -48,33 +50,20 @@ func NewLockedSlab[T any]() *LockedSlab[T] {
 	}
 }
 
-func NewMultiSlab[T any](opts ...MultiSlabOption) *MultiSlab[T] {
-	opt := MultiSlabOpt{
-		SlabSizeExp: 4,
-	}
-	for _, op := range opts {
-		op.apply(&opt)
-	}
+// multiSlabSizeExp is the bit width of the MultiSlab shard count.
+const multiSlabSizeExp = 4
 
-	size := 1 << opt.SlabSizeExp
+func NewMultiSlab[T any]() *MultiSlab[T] {
+	const size = 1 << multiSlabSizeExp
 	slabs := make([]LockedSlab[T], size)
 	for i := 0; i < size; i++ {
 		slabs[i] = *NewLockedSlab[T]()
 	}
 	return &MultiSlab[T]{
 		slabs: slabs,
-		exp:   opt.SlabSizeExp,
-		mask:  1<<opt.SlabSizeExp - 1,
+		exp:   multiSlabSizeExp,
+		mask:  size - 1,
 	}
-}
-
-type MultiSlabOpt struct {
-	// bit width of slab size
-	SlabSizeExp uint
-}
-
-type MultiSlabOption interface {
-	apply(*MultiSlabOpt)
 }
 
 func (s *Slab[T]) Push(data T) uint {

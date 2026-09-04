@@ -1,10 +1,18 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
+//go:build unix
+
 package mem_ring
 
 import (
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // newTestQueue builds a Queue over locally allocated memory so the pure
@@ -146,19 +154,138 @@ func TestQueueWorkingFlags(t *testing.T) {
 	}
 }
 
-func TestQueueStuckFlags(t *testing.T) {
+func TestQueueMarkStuck(t *testing.T) {
 	q, _ := newTestQueue[uint64](2)
-	if q.stuck() {
-		t.Fatal("new queue is stuck")
+	if got := atomic.LoadUint32(q.stuckPtr); got != 0 {
+		t.Fatalf("new queue stuck flag = %d, want 0", got)
 	}
 	q.markStuck()
-	if !q.stuck() {
-		t.Fatal("stuck() false after markStuck")
+	if got := atomic.LoadUint32(q.stuckPtr); got != 1 {
+		t.Fatalf("stuck flag = %d after markStuck, want 1", got)
 	}
-	q.markUnstuck()
-	if q.stuck() {
-		t.Fatal("stuck() true after markUnstuck")
+}
+
+// testFd wraps an fd so tests and cleanups can close it idempotently:
+// closing the same fd number twice risks closing an unrelated reused fd.
+type testFd struct {
+	fd   int32
+	once sync.Once
+}
+
+func (f *testFd) Close() {
+	f.once.Do(func() { syscall.Close(int(f.fd)) })
+}
+
+// newFdPair returns a connected unix socketpair like the Rust side creates
+// for the working/unstuck notification channels. The queue-side fd gets no
+// cleanup: NewAwaiter takes ownership of it and closes it (and any fd only
+// wrapped by a Notifier is leaked until the test process exits). Only the
+// peer end is closed idempotently via testFd.
+func newFdPair(t *testing.T) (int32, *testFd) {
+	t.Helper()
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair: %v", err)
 	}
+	b := &testFd{fd: int32(fds[1])}
+	t.Cleanup(b.Close)
+	return int32(fds[0]), b
+}
+
+// newFdQueue builds a Queue over local memory with real socketpair fds so
+// the Write/RunHandler goroutines and their stop mechanism can be tested.
+// It returns the queue and the peer ends of the working/unstuck channels.
+func newFdQueue[T any](t *testing.T, n int) (q Queue[T], workingPeer, unstuckPeer *testFd) {
+	t.Helper()
+	buf := make([]T, n)
+	var head, tail uint64
+	var working, stuck uint32
+	workingFd, wp := newFdPair(t)
+	unstuckFd, up := newFdPair(t)
+	return NewQueue[T](QueueMeta{
+		BufferPtr:  uintptr(unsafe.Pointer(&buf[0])),
+		BufferLen:  uintptr(n),
+		HeadPtr:    uintptr(unsafe.Pointer(&head)),
+		TailPtr:    uintptr(unsafe.Pointer(&tail)),
+		WorkingPtr: uintptr(unsafe.Pointer(&working)),
+		StuckPtr:   uintptr(unsafe.Pointer(&stuck)),
+		WorkingFd:  workingFd,
+		UnstuckFd:  unstuckFd,
+	}), wp, up
+}
+
+func waitStopped(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background goroutine did not exit after Stop")
+	}
+}
+
+// Stop must terminate the blocked flusher goroutine instead of letting it
+// wait on the unstuck fd forever.
+func TestWriteQueueStop(t *testing.T) {
+	q, _, _ := newFdQueue[uint64](t, 8)
+	wq := q.Write()
+	wq.Push(42)
+	wq.Stop()
+	waitStopped(t, wq.Done())
+	// Stop is idempotent.
+	wq.Stop()
+	// The item pushed before Stop stays in the ring.
+	item := q.pop()
+	if item == nil || *item != 42 {
+		t.Fatalf("pop = %v, want 42", item)
+	}
+}
+
+// The flusher goroutine must also exit when the peer closes the unstuck
+// channel without Stop being called, instead of spinning on the dead fd.
+func TestWriteQueueExitsOnBrokenFd(t *testing.T) {
+	q, _, unstuckPeer := newFdQueue[uint64](t, 8)
+	wq := q.Write()
+	// Closing the peer end makes the awaiter's next read report EOF.
+	unstuckPeer.Close()
+	waitStopped(t, wq.Done())
+	// Closing the guard afterwards is still safe and idempotent.
+	wq.Stop()
+}
+
+// The handler goroutine must also exit when the peer closes the working
+// channel without Stop being called, instead of spinning on the dead fd.
+func TestRunHandlerExitsOnBrokenFd(t *testing.T) {
+	q, workingPeer, _ := newFdQueue[uint64](t, 8)
+	guard := q.Read().RunHandler(func(uint64) {})
+	// Closing the peer end makes the awaiter's next read report EOF.
+	workingPeer.Close()
+	waitStopped(t, guard.Done())
+	// Closing the guard afterwards is still safe and idempotent.
+	guard.Stop()
+}
+
+// Stop must terminate the handler goroutine blocked on the working fd.
+func TestRunHandlerStop(t *testing.T) {
+	q, _, _ := newFdQueue[uint64](t, 8)
+	// Push before starting the handler: the first drain loop picks it up.
+	if !q.push(7) {
+		t.Fatal("push failed on empty queue")
+	}
+	rq := q.Read()
+	got := make(chan uint64, 1)
+	guard := rq.RunHandler(func(v uint64) { got <- v })
+	select {
+	case v := <-got:
+		if v != 7 {
+			t.Fatalf("handler got %d, want 7", v)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not consume the pushed item")
+	}
+	guard.Stop()
+	waitStopped(t, guard.Done())
+	// Stop is idempotent.
+	guard.Stop()
 }
 
 // NewQueue must wire QueueMeta pointers up the same way as manual

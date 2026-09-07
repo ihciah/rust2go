@@ -12,7 +12,7 @@ repository.workspace = true
 
 [dependencies]
 slab = "0.4"
-mem-ring = { workspace = true, default-features = false }
+mem-ring = { workspace = true }
 rust2go-convert = { workspace = true }
 
 [features]

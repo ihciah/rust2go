@@ -29,7 +29,10 @@ repository = "https://github.com/ihciah/rust2go"
 
 [workspace.dependencies]
 # Internal crates (version requirements centralized here)
-mem-ring = { version = "0.2.0", path = "mem-ring" }
+# mem-ring: default-features must be disabled here -- Cargo ignores a
+# member-side `default-features = false` on an inherited dependency
+# (warning: "this could become a hard error in the future").
+mem-ring = { version = "0.2.0", path = "mem-ring", default-features = false }
 rust2go-common = { version = "0.4.1", path = "rust2go-common" }
 rust2go-convert = { version = "0.1.1", path = "rust2go-convert" }
 rust2go-gen = { version = "0.1.0", path = "rust2go-gen" }

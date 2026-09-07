@@ -12,7 +12,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rust2go-common = { version = "0.4.1", path = "../rust2go-common" }
+rust2go-common = { workspace = true }
 
 cbindgen = { version = "0.29", default-features = false }
 itertools = { version = "0.15" }

@@ -16,8 +16,8 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-rust2go-common = { version = "0.4.1", path = "../rust2go-common" }
+rust2go-common = { workspace = true }
 
-proc-macro2 = { version = "1" }
-quote = { version = "1" }
-syn = { version = "2", features = ["full"] }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }

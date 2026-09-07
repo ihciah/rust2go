@@ -16,6 +16,16 @@ env:
   RUSTC_WRAPPER: sccache
   CC: sccache clang
   CXX: sccache clang++
+  # Go toolchain for CI. "stable" is a setup-go alias that always resolves
+  # to the latest Go release, independent of the runner image's preinstalled
+  # version; only the minimum supported toolchain is pinned to a literal.
+  GO_VERSION: "stable"
+  # Oldest supported Go toolchain (the go.mod minimum); the go job runs it
+  # to exercise the --go118 compatibility code path. Bump only when the
+  # minimum-version policy changes.
+  # The go job's matrix repeats these two values as literals because
+  # matrix definitions cannot reference env contexts -- keep them in sync.
+  GO_MIN_VERSION: "1.18"
 jobs:
   test:
     name: build-and-test
@@ -24,7 +34,11 @@ jobs:
       GODEBUG: invalidptr=0,cgocheck=0
     steps:
       - uses: actions/checkout@v7
-      - name: Setup sccache
+      # Anchored so the lint job reuses the exact same step (*setup-sccache).
+      # GitHub Actions supports YAML anchors since 2025-09, but not merge
+      # keys -- alias whole step maps only.
+      - &setup-sccache
+        name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.11
         timeout-minutes: 5
         continue-on-error: true
@@ -54,15 +68,13 @@ jobs:
       # with mem-ring's spawn-and-leak-at-runtime-drop pattern corrupts the
       # heap on test teardown (glibc "unaligned tcache chunk detected").
       # mem-ring itself does not use monoio/sync.
-      - name: Test mem-ring
-        run: cargo test -p mem-ring --all-targets
       # Default features only exercise the monoio branch of mem-ring (monoio
-      # and tokio are mutually exclusive), so test the tokio feature set
-      # separately.
-      - name: Test mem-ring (tokio)
-        run: cargo test -p mem-ring --no-default-features --features tokio --all-targets
-      - name: Test Go packages
-        run: go test ./asmcall/... ./mem-ring/...
+      # and tokio are mutually exclusive), so the tokio feature set runs in
+      # the same step.
+      - name: Test mem-ring
+        run: |
+          cargo test -p mem-ring --all-targets
+          cargo test -p mem-ring --no-default-features --features tokio --all-targets
       # Building the workspace above regenerates the committed Go bindings
       # (test/go/gen.go, examples/example-bidirectional/go/gen.go) via
       # build.rs scripts; fail if the committed copies have drifted from
@@ -80,6 +92,59 @@ jobs:
             diff -u examples/shared/impl.go.tmpl "examples/$ex/go/impl.go"
           done
 
+  go:
+    name: go ${{ matrix.go-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      GODEBUG: invalidptr=0,cgocheck=0
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The go-version literals mirror env.GO_VERSION / env.GO_MIN_VERSION
+          # (see the comment there). `gates: true` marks the legs that also
+          # run the gofmt/vet gates.
+          - os: ubuntu-latest
+            go-version: "stable"
+            gates: true
+          - os: ubuntu-latest
+            go-version: "1.18"
+          # macos-latest is arm64: exercises the arm64 assembly path of
+          # asmcall, which the ubuntu legs never compile.
+          - os: macos-latest
+            go-version: "stable"
+            gates: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go-version }}
+          check-latest: true
+      - name: gofmt check
+        if: matrix.gates && matrix.os == 'ubuntu-latest'
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        if: matrix.gates
+        run: |
+          go vet ./...
+          (cd test/go && go vet ./...)
+      # asmcall correctness tests live in the standalone asmcall/calltest
+      # package (cgo is not allowed in test-only packages). test/go exercises
+      # the committed go118-flavored generated bindings (including the
+      # mem-ring package it imports), which is what makes the 1.18 leg a
+      # real compatibility check.
+      - name: go test
+        run: |
+          go test ./asmcall/... ./mem-ring/...
+          (cd test/go && go test ./...)
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest
@@ -94,6 +159,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
         with:
@@ -120,10 +190,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
-        timeout-minutes: 5
-        continue-on-error: true
+      - *setup-sccache
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install rustfmt
         run: rustup component add rustfmt

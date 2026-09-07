@@ -97,6 +97,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       GODEBUG: invalidptr=0,cgocheck=0
+      # The workflow-level CC/CXX point at sccache for the Rust jobs; this
+      # job has no sccache, so reset them to cgo's per-OS defaults (empty
+      # means unset for go/build).
+      CC: ""
+      CXX: ""
     strategy:
       fail-fast: false
       matrix:
@@ -130,11 +135,16 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+      # The FFI ABIs deliberately materialize pointers from raw addresses
+      # (mem-ring's QueueMeta carries uintptrs; generated bindings convert
+      # Payload.Ptr), which trips vet's unsafeptr analyzer; that one
+      # analyzer is disabled for both modules. Runtime pointer checking is
+      # already off (GODEBUG above).
       - name: go vet
         if: matrix.gates
         run: |
-          go vet ./...
-          (cd test/go && go vet ./...)
+          go vet -unsafeptr=false ./...
+          (cd test/go && go vet -unsafeptr=false ./...)
       # asmcall correctness tests live in the standalone asmcall/calltest
       # package (cgo is not allowed in test-only packages). test/go exercises
       # the committed go118-flavored generated bindings (including the

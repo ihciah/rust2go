@@ -12,7 +12,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rust2go-gen = { version = "0.1.0", path = "../rust2go-gen" }
+rust2go-gen = { workspace = true }
 
 clap = { version = "4", features = ["derive"] }
 

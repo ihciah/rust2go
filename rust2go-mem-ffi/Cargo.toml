@@ -12,8 +12,8 @@ repository.workspace = true
 
 [dependencies]
 slab = "0.4"
-mem-ring = { version = "0.2.0", path = "../mem-ring", default-features = false }
-rust2go-convert = { version = "0.1.1", path = "../rust2go-convert" }
+mem-ring = { workspace = true }
+rust2go-convert = { workspace = true }
 
 [features]
 default = ["monoio"]

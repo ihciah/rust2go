@@ -779,7 +779,6 @@ dependencies = [
  "rust2go-convert",
  "rust2go-gen",
  "rust2go-macro",
- "syn",
 ]
 
 [[package]]

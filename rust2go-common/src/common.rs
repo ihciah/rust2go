@@ -1387,7 +1387,10 @@ mod tests {
     fn param_type_err(src: &str) -> String {
         let ty: syn::Type = syn::parse_str(src).expect("unable to parse type");
         // ParamType does not implement Debug, so unwrap_err is unavailable.
-        super::ParamType::try_from(&ty).err().expect("should err").to_string()
+        super::ParamType::try_from(&ty)
+            .err()
+            .expect("should err")
+            .to_string()
     }
 
     #[test]
@@ -1426,17 +1429,13 @@ mod tests {
         // Leading colons.
         assert!(param_type_err("::Foo").contains("types with leading colons are not supported"));
         // Multi-segment path.
-        assert!(
-            param_type_err("a::Foo").contains("types with multiple segments are not supported")
-        );
+        assert!(param_type_err("a::Foo").contains("types with multiple segments are not supported"));
         // Primitive with generic arguments.
         assert!(
             param_type_err("bool<u8>").contains("primitive types with arguments are not supported")
         );
         // Custom type with generic arguments.
-        assert!(
-            param_type_err("Foo<u8>").contains("custom types with arguments are not supported")
-        );
+        assert!(param_type_err("Foo<u8>").contains("custom types with arguments are not supported"));
     }
 
     // A primitive ident that is not in the shared table (u128) drives every

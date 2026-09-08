@@ -308,9 +308,11 @@ mod tests {
 
     #[test]
     fn rejects_async_with_impl_future() {
-        let err =
-            err_of("pub trait T { async fn f() -> impl std::future::Future<Output = u8>; }");
-        assert!(err.contains("async cannot be used with impl Future"), "{err}");
+        let err = err_of("pub trait T { async fn f() -> impl std::future::Future<Output = u8>; }");
+        assert!(
+            err.contains("async cannot be used with impl Future"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -325,7 +327,10 @@ mod tests {
     #[test]
     fn rejects_async_without_return() {
         let err = err_of("pub trait T { async fn f(); }");
-        assert!(err.contains("async function must have a return value"), "{err}");
+        assert!(
+            err.contains("async function must have a return value"),
+            "{err}"
+        );
     }
 
     #[test]

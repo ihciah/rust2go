@@ -158,7 +158,10 @@ mod tests {
     #[test]
     fn rejects_non_path_return() {
         let err = err_of("pub trait T { fn f() -> impl Send; }");
-        assert!(err.contains("only path type returns are supported"), "{err}");
+        assert!(
+            err.contains("only path type returns are supported"),
+            "{err}"
+        );
     }
 
     #[test]

@@ -1380,4 +1380,154 @@ mod tests {
             ("ref_list_mapper_primitive(refDemoNested)".to_string(), 1)
         );
     }
+
+    // --- Negative paths: invalid inputs must surface as syn errors (or, for
+    // impossible-by-construction states, as the documented panics) ---
+
+    fn param_type_err(src: &str) -> String {
+        let ty: syn::Type = syn::parse_str(src).expect("unable to parse type");
+        // ParamType does not implement Debug, so unwrap_err is unavailable.
+        super::ParamType::try_from(&ty).err().expect("should err").to_string()
+    }
+
+    #[test]
+    fn tuple_struct_rejected() {
+        let raw = "pub struct Tup(pub u8);";
+        let raw_file = super::RawRsFile::new(raw);
+        let err = raw_file.convert_structs_to_ref().unwrap_err().to_string();
+        assert!(err.contains("only named fields are supported"), "{err}");
+        let err = raw_file
+            .convert_structs_to_go(&Default::default(), false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("only named fields are supported"), "{err}");
+    }
+
+    #[test]
+    fn unknown_heck_type_rejected() {
+        let raw = r#"
+        #[r2g_struct_tag(json = "bogus_case")]
+        pub struct Tagged {
+            pub user_name: String,
+        }
+        "#;
+        let raw_file = super::RawRsFile::new(raw);
+        let err = raw_file
+            .convert_structs_to_go(&Default::default(), false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown heck type"), "{err}");
+    }
+
+    #[test]
+    fn param_type_error_paths() {
+        // Non-path type.
+        assert!(param_type_err("[u8; 4]").contains("only path types are supported"));
+        // Leading colons.
+        assert!(param_type_err("::Foo").contains("types with leading colons are not supported"));
+        // Multi-segment path.
+        assert!(
+            param_type_err("a::Foo").contains("types with multiple segments are not supported")
+        );
+        // Primitive with generic arguments.
+        assert!(
+            param_type_err("bool<u8>").contains("primitive types with arguments are not supported")
+        );
+        // Custom type with generic arguments.
+        assert!(
+            param_type_err("Foo<u8>").contains("custom types with arguments are not supported")
+        );
+    }
+
+    // A primitive ident that is not in the shared table (u128) drives every
+    // "unrecognized rust primitive type" panic arm.
+    fn bogus_primitive() -> super::ParamType {
+        super::ParamType {
+            inner: super::ParamTypeInner::Primitive(ident("u128")),
+            is_reference: false,
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_to_c_panics() {
+        bogus_primitive().to_c(false);
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_to_go_panics() {
+        bogus_primitive().to_go();
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_c_to_go_converter_panics() {
+        bogus_primitive().c_to_go_field_converter(&Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_c_to_go_owned_converter_panics() {
+        bogus_primitive().c_to_go_field_converter_owned();
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_go_to_c_counter_panics() {
+        bogus_primitive().go_to_c_field_counter(&Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "unrecognized rust primitive type")]
+    fn unknown_primitive_go_to_c_converter_panics() {
+        bogus_primitive().go_to_c_field_converter(&Default::default());
+    }
+
+    // A `List` ParamType whose inner type has no (or non-type) generic
+    // arguments drives the two list-shape panic arms.
+    fn weird_list(inner_src: &str) -> super::ParamType {
+        super::ParamType {
+            inner: super::ParamTypeInner::List(syn::parse_str(inner_src).unwrap()),
+            is_reference: false,
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "list type must have angle bracketed arguments")]
+    fn bare_list_to_go_panics() {
+        weird_list("Vec").to_go();
+    }
+
+    #[test]
+    #[should_panic(expected = "list type must have angle bracketed arguments")]
+    fn bare_list_c_to_go_converter_panics() {
+        weird_list("Vec").c_to_go_field_converter(&Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "list type must have angle bracketed arguments")]
+    fn bare_list_c_to_go_owned_converter_panics() {
+        weird_list("Vec").c_to_go_field_converter_owned();
+    }
+
+    #[test]
+    #[should_panic(expected = "list type must have angle bracketed arguments")]
+    fn bare_list_go_to_c_counter_panics() {
+        weird_list("Vec").go_to_c_field_counter(&Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "list type must have angle bracketed arguments")]
+    fn bare_list_go_to_c_converter_panics() {
+        weird_list("Vec").go_to_c_field_converter(&Default::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "list generic must be a type")]
+    fn list_with_lifetime_arg_to_go_panics() {
+        // syn does not enforce lifetime-before-type ordering when parsing,
+        // so the last generic argument is a lifetime here.
+        weird_list("Vec<u8, 'static>").to_go();
+    }
 }

@@ -267,3 +267,138 @@ impl std::fmt::Display for BoolMark {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(src: &str) -> Result<R2GTraitRepr> {
+        let item: ItemTrait = syn::parse_str(src).expect("trait should parse");
+        R2GTraitRepr::try_from(&item)
+    }
+
+    fn err_of(src: &str) -> String {
+        // R2GTraitRepr does not implement Debug, so unwrap_err is unavailable.
+        parse(src).err().expect("should err").to_string()
+    }
+
+    #[test]
+    fn rejects_non_fn_items() {
+        let err = err_of("pub trait T { const X: u8; }");
+        assert!(err.contains("only fn items are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_receiver_args() {
+        let err = err_of("pub trait T { fn f(&self); }");
+        assert!(err.contains("only typed fn args are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_non_ident_patterns() {
+        let err = err_of("pub trait T { fn f((a, b): (u8, u8)); }");
+        assert!(err.contains("only ident fn args are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_non_future_impl_trait_return() {
+        let err = err_of("pub trait T { fn f() -> impl Send; }");
+        assert!(err.contains("only future types are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_async_with_impl_future() {
+        let err =
+            err_of("pub trait T { async fn f() -> impl std::future::Future<Output = u8>; }");
+        assert!(err.contains("async cannot be used with impl Future"), "{err}");
+    }
+
+    #[test]
+    fn rejects_reference_return() {
+        let err = err_of("pub trait T { fn f() -> &'static u8; }");
+        assert!(
+            err.contains("only path type or impl trait returns are supported"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_async_without_return() {
+        let err = err_of("pub trait T { async fn f(); }");
+        assert!(err.contains("async function must have a return value"), "{err}");
+    }
+
+    #[test]
+    fn rejects_drop_safe_with_reference_param() {
+        let err = err_of("pub trait T { #[drop_safe] async fn f(req: &u8) -> u8; }");
+        assert!(
+            err.contains("drop_safe function cannot have reference parameters"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_sync_shm_with_return() {
+        let err = err_of("pub trait T { #[mem] fn f() -> u8; }");
+        assert!(
+            err.contains("function based on shm must be async or without return value"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn parses_all_fn_attributes() {
+        let repr = parse(
+            "pub trait T {
+                #[mem] async fn mem_async(x: u8) -> u8;
+                #[shm] fn shm_oneway(x: u8);
+                #[cgo] fn cgo_alias(x: u8);
+                #[cgo_callback] fn cgo_cb(x: u8);
+                #[go_pass_struct] fn pass_struct(x: u8);
+                #[drop_safe] async fn ds(x: u8) -> u8;
+                #[drop_safe_ret] async fn dsr(x: u8) -> u8;
+                #[send] async fn send_ret(x: u8) -> u8;
+                async fn unsafe_async(x: u8) -> u8;
+                async fn ref_param(x: &u8) -> u8;
+            }",
+        )
+        .expect("trait should convert");
+        let fns = repr.fns();
+        let by = |name: &str| fns.iter().find(|f| f.name() == name).unwrap();
+
+        // Mem calls get sequential ids; async mem without drop_safe is
+        // unsafe like any other async fn; sync no-ret shm is unsafe too.
+        assert_eq!(by("mem_async").mem_call_id(), Some(0));
+        assert!(!by("mem_async").is_safe());
+        assert_eq!(by("shm_oneway").mem_call_id(), Some(1));
+        assert!(!by("shm_oneway").is_safe());
+        // Non-mem calls have no call id.
+        assert_eq!(by("cgo_cb").mem_call_id(), None);
+
+        // Both cgo attribute spellings mark the callback.
+        assert!(by("cgo_alias").cgo_callback());
+        assert!(by("cgo_cb").cgo_callback());
+        assert!(!by("mem_async").cgo_callback());
+
+        // go_pass_struct flips go_ptr off; others keep it on.
+        assert!(!by("pass_struct").go_ptr);
+        assert!(by("cgo_cb").go_ptr);
+
+        // drop_safe variants keep the fn safe; drop_safe_ret marks params
+        // return.
+        assert!(by("ds").is_safe());
+        assert!(!by("ds").drop_safe_ret_params());
+        assert!(by("dsr").is_safe());
+        assert!(by("dsr").drop_safe_ret_params());
+
+        // #[send] marks ret_send; a plain async fn without drop_safe is
+        // unsafe.
+        assert!(by("send_ret").ret_send());
+        assert!(by("send_ret").ret_static());
+        assert!(!by("unsafe_async").is_safe());
+        assert!(!by("unsafe_async").ret_send());
+
+        // A reference param flips ret_static off.
+        assert!(!by("ref_param").ret_static());
+    }
+}

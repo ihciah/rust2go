@@ -1,0 +1,16 @@
+# Codecov gate: the project coverage target is set at the level reached by
+# the task-4.5 test work (97.4% as of 2026-09-08). The remaining misses are
+# defensive/unreachable-by-design code: proc-macro entry points (executed
+# inside rustc, not instrumented by llvm-cov), impossible-state panic arms,
+# the unstuck handler's dead stop branch (see the refactor plan's known
+# issues), and a few race-window paths.
+coverage:
+  status:
+    project:
+      default:
+        target: 97%
+        threshold: 0.5%
+    # No patch gate: requiring new code to be fully covered would block
+    # legitimate additions of defensive paths; the project gate above is the
+    # actual ratchet.
+    patch: false

@@ -116,3 +116,84 @@ impl G2RFnRepr {
         self.cgo_call
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(src: &str) -> Result<G2RTraitRepr> {
+        let item: ItemTrait = syn::parse_str(src).expect("trait should parse");
+        G2RTraitRepr::try_from(&item)
+    }
+
+    fn err_of(src: &str) -> String {
+        // G2RTraitRepr does not implement Debug, so unwrap_err is unavailable.
+        parse(src).err().expect("should err").to_string()
+    }
+
+    #[test]
+    fn rejects_non_fn_items() {
+        let err = err_of("pub trait T { const X: u8; }");
+        assert!(err.contains("only fn items are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_receiver_args() {
+        let err = err_of("pub trait T { fn f(&self); }");
+        assert!(err.contains("only typed fn args are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_non_ident_patterns() {
+        let err = err_of("pub trait T { fn f((a, b): (u8, u8)); }");
+        assert!(err.contains("only ident fn args are supported"), "{err}");
+    }
+
+    #[test]
+    fn rejects_async_fns() {
+        let err = err_of("pub trait T { async fn f(); }");
+        assert!(err.contains("async is not supported yet"), "{err}");
+    }
+
+    #[test]
+    fn rejects_non_path_return() {
+        let err = err_of("pub trait T { fn f() -> impl Send; }");
+        assert!(
+            err.contains("only path type returns are supported"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn parses_attrs_and_param_counts() {
+        let repr = parse(
+            "pub trait T {
+                fn no_args_no_ret();
+                fn with_ret(x: u8) -> u8;
+                #[cgo] fn cgo_alias(x: u8);
+                #[cgo_call] fn cgo_call_alias();
+            }",
+        )
+        .expect("trait should convert");
+
+        assert!(repr.has_ret());
+        let fns = repr.fns();
+        let by = |name: &str| fns.iter().find(|f| f.name == name).unwrap();
+
+        assert_eq!(by("no_args_no_ret").ffi_param_cnt(), 0);
+        assert_eq!(by("with_ret").ffi_param_cnt(), 2);
+        assert_eq!(by("cgo_alias").ffi_param_cnt(), 1);
+        assert_eq!(by("cgo_call_alias").ffi_param_cnt(), 0);
+
+        // Both cgo attribute spellings mark the call.
+        assert!(by("cgo_alias").cgo_call());
+        assert!(by("cgo_call_alias").cgo_call());
+        assert!(!by("with_ret").cgo_call());
+    }
+
+    #[test]
+    fn no_ret_trait_has_no_ret() {
+        let repr = parse("pub trait T { fn f(); }").expect("trait should convert");
+        assert!(!repr.has_ret());
+    }
+}

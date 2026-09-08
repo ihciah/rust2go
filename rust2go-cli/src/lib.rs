@@ -44,3 +44,40 @@ impl From<Args> for GenArgs {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn args_convert_to_gen_args() {
+        let args = Args::parse_from([
+            "rust2go-cli",
+            "--src",
+            "in.rs",
+            "--dst",
+            "out.go",
+            "--package-name",
+            "custom",
+            "--without-main",
+            "--go118",
+            "--no-fmt",
+        ]);
+        let gen: GenArgs = args.into();
+        assert_eq!(gen.src, "in.rs");
+        assert_eq!(gen.dst, "out.go");
+        assert_eq!(gen.package_name, "custom");
+        assert!(gen.without_main);
+        assert!(gen.go118);
+        assert!(gen.no_fmt);
+    }
+
+    #[test]
+    fn args_defaults() {
+        let gen: GenArgs = Args::parse_from(["rust2go-cli", "-s", "in.rs", "-d", "out.go"]).into();
+        assert_eq!(gen.package_name, "main");
+        assert!(!gen.without_main);
+        assert!(!gen.go118);
+        assert!(!gen.no_fmt);
+    }
+}

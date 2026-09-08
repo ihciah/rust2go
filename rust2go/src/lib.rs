@@ -36,3 +36,15 @@ pub use rust2go_gen::GenArgs as RegenArgs;
 unsafe extern "C" fn c_rust2go_internal_drop(ptr: *mut ()) {
     drop(Box::from_raw(ptr as *mut dyn Any));
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn internal_drop_frees_boxed_any() {
+        // The generated Go bindings call this through the FFI to release a
+        // boxed Rust object; exercise it directly with a boxed value.
+        let boxed: Box<dyn std::any::Any> = Box::new(42u32);
+        let raw = Box::into_raw(boxed);
+        unsafe { super::c_rust2go_internal_drop(raw as *mut ()) };
+    }
+}

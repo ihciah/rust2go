@@ -995,8 +995,12 @@ mod tests {
         }
 
         async fn working_handler_stops_after_guard_drop() {
-            let (q_read, meta) = Queue::<u8>::new(4).unwrap();
-            let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+            // The WRITE side must own the shared memory here: when the
+            // handler exits it drops the read queue, and if that queue were
+            // the memory owner the shared buffer would be freed while the
+            // write queue still points at it (use-after-free).
+            let (q_write, meta) = Queue::<u8>::new(4).unwrap();
+            let q_read = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
             let q_read = q_read.read();
             let q_write = q_write.write().unwrap();
 

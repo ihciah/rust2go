@@ -56,52 +56,52 @@
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
+    MOVQ    fn+0(FP), AX
     G0ASMCALL
 
 TEXT ·CallFuncG0P1(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
     G0ASMCALL
 
 TEXT ·CallFuncG0P2(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
-    MOVQ    arg1+0x10(FP), RARG1
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
+    MOVQ    arg1+16(FP), RARG1
     G0ASMCALL
 
 TEXT ·CallFuncG0P3(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
-    MOVQ    arg1+0x10(FP), RARG1
-    MOVQ    arg2+0x18(FP), RARG2
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
+    MOVQ    arg1+16(FP), RARG1
+    MOVQ    arg2+24(FP), RARG2
     G0ASMCALL
 
 TEXT ·CallFuncP0(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
+    MOVQ    fn+0(FP), AX
     ASMCALL
 
 TEXT ·CallFuncP1(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
     ASMCALL
 
 TEXT ·CallFuncP2(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
-    MOVQ    arg1+0x10(FP), RARG1
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
+    MOVQ    arg1+16(FP), RARG1
     ASMCALL
 
 TEXT ·CallFuncP3(SB), NOSPLIT|NOPTR|NOFRAME, $0
     // save SP and read parameters
-    MOVQ    fn+0x0(FP), AX
-    MOVQ    arg0+0x8(FP), RARG0
-    MOVQ    arg1+0x10(FP), RARG1
-    MOVQ    arg2+0x18(FP), RARG2
+    MOVQ    fn+0(FP), AX
+    MOVQ    arg0+8(FP), RARG0
+    MOVQ    arg1+16(FP), RARG1
+    MOVQ    arg2+24(FP), RARG2
     ASMCALL

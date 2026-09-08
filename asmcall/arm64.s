@@ -35,45 +35,45 @@
     RET
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
+    MOVD    fn+0(FP), R8
     G0ASMCALL
 
 TEXT ·CallFuncG0P1(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
     G0ASMCALL
 
 TEXT ·CallFuncG0P2(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
-    MOVD    arg1+0x10(FP), R1
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
+    MOVD    arg1+16(FP), R1
     G0ASMCALL
 
 TEXT ·CallFuncG0P3(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
-    MOVD    arg1+0x10(FP), R1
-    MOVD    arg2+0x18(FP), R2
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
+    MOVD    arg1+16(FP), R1
+    MOVD    arg2+24(FP), R2
     G0ASMCALL
 
 TEXT ·CallFuncP0(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
+    MOVD    fn+0(FP), R8
     ASMCALL
 
 TEXT ·CallFuncP1(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
     ASMCALL
 
 TEXT ·CallFuncP2(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
-    MOVD    arg1+0x10(FP), R1
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
+    MOVD    arg1+16(FP), R1
     ASMCALL
 
 TEXT ·CallFuncP3(SB), NOSPLIT|NOPTR|NOFRAME, $0
-    MOVD    fn+0x0(FP), R8
-    MOVD    arg0+0x8(FP), R0
-    MOVD    arg1+0x10(FP), R1
-    MOVD    arg2+0x18(FP), R2
+    MOVD    fn+0(FP), R8
+    MOVD    arg0+8(FP), R0
+    MOVD    arg1+16(FP), R1
+    MOVD    arg2+24(FP), R2
     ASMCALL

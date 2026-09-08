@@ -1,6 +1,8 @@
 // Copyright 2024 ihciah. All Rights Reserved.
 
-//go:build unix
+// The unix GOOS set is spelled out instead of the `unix` build
+// constraint, which Go only recognizes since 1.19 (go.mod declares 1.18).
+//go:build aix || android || darwin || dragonfly || freebsd || hurd || illumos || ios || linux || netbsd || openbsd || solaris
 
 package mem_ring
 

@@ -4,7 +4,7 @@ A ring based on shared memory bridging rust and go. It support both tokio and mo
 
 With 2 rings, users can simulate calls between rust and go(Both sides can start calls).
 
-The Go package (`mem-ring`) is unix-only (`//go:build unix`): it relies on `x/sys/unix` and socketpair fds, and does not compile on Windows.
+The Go package (`mem-ring`) is unix-only: it relies on `x/sys/unix` and socketpair fds, and does not compile on Windows. The unix GOOS set is spelled out in the build constraints (`aix || android || darwin || ...`) instead of the `unix` tag, which Go only recognizes since 1.19 — the package builds with the Go 1.18 minimum toolchain declared in the root `go.mod`.
 
 ## How it Works
 TODO

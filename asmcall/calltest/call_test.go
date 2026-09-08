@@ -6,6 +6,12 @@
 
 package calltest
 
+// NOTE: these tests are Linux-only on purpose. On darwin/arm64 the non-G0
+// trampoline variants (plain CALL on the goroutine stack) were observed to
+// hang in CI (macos-latest, Go 1.27), while the G0 variants pass. Until that
+// is root-caused, the macOS CI leg only compiles this package (calltest.go
+// stays darwin-enabled) without executing the trampoline.
+
 import (
 	"testing"
 	"unsafe"

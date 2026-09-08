@@ -951,6 +951,43 @@ mod tests {
 
             tx.closed().await;
         }
+        async fn write_queue_meta_after_write() {
+            let (q_read, meta) = Queue::<u32>::new(4).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let _q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            // write() transferred both fds to the internal notifier/awaiter,
+            // so the reported meta has -1 fds but valid memory fields.
+            let wmeta = q_write.meta();
+            assert_eq!(wmeta.buffer_len, 4);
+            assert_eq!(wmeta.buffer_ptr, meta.buffer_ptr);
+            assert_eq!(wmeta.working_fd, -1);
+            assert_eq!(wmeta.unstuck_fd, -1);
+        }
+    }
+
+    #[cfg(all(feature = "tokio", not(feature = "monoio")))]
+    #[tokio::test]
+    async fn tokio_handle_variants() {
+        let handle = tokio::runtime::Handle::current();
+        let (mut tx, mut rx) = channel::<()>();
+
+        let (q_read, meta) = Queue::<u8>::new(4).unwrap();
+        let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+        let q_read = q_read.read_with_tokio_handle(handle.clone());
+        let q_write = q_write.write_with_tokio_handle(&handle).unwrap();
+
+        let _guard = q_read
+            .run_handler(move |item| {
+                if item == 7 {
+                    rx.close();
+                }
+            })
+            .unwrap();
+
+        q_write.push(7);
+        tx.closed().await;
     }
 
     #[test]

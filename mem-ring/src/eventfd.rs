@@ -173,4 +173,37 @@ mod tests {
 
         unsafe { libc::close(peer) };
     }
+
+    #[test]
+    fn notify_after_peer_close_errors() {
+        let (notifier, peer) = Notifier::new().unwrap();
+        unsafe { libc::close(peer) };
+        // Writing to a socketpair whose peer is closed fails with EPIPE
+        // (libstd ignores SIGPIPE on startup, so this is an error return,
+        // not a signal).
+        assert!(notifier.notify().is_err());
+    }
+
+    macro_rules! runtime_test {
+        ($($i: item)*) => {$(
+            #[cfg(feature = "monoio")]
+            #[monoio::test]
+            $i
+
+            #[cfg(all(feature = "tokio", not(feature = "monoio")))]
+            #[tokio::test]
+            $i
+        )*};
+    }
+
+    runtime_test! {
+        async fn awaiter_new_and_wait() {
+            let (mut awaiter, peer) = Awaiter::new().unwrap();
+            assert!(awaiter.as_raw_fd() >= 0);
+            // Wake the awaiter by writing to the peer end.
+            unsafe { libc::write(peer, &0u8 as *const u8 as *const libc::c_void, 1) };
+            awaiter.wait().await;
+            unsafe { libc::close(peer) };
+        }
+    }
 }

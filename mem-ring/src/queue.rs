@@ -965,6 +965,81 @@ mod tests {
             assert_eq!(wmeta.working_fd, -1);
             assert_eq!(wmeta.unstuck_fd, -1);
         }
+
+        async fn unstuck_flush_keeps_remaining_pending() {
+            let (q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            // One slot, three items: two go into pending tasks.
+            assert!(q_write.push(1));
+            assert!(!q_write.push(2));
+            assert!(!q_write.push(3));
+
+            // Each pop wakes the unstuck handler, which flushes exactly one
+            // pending item; the other stays pending (queue still full).
+            assert_eq!(q_read.pop(), Some(1));
+            let mut got = Vec::new();
+            for _ in 0..100 {
+                if let Some(v) = q_read.pop() {
+                    got.push(v);
+                    if got.len() == 2 {
+                        break;
+                    }
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+            assert_eq!(got, vec![2, 3]);
+            assert!(q_read.pop().is_none());
+        }
+
+        async fn working_handler_stops_after_guard_drop() {
+            let (q_read, meta) = Queue::<u8>::new(4).unwrap();
+            let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+            let q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            let guard = q_read.run_handler(|_| {}).unwrap();
+            assert!(q_write.push(1));
+            sleep(Duration::from_millis(100)).await;
+            assert!(q_write.is_empty());
+
+            // Dropping the guard closes the stop channel; the handler leaves
+            // its wait and returns, so later pushes are no longer consumed.
+            drop(guard);
+            sleep(Duration::from_millis(100)).await;
+            assert!(q_write.push(2));
+            sleep(Duration::from_millis(100)).await;
+            assert!(!q_write.is_empty());
+        }
+
+        async fn working_handler_repolls_during_yield() {
+            let (mut tx, mut rx) = channel::<()>();
+
+            let (q_read, meta) = Queue::<u8>::new(8).unwrap();
+            let q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+            let q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            let _guard = q_read
+                .run_handler(move |item| {
+                    if item == 3 {
+                        rx.close();
+                    }
+                })
+                .unwrap();
+
+            assert!(q_write.push(1));
+            // Stress the drain/yield/re-notify cycle: pushes arrive while the
+            // handler may be in its yield loop, so both the immediate-drain
+            // and the re-notify paths get exercised.
+            sleep(Duration::from_millis(20)).await;
+            assert!(q_write.push(2));
+            sleep(Duration::from_millis(20)).await;
+            assert!(q_write.push(3));
+            tx.closed().await;
+        }
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]

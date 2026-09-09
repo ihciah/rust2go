@@ -29,7 +29,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs four jobs on every
 ### coverage
 
 - `cargo llvm-cov` over the workspace (same feature-matrix exclusions as build-and-test), Go coverage from `test/go`, uploaded to Codecov. The Go toolchain comes from the same `GO_VERSION` (`stable`) as the go job.
-- **Coverage gate**: `codecov.yml` sets a project status check with `target: 97%` and `threshold: 0.5%` — a ratchet at the level reached by the task-4.5 test work. The remaining ~2.6% of misses are defensive or unreachable-by-design code (proc-macro entry points are executed inside rustc and not instrumented, impossible-state panic arms, the mem-ring unstuck handler's dead stop branch — see the known-issues list in `target/REFACTOR_PLAN.md` — and a few race-window paths). There is deliberately no patch-level gate so that adding defensive code is never blocked.
+- **Coverage gate**: `codecov.yml` sets a project status check with `target: 97%` and `threshold: 0.5%` — a ratchet at the level reached on 2026-09-08. The remaining ~2.6% of misses are defensive or unreachable-by-design code (proc-macro entry points are executed inside rustc and not instrumented, impossible-state panic arms, and a few race-window paths). There is deliberately no patch-level gate so that adding defensive code is never blocked.
 
 ### lint
 

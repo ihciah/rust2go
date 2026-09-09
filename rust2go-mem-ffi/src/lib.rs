@@ -127,6 +127,17 @@ pub unsafe fn init_mem_ffi<const N: usize>(
             }
         })
         .expect("unable to run ffi handler");
+    // Intentionally leaked: init_mem_ffi runs once per thread and the
+    // read-side handler must stay alive for the whole process lifetime, so
+    // its stop-signal guard is never dropped.
+    //
+    // Note the handler closure above also holds a clone of the write queue
+    // (`wq`) to push drop-ack payloads. That clone lives as long as the
+    // handler — i.e. forever — so on this FFI path the write queue's
+    // stop-signal receiver is never released either and the write-side
+    // unstuck handler does not exit on drop. This is by design for the FFI
+    // use case; the write-queue stop mechanism only takes effect when all
+    // WriteQueue clones are actually dropped.
     Box::leak(Box::new(guard));
     (write_queue, shared_slab)
 }

@@ -39,3 +39,9 @@ mem-ring = { version = "0.1" }
 
 `Notifier.Notify`, `Awaiter.Wait` and `NewAwaiter` report errors to make this possible: a closed or broken fd surfaces as an error rather than a silent busy loop.
 
+## Stopping background tasks (Rust side)
+
+`ReadQueue::run_handler` returns a `Guard`; dropping it stops the read-side handler task. On the write side, `Queue::write` spawns an unstuck handler that flushes pending items; it stops once the **last** `WriteQueue` clone is dropped (all clones share one stop signal), after which pending items are no longer flushed.
+
+One exception: `rust2go-mem-ffi`'s `init_mem_ffi` intentionally keeps both handlers alive forever — it runs once per thread and leaks the read-side guard, and its handler closure holds a `WriteQueue` clone for drop-ack payloads, so the write-side handler never observes the stop signal on that path.
+

@@ -34,6 +34,25 @@ use crate::{
     util::yield_now,
 };
 
+#[cfg(not(all(feature = "monoio", feature = "tpc")))]
+type SharedInner<T> = Arc<Mutex<WriteQueueInner<T>>>;
+#[cfg(all(feature = "monoio", feature = "tpc"))]
+type SharedInner<T> = Rc<UnsafeCell<WriteQueueInner<T>>>;
+
+#[cfg(not(all(feature = "monoio", feature = "tpc")))]
+type SharedNotifier = Arc<Notifier>;
+#[cfg(all(feature = "monoio", feature = "tpc"))]
+type SharedNotifier = Rc<Notifier>;
+
+// The stop-signal receiver is shared by all user-side WriteQueue clones so
+// that dropping the last clone releases it. The unstuck handler task must
+// NOT hold a reference: `Receiver` is not `Clone`, so it is wrapped in
+// Arc/Rc instead.
+#[cfg(not(all(feature = "monoio", feature = "tpc")))]
+type SharedGuard = Arc<Receiver<()>>;
+#[cfg(all(feature = "monoio", feature = "tpc"))]
+type SharedGuard = Rc<Receiver<()>>;
+
 pub struct Guard {
     _rx: Receiver<()>,
 }
@@ -179,14 +198,15 @@ impl<T> ReadQueue<T> {
 }
 
 pub struct WriteQueue<T> {
-    #[cfg(not(all(feature = "monoio", feature = "tpc")))]
-    inner: Arc<Mutex<WriteQueueInner<T>>>,
-    #[cfg(all(feature = "monoio", feature = "tpc"))]
-    inner: Rc<UnsafeCell<WriteQueueInner<T>>>,
-    #[cfg(not(all(feature = "monoio", feature = "tpc")))]
-    working_notifier: Arc<Notifier>,
-    #[cfg(all(feature = "monoio", feature = "tpc"))]
-    working_notifier: Rc<Notifier>,
+    inner: SharedInner<T>,
+    working_notifier: SharedNotifier,
+    // Stop-signal receiver for the unstuck handler, shared by all clones of
+    // this handle. The handler task itself does not hold it, so dropping the
+    // last WriteQueue clone releases the receiver and the handler observes
+    // the closed channel and exits. (Keeping the receiver inside the shared
+    // inner state — which the handler holds alive — would make the stop
+    // branch unreachable and leak the handler task.)
+    guard: SharedGuard,
 }
 
 impl<T> Clone for WriteQueue<T> {
@@ -194,6 +214,7 @@ impl<T> Clone for WriteQueue<T> {
         Self {
             inner: self.inner.clone(),
             working_notifier: self.working_notifier.clone(),
+            guard: self.guard.clone(),
         }
     }
 }
@@ -313,14 +334,22 @@ impl<T> WriteQueue<T> {
         PushResult::Pending(PushJoinHandle { waker_slot })
     }
 
-    async fn unstuck_handler(self, mut unstuck_awaiter: Awaiter, mut tx: Sender<()>) {
+    // The handler takes the shared state explicitly instead of a WriteQueue
+    // clone so that it never holds the stop-signal receiver (see the
+    // `guard` field).
+    async fn unstuck_handler(
+        inner: SharedInner<T>,
+        working_notifier: SharedNotifier,
+        mut unstuck_awaiter: Awaiter,
+        mut tx: Sender<()>,
+    ) {
         let mut exit = std::pin::pin!(tx.closed());
         loop {
             {
                 #[cfg(not(all(feature = "monoio", feature = "tpc")))]
-                let mut inner = self.inner.lock();
+                let mut inner = inner.lock();
                 #[cfg(all(feature = "monoio", feature = "tpc"))]
-                let inner = unsafe { &mut *self.inner.get() };
+                let inner = unsafe { &mut *inner.get() };
 
                 while let Some(mut pending_task) = inner.pending_tasks.pop_front() {
                     let data = pending_task.data.take().unwrap();
@@ -344,7 +373,7 @@ impl<T> WriteQueue<T> {
                 }
                 if !inner.queue.working() {
                     inner.queue.mark_working();
-                    let _ = self.working_notifier.notify();
+                    let _ = working_notifier.notify();
                 }
                 if !inner.pending_tasks.is_empty() {
                     inner.queue.mark_stuck();
@@ -367,7 +396,6 @@ impl<T> WriteQueue<T> {
 pub struct WriteQueueInner<T> {
     queue: Queue<T>,
     pending_tasks: VecDeque<PendingTask<T>>,
-    _guard: Receiver<()>,
 }
 
 impl<T> WriteQueue<T> {
@@ -464,6 +492,22 @@ unsafe impl<T: Sync> Sync for Queue<T> {}
 
 impl<T> Queue<T> {
     pub fn new(size: usize) -> Result<(Self, QueueMeta), io::Error> {
+        // Create both fd pairs before leaking any memory, so a failure here
+        // leaks nothing. If the second pair fails, close the first one.
+        let (working_fd, working_fd_peer) = new_pair()?;
+        let (unstuck_fd, unstuck_fd_peer) = match new_pair() {
+            Ok(pair) => pair,
+            Err(e) => {
+                unsafe {
+                    libc::close(working_fd);
+                    libc::close(working_fd_peer);
+                }
+                return Err(e);
+            }
+        };
+
+        // From here on nothing can fail: allocation failures abort, so the
+        // leaked memory is always reclaimed by `Drop` once it exists.
         let buffer = unsafe {
             let mut v = Vec::<MaybeUninit<T>>::with_capacity(size);
             v.set_len(size);
@@ -475,9 +519,6 @@ impl<T> Queue<T> {
         let tail_ptr = Box::leak(Box::new(AtomicU64::new(0)));
         let working_ptr = Box::leak(Box::new(AtomicU32::new(0)));
         let stuck_ptr = Box::leak(Box::new(AtomicU32::new(0)));
-
-        let (working_fd, working_fd_peer) = new_pair()?;
-        let (unstuck_fd, unstuck_fd_peer) = new_pair()?;
 
         let queue = Self {
             buffer_ptr: buffer_slice.as_mut_ptr(),
@@ -592,26 +633,36 @@ impl<T> Queue<T> {
         let unstuck_awaiter = unsafe { Awaiter::from_raw_fd(unstuck_fd)? };
 
         let (tx, rx) = channel();
+        #[cfg(feature = "tpc")]
+        let inner = Rc::new(UnsafeCell::new(WriteQueueInner {
+            queue: self,
+            pending_tasks: VecDeque::new(),
+        }));
+        #[cfg(not(feature = "tpc"))]
+        let inner = Arc::new(Mutex::new(WriteQueueInner {
+            queue: self,
+            pending_tasks: VecDeque::new(),
+        }));
+        #[cfg(feature = "tpc")]
+        let working_notifier = Rc::new(working_notifier);
+        #[cfg(not(feature = "tpc"))]
+        let working_notifier = Arc::new(working_notifier);
+        #[cfg(feature = "tpc")]
+        let guard = Rc::new(rx);
+        #[cfg(not(feature = "tpc"))]
+        let guard = Arc::new(rx);
         let wq = WriteQueue {
-            #[cfg(feature = "tpc")]
-            inner: Rc::new(UnsafeCell::new(WriteQueueInner {
-                queue: self,
-                pending_tasks: VecDeque::new(),
-                _guard: rx,
-            })),
-            #[cfg(not(feature = "tpc"))]
-            inner: Arc::new(Mutex::new(WriteQueueInner {
-                queue: self,
-                pending_tasks: VecDeque::new(),
-                _guard: rx,
-            })),
-            #[cfg(feature = "tpc")]
-            working_notifier: Rc::new(working_notifier),
-            #[cfg(not(feature = "tpc"))]
-            working_notifier: Arc::new(working_notifier),
+            inner,
+            working_notifier,
+            guard,
         };
 
-        spawn(wq.clone().unstuck_handler(unstuck_awaiter, tx));
+        spawn(WriteQueue::unstuck_handler(
+            wq.inner.clone(),
+            wq.working_notifier.clone(),
+            unstuck_awaiter,
+            tx,
+        ));
 
         Ok(wq)
     }
@@ -633,12 +684,17 @@ impl<T> Queue<T> {
             inner: Arc::new(Mutex::new(WriteQueueInner {
                 queue: self,
                 pending_tasks: VecDeque::new(),
-                _guard: rx,
             })),
             working_notifier: Arc::new(working_notifier),
+            guard: Arc::new(rx),
         };
 
-        spawn(wq.clone().unstuck_handler(unstuck_awaiter, tx));
+        spawn(WriteQueue::unstuck_handler(
+            wq.inner.clone(),
+            wq.working_notifier.clone(),
+            unstuck_awaiter,
+            tx,
+        ));
 
         Ok(wq)
     }
@@ -663,12 +719,17 @@ impl<T> Queue<T> {
             inner: Arc::new(Mutex::new(WriteQueueInner {
                 queue: self,
                 pending_tasks: VecDeque::new(),
-                _guard: rx,
             })),
             working_notifier: Arc::new(working_notifier),
+            guard: Arc::new(rx),
         };
 
-        tokio_handle.spawn(wq.clone().unstuck_handler(unstuck_awaiter, tx));
+        tokio_handle.spawn(WriteQueue::unstuck_handler(
+            wq.inner.clone(),
+            wq.working_notifier.clone(),
+            unstuck_awaiter,
+            tx,
+        ));
 
         Ok(wq)
     }
@@ -991,6 +1052,50 @@ mod tests {
                 sleep(Duration::from_millis(20)).await;
             }
             assert_eq!(got, vec![2, 3]);
+            assert!(q_read.pop().is_none());
+        }
+
+        async fn unstuck_handler_stops_after_write_queue_drop() {
+            // The READ side owns the shared memory here: dropping the last
+            // WriteQueue clone stops the unstuck handler, which drops the
+            // write-side queue; if that queue owned the memory, the buffer
+            // would be freed while the read queue still points at it
+            // (use-after-free).
+            let (q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            // One slot, two items: the second goes into pending tasks.
+            assert!(q_write.push(1));
+            assert!(!q_write.push(2));
+            // This pop notifies the unstuck handler, which flushes the
+            // pending item while the write queue is still alive.
+            assert_eq!(q_read.pop(), Some(1));
+            let mut got = None;
+            for _ in 0..50 {
+                if let Some(v) = q_read.pop() {
+                    got = Some(v);
+                    break;
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+            assert_eq!(got, Some(2));
+
+            // Re-fill: one item in the queue, one pending. No pop follows,
+            // so the handler stays parked in its wait until it is stopped.
+            assert!(q_write.push(3));
+            assert!(!q_write.push(4));
+
+            // Dropping the last WriteQueue clone releases the stop-signal
+            // receiver; the handler observes the closed channel and exits.
+            drop(q_write);
+            sleep(Duration::from_millis(100)).await;
+
+            // The notify from this pop reaches no one: the remaining pending
+            // item must never be flushed.
+            assert_eq!(q_read.pop(), Some(3));
+            sleep(Duration::from_millis(100)).await;
             assert!(q_read.pop().is_none());
         }
 

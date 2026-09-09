@@ -1,5 +1,5 @@
-//go:build (linux || darwin) && (amd64 || arm64)
-// +build linux darwin
+//go:build (linux || darwin || windows) && (amd64 || arm64)
+// +build linux darwin windows
 // +build amd64 arm64
 
 // Copyright 2024 ihciah. All Rights Reserved.

@@ -1,12 +1,12 @@
-//go:build (linux || darwin) && (amd64 || arm64)
-// +build linux darwin
+//go:build (linux || darwin || windows) && (amd64 || arm64)
+// +build linux darwin windows
 // +build amd64 arm64
 
 // Copyright 2024 ihciah. All Rights Reserved.
 
 package calltest
 
-// NOTE: these tests run on both linux and darwin. The darwin/arm64 hang of
+// NOTE: these tests run on linux, darwin and windows. The darwin/arm64 hang of
 // the non-G0 trampoline variants observed in CI (macos-latest, Go 1.27) was
 // root-caused to the arm64 ASMCALL macro not saving LR (x30): BLR overwrites
 // x30 with the trampoline's own return address, so its RET jumped to itself

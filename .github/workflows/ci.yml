@@ -125,6 +125,12 @@ jobs:
           - os: macos-latest
             go-version: "stable"
             gates: true
+          # windows-latest (amd64): asmcall-only leg. amd64.s has a Win64
+          # calling-convention path (args in CX/DX/R8, selected via
+          # GOOS_windows) that no other leg exercises. mem-ring is unix-only
+          # and test/go depends on it, so only ./asmcall/... runs here.
+          - os: windows-latest
+            go-version: "stable"
     steps:
       - uses: actions/checkout@v7
       - name: Setup Go
@@ -157,9 +163,15 @@ jobs:
       # mem-ring package it imports), which is what makes the 1.18 leg a
       # real compatibility check.
       - name: go test
+        if: matrix.os != 'windows-latest'
         run: |
           go test ./asmcall/... ./mem-ring/...
           (cd test/go && go test ./...)
+      # mem-ring is unix-only and test/go depends on it, so the windows leg
+      # covers asmcall (asm trampolines + cgo calltest) only.
+      - name: go test (windows)
+        if: matrix.os == 'windows-latest'
+        run: go test ./asmcall/...
 
   coverage:
     name: coverage

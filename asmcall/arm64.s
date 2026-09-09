@@ -31,7 +31,15 @@
     RET
 
 #define ASMCALL                                           \
+    /* save SP and LR; align SP to 16 bytes */            \
+    MOVD    RSP, R4                                       \
+    AND     $~15, R4, R5                                  \
+    SUB     $0x20, R5                                     \
+    MOVD    R5, RSP                                       \
+    STP     (R4, R30), (RSP)                              \
     CALL    R8                                            \
+    LDP     (RSP), (R4, R30)                              \
+    MOVD    R4, RSP                                       \
     RET
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0

@@ -114,10 +114,14 @@ jobs:
             gates: true
           - os: ubuntu-latest
             go-version: "1.18"
-          # macos-latest is arm64: compiles and vets the arm64 assembly path
-          # of asmcall (via the darwin-enabled calltest package), which the
-          # ubuntu legs never build. The trampoline tests stay linux-only:
-          # the non-G0 variants hang on darwin/arm64 (see call_test.go).
+          # linux/arm64 leg: the amd64 and arm64 trampolines differ in how
+          # return addresses are handled (stack vs LR), so the asmcall tests
+          # need real coverage on both ISAs, not just amd64.
+          - os: ubuntu-24.04-arm
+            go-version: "stable"
+          # macos-latest is arm64: exercises the arm64 assembly path of
+          # asmcall (trampoline tests included), which the amd64 ubuntu legs
+          # never build.
           - os: macos-latest
             go-version: "stable"
             gates: true

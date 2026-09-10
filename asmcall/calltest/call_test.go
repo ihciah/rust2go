@@ -1,16 +1,17 @@
-//go:build linux && (amd64 || arm64)
-// +build linux
+//go:build (linux || darwin || windows) && (amd64 || arm64)
+// +build linux darwin windows
 // +build amd64 arm64
 
 // Copyright 2024 ihciah. All Rights Reserved.
 
 package calltest
 
-// NOTE: these tests are Linux-only on purpose. On darwin/arm64 the non-G0
-// trampoline variants (plain CALL on the goroutine stack) were observed to
-// hang in CI (macos-latest, Go 1.27), while the G0 variants pass. Until that
-// is root-caused, the macOS CI leg only compiles this package (calltest.go
-// stays darwin-enabled) without executing the trampoline.
+// NOTE: these tests run on linux, darwin and windows. The darwin/arm64 hang of
+// the non-G0 trampoline variants observed in CI (macos-latest, Go 1.27) was
+// root-caused to the arm64 ASMCALL macro not saving LR (x30): BLR overwrites
+// x30 with the trampoline's own return address, so its RET jumped to itself
+// and spun. arm64.s now saves/restores x30 (and aligns SP) around the call,
+// and the tests exercise both ISAs on both OSes.
 
 import (
 	"testing"

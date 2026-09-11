@@ -2,7 +2,23 @@ mod user;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use super::user::*;
+
+    struct AtomicCounter {
+        count: AtomicU64,
+    }
+
+    impl G2RCounter for AtomicCounter {
+        fn incr(&self, by: u64) -> u64 {
+            self.count.fetch_add(by, Ordering::SeqCst) + by
+        }
+
+        fn current(&self) -> u64 {
+            self.count.load(Ordering::SeqCst)
+        }
+    }
 
     #[test]
     fn echo() {
@@ -389,5 +405,15 @@ mod tests {
         };
         let res = TestCallImpl::optional_test(req);
         assert_eq!(res.optional, Some("yes".to_string()));
+    }
+
+    #[test]
+    fn g2r_counter_register_once() {
+        let counter = AtomicCounter { count: AtomicU64::new(0) };
+        G2RCounterImpl::register(counter).expect("first register must succeed");
+
+        // The global OnceLock is consumed by the first registration.
+        let another = AtomicCounter { count: AtomicU64::new(0) };
+        assert!(G2RCounterImpl::register(another).is_err());
     }
 }

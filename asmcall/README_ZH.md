@@ -49,7 +49,7 @@ ok      github.com/ihciah/rust2go/asmcall/bench 4.055s
 
 但这并不代表 CGO 的实现一定很糟糕，我认为这是做了一些权衡的结果。对于较简单的 C/Rust 函数，使用 ASM 很合适；而如果是耗时较长的外部函数，使用这种方式会导致 Go 无法异步抢占，线程上的 goroutines 调度延迟增大，影响整个系统的延迟。
 
-如需测量在其他环境下的性能表现，可以使用 `go test -bench .` 运行本 package 附带的 benchmark 代码。
+如需测量在其他环境下的性能表现，可以在 `/asmcall/bench` 目录下使用 `go test -bench .` 运行本 package 附带的 benchmark 代码。
 
 ## 独立使用方式
 

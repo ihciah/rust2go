@@ -75,6 +75,13 @@ jobs:
         run: |
           cargo test -p mem-ring --all-targets
           cargo test -p mem-ring --no-default-features --features tokio --all-targets
+      # The documented "monoio without tpc" configuration (multi-thread
+      # producers sharing one queue, see mem-ring/Cargo.toml) is never
+      # compiled by any of the runs above: the workspace build unifies
+      # mem-ring's default features, which always include tpc. Compile it
+      # standalone so the supported combination cannot silently break.
+      - name: Build mem-ring (monoio, no tpc)
+        run: cargo check -p mem-ring --no-default-features --features monoio --all-targets
       # Building the workspace above regenerates the committed Go bindings
       # (test/go/gen.go, examples/example-bidirectional/go/gen.go) via
       # build.rs scripts; fail if the committed copies have drifted from

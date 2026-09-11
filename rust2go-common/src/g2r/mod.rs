@@ -22,6 +22,7 @@ use crate::common::{Param, ParamType};
 pub struct G2RTraitRepr {
     name: Ident,
     fns: Vec<G2RFnRepr>,
+    stateful: bool,
 }
 
 pub struct G2RFnRepr {
@@ -37,6 +38,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
     fn try_from(item_trait: &ItemTrait) -> Result<Self> {
         let trait_name = item_trait.ident.clone();
         let mut fns = Vec::new();
+        let mut receiver_cnt = 0usize;
 
         for item in item_trait.items.iter() {
             let TraitItem::Fn(fn_item) = item else {
@@ -44,21 +46,33 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             };
             let fn_name = fn_item.sig.ident.clone();
             let mut params = Vec::new();
+            let mut has_receiver = false;
             for param in fn_item.sig.inputs.iter() {
-                let FnArg::Typed(param) = param else {
-                    sbail!("only typed fn args are supported")
-                };
-                // param name
-                let Pat::Ident(param_name) = param.pat.as_ref() else {
-                    sbail!("only ident fn args are supported");
-                };
-                // param type
-                let param_type = ParamType::try_from(param.ty.as_ref())?;
-                params.push(Param {
-                    name: param_name.ident.clone(),
-                    ty: param_type,
-                });
+                match param {
+                    FnArg::Typed(param) => {
+                        // param name
+                        let Pat::Ident(param_name) = param.pat.as_ref() else {
+                            sbail!("only ident fn args are supported");
+                        };
+                        // param type
+                        let param_type = ParamType::try_from(param.ty.as_ref())?;
+                        params.push(Param {
+                            name: param_name.ident.clone(),
+                            ty: param_type,
+                        });
+                    }
+                    FnArg::Receiver(recv) => {
+                        if recv.reference.is_none()
+                            || recv.mutability.is_some()
+                            || recv.colon_token.is_some()
+                        {
+                            sbail!("only `&self` receivers are supported");
+                        }
+                        has_receiver = true;
+                    }
+                }
             }
+            receiver_cnt += usize::from(has_receiver);
             if fn_item.sig.asyncness.is_some() {
                 sbail!("async is not supported yet when go call rust, manually spawn by your own!");
             }
@@ -87,9 +101,16 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             });
         }
 
+        let stateful = match receiver_cnt {
+            0 => false,
+            n if n == fns.len() => true,
+            _ => sbail!("either all methods take `&self` or none do"),
+        };
+
         Ok(G2RTraitRepr {
             name: trait_name,
             fns,
+            stateful,
         })
     }
 }
@@ -138,9 +159,34 @@ mod tests {
     }
 
     #[test]
-    fn rejects_receiver_args() {
-        let err = err_of("pub trait T { fn f(&self); }");
-        assert!(err.contains("only typed fn args are supported"), "{err}");
+    fn accepts_shared_ref_receiver() {
+        let repr = parse("pub trait T { fn f(&self, x: u8) -> u8; }").expect("should convert");
+        assert!(repr.stateful);
+    }
+
+    #[test]
+    fn rejects_mut_and_value_receivers() {
+        for src in [
+            "pub trait T { fn f(&mut self); }",
+            "pub trait T { fn f(self); }",
+            "pub trait T { fn f(mut self); }",
+            "pub trait T { fn f(self: Box<Self>); }",
+        ] {
+            let err = err_of(src);
+            assert!(
+                err.contains("only `&self` receivers are supported"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_mixed_receivers() {
+        let err = err_of("pub trait T { fn f(&self); fn g(); }");
+        assert!(
+            err.contains("either all methods take `&self` or none do"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -195,5 +241,6 @@ mod tests {
     fn no_ret_trait_has_no_ret() {
         let repr = parse("pub trait T { fn f(); }").expect("trait should convert");
         assert!(!repr.has_ret());
+        assert!(!repr.stateful);
     }
 }

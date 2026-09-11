@@ -409,11 +409,16 @@ mod tests {
 
     #[test]
     fn g2r_counter_register_once() {
-        let counter = AtomicCounter { count: AtomicU64::new(0) };
-        G2RCounterImpl::register(counter).expect("first register must succeed");
+        let counter = AtomicCounter {
+            count: AtomicU64::new(0),
+        };
+        G2RCounterImpl::register(counter)
+            .unwrap_or_else(|_| panic!("first register must succeed"));
 
         // The global OnceLock is consumed by the first registration.
-        let another = AtomicCounter { count: AtomicU64::new(0) };
+        let another = AtomicCounter {
+            count: AtomicU64::new(0),
+        };
         assert!(G2RCounterImpl::register(another).is_err());
     }
 }

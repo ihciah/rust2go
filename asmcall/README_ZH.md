@@ -6,7 +6,7 @@
 
 为了避免大量检查、调度和GC同步开销，使用 ASM 替代 CGO 执行外部函数可以达到更高的效率。
 
-本 package 提供了 4 个函数（分别对应 0～3 个参数），对于 AMD64 和 ARM64 平台，手写了汇编来执行 Go 栈切换和 ABI 转换；对于其他平台会 fallback 到 CGO 实现。
+本 package 提供了两组函数：`CallFuncG0Px`（带 g0 栈切换）和 `CallFuncPx`（原地调用），分别对应 0～3 个参数。对于 AMD64 和 ARM64 平台，手写了汇编来执行 Go 栈切换和 ABI 转换；对于其他平台会 fallback 到 CGO 实现。
 
 [fastcgo](https://github.com/petermattis/fastcgo) 和 [rustgo](https://words.filippo.io/rustgo/) 是第一个做类似尝试的，它实现于 7 年前，并不再适用于较新版本的 Golang 编译器。我参考它的实现和 Go runtime 源码给出了新的实现。新的实现主要差异在于 g 的切换方式和避免 async preempt，并新增了 ARM64 的汇编实现。
 
@@ -65,7 +65,7 @@ ok      github.com/ihciah/rust2go/asmcall/bench 4.055s
 ## 在 Rust2Go 中使用
 
 1. 在 Rust2Go 中默认使用 ASMCALL 完成 Go -> Rust 的回调，你不需要额外做任何事情
-2. 如需切换回基于 CGO 的方式，请为 trait method 添加 `#[cgo_callback]` 属性（该属性仅影响生成的 Go 代码）
+2. 如需切换回基于 CGO 的方式，请为 Rust → Go（`r2g`）trait method 添加 `#[cgo_callback]` 属性，或为 Go → Rust（`g2r`）trait method 添加 `#[cgo_call]` 属性（这些属性仅影响生成的 Go 代码）
 
 ## 参考
 

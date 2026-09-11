@@ -108,7 +108,7 @@ In this demo, we will call rust from go. Rust is compiled as a statically/dynami
 
     You have to adjust the path. One way is copying rust side output to current directory; another way is to set relative path directly to output. Here I use the first way.
 
-8. Write a shell script `build.sh` to compile, which can avoid linking the old rust output.
+8. Write a shell script `build_static.sh` to compile, which can avoid linking the old rust output.
 
     You have to adjust the rust output path.
 
@@ -128,12 +128,12 @@ In this demo, we will call rust from go. Rust is compiled as a statically/dynami
     go build .
     ```
 
-    > Remember to `chmod +x build.sh` to make it able to run.
+    > Remember to `chmod +x build_static.sh` to make it able to run.
 
 9. Compile and Run.
 
     ```text
-    ❯ ./build.sh && ./example-go2rust
+    ❯ ./build_static.sh && ./example-go2rust
     Compiling rust-lib v0.1.0 (/home/ihciah/code/ihciah/rust2go/examples/example-go2rust/rust-lib)
     Finished `release` profile [optimized] target(s) in 0.14s
     [Rust Callee] log user chihai and age 28

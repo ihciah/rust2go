@@ -31,7 +31,7 @@ In this demo, we will call go from rust, and call rust within the go handler.
 
     ```rust
     #[derive(rust2go::R2G)]
-    pub struct DemoRequest {
+    pub struct DemoUser {
         pub name: String,
         pub age: u8,
     }
@@ -42,8 +42,8 @@ In this demo, we will call go from rust, and call rust within the go handler.
     }
 
     pub trait DemoCall {
-        fn demo_oneway(req: &DemoUser);
-        fn demo_check(req: DemoRequest) -> DemoResponse;
+        fn demo_oneway(user: &DemoUser);
+        fn demo_call(user: &DemoUser) -> DemoResponse;
     }
     ```
 
@@ -72,11 +72,8 @@ In this demo, we will call go from rust, and call rust within the go handler.
     ```rust
     #[rust2go::r2g]
     pub trait DemoCall {
-        fn demo_oneway(req: &DemoUser);
-        fn demo_check(req: &DemoComplicatedRequest) -> DemoResponse;
-        fn demo_check_async(
-            req: &DemoComplicatedRequest,
-        ) -> impl std::future::Future<Output = DemoResponse>;
+        fn demo_oneway(user: &DemoUser);
+        fn demo_call(user: &DemoUser) -> DemoResponse;
     }
     ```
 
@@ -84,14 +81,22 @@ In this demo, we will call go from rust, and call rust within the go handler.
 
     ```rust
     fn main() {
-        let req = DemoRequest {
-            name: "ihciah".to_string(),
+        let user = DemoUser {
+            name: "chihai".to_string(),
             age: 28,
         };
-        println!("User pass: {}", DemoCallImpl::demo_check(req).pass);
+        let resp = DemoCallImpl::demo_call(&user);
+        println!("user checking pass: {}", resp.pass);
     }
     ```
 
-    You can also run a async call with `DemoCallImpl::demo_check_async(req).await`.
+9. Run it and it will show `user checking pass: true`! Then you can edit the golang code in `go/gen.go` and customize golang side logic.
 
-9. Run it and it will show `User pass: false`! Then you can edit the golang code in `go/gen.go` and customize golang side logic.
+## The Go -> Rust half
+
+This demo also defines a `#[rust2go::g2r]` trait `G2RCall` in
+`src/user.rs` (implemented on the generated `G2RCallImpl` in the same file).
+The Go handlers in `go/impl.go` call back into Rust through
+`G2RCallImpl{}.demo_log(...)` / `G2RCallImpl{}.demo_convert_name(...)` while
+serving the Rust -> Go calls. See [examples/example-go2rust](../example-go2rust)
+for a full Go -> Rust walkthrough, including stateful (`&self`) traits.

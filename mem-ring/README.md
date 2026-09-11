@@ -16,7 +16,7 @@ The `monoio` (default) and `tokio` features are mutually exclusive: enable exact
 ### For Tokio Users
 ```toml
 [dependencies]
-mem-ring = { version = "0.1", default-features = false, features = ["tokio"] }
+mem-ring = { version = "0.2", default-features = false, features = ["tokio"] }
 ```
 
 ### For Monoio Users
@@ -26,7 +26,7 @@ mem-ring = { version = "0.1", default-features = false, features = ["tokio"] }
 I suggest using the second mode if you use monoio, which is the default feature.
 ```toml
 [dependencies]
-mem-ring = { version = "0.1" }
+mem-ring = { version = "0.2" }
 ```
 
 ## Custom Waiter (Go side)

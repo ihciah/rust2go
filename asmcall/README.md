@@ -6,7 +6,7 @@
 
 To avoid extensive checks, scheduling, and GC synchronization overhead, replacing CGO with ASM for invoking external functions can achieve higher efficiency.
 
-This package provides four functions (corresponding to 0~3 arguments). Handwritten assembly is used for Go stack switching and ABI conversion on AMD64 and ARM64 platforms. For other platforms, it falls back to a CGO implementation.
+This package provides two families of functions, `CallFuncG0Px` (with g0 stack switching) and `CallFuncPx` (in-place), each covering 0~3 arguments. Handwritten assembly is used for Go stack switching and ABI conversion on AMD64 and ARM64 platforms. For other platforms, it falls back to a CGO implementation.
 
 [fastcgo](https://github.com/petermattis/fastcgo) and [rustgo](https://words.filippo.io/rustgo/) were the first attempt at a similar optimization. Implemented seven years ago, it is no longer compatible with newer versions of the Go compiler. Drawing inspiration from fastcgo and referring to the Go runtime source code, I made a new implementation. The main differences include how the g pointer is switched, avoidance of asynchronous preemption, and added ARM64 assembly support.
 
@@ -65,7 +65,7 @@ When you only want to use asmcall without rust2go or without rust.
 ## Using in Rust2Go
 
 1. Rust2Go uses ASMCALL by default for Go → Rust callbacks, requiring no additional setup from you.
-2. To switch back to CGO-based calls, add the `#[cgo_callback]` attribute to the trait method. This attribute only affects the generated Go code.
+2. To switch back to CGO-based calls, add the `#[cgo_callback]` attribute to a Rust → Go (`r2g`) trait method, or `#[cgo_call]` to a Go → Rust (`g2r`) trait method. These attributes only affect the generated Go code.
 
 ## References
 

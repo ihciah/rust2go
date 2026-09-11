@@ -49,7 +49,7 @@ The two `-mem` examples enable opposite runtimes of `rust2go-mem-ffi` (`example-
 
 - Workspace-wide commands exclude `example-tokio-mem` (and use default features elsewhere).
 - `example-tokio-mem` and the tokio branch of `rust2go-mem-ffi` are checked/tested/linted in dedicated steps (`-p ... --no-default-features --features tokio`).
-- `mem-ring` is tested twice: default features (monoio) and `--no-default-features --features tokio`.
+- `mem-ring` is tested twice: default features (monoio + tpc) and `--no-default-features --features tokio`. The third documented configuration — monoio **without** `tpc` (multi-thread producers sharing one queue) — is compiled standalone (`cargo check`), because the workspace build always unifies in the default `tpc` feature and would never reach that cfg combination.
 - `rust2go`'s optional `build` feature (bindgen/cbindgen machinery) is checked and linted in its own step.
 
 A side effect of the split: the tokio branches of `rust2go-mem-ffi` are actually compiled in CI now — under `--all-features` they were always cfg'd out.

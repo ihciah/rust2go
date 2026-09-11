@@ -5,6 +5,12 @@
 
 Rust2Go is a project that provides users with a simple and efficient way to call Golang from Rust with native async support. It also support user calling Rust from Golang.
 
+## Blogs
+
+- [Design and Implementation of a Rust-Go FFI Framework](https://en.ihcblog.com/rust2go/) by [@ihciah](https://github.com/ihciah): the overall design of rust2go — solution selection, parameter/return-value passing, and async support.
+- [Rust2Go Part2: Exploring CGO Calls for Extreme Performance](https://en.ihcblog.com/rust2go-cgo-asm/) by [@ihciah](https://github.com/ihciah): replacing CGO with hand-written assembly — the G0 stack, async preemption, and benchmarks.
+- [Refactoring rust2go: One Month, Twenty Small PRs](https://lirenjie95.github.io/posts/rust2go-refactor.html) by [@lirenjie95](https://github.com/lirenjie95): a retrospective on the month-long refactor of the whole repository — safety nets, codegen restructuring, CI hardening, and the bugs found along the way.
+
 ## Features
 
 - Sync and async calls from Rust to Golang
@@ -93,6 +99,17 @@ Note: Since golang may scan the stack, and when it meets peer pointer, it may pa
 ### Extended Features
 
 - [x] Support calling rust from golang
+
+### Engineering & Maintainability
+
+- [x] Codegen restructured: one primitive-type table shared by all emitters, ir/emit layering for both call directions, and Go templates as standalone `.go.tmpl` files
+- [x] `generate()` extracted into the `rust2go-gen` library crate; the CLI is a thin shell over it
+- [x] Macro errors reported as spanned `syn::Error` diagnostics instead of compiler panics
+- [x] mem-ring hardened: error returns instead of dead loops, stop mechanisms for background goroutines/tasks, fd ownership and error-path leak fixes
+- [x] Examples deduplicated onto a shared demo template, with CI sync/freshness checks
+- [x] CI: pinned Go toolchains (1.18 minimum + stable), `gofmt`/`go vet` gates, and linux/macOS/Windows coverage across amd64 and arm64 legs
+- [x] Code coverage introduced and gated (project target 97%)
+- [x] Documentation overhauled to match the code: build script reference, attribute reference, CI guide, and per-package READMEs
 
 ## Coverage
 

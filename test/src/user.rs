@@ -118,3 +118,12 @@ pub trait TestCall {
     #[drop_safe]
     async fn transfer(from: UserId, to: UserId) -> UserId;
 }
+
+/// Stateful g2r trait: all methods take `&self`, so the macro generates a
+/// process-wide instance registry. Implement it on your own struct and
+/// install it once with `G2RCounterImpl::register(...)`.
+#[rust2go::g2r]
+pub trait G2RCounter {
+    fn incr(&self, by: u64) -> u64;
+    fn current(&self) -> u64;
+}

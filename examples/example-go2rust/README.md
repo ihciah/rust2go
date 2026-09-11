@@ -138,10 +138,76 @@ In this demo, we will call rust from go. Rust is compiled as a statically/dynami
     Finished `release` profile [optimized] target(s) in 0.14s
     [Rust Callee] log user chihai and age 28
     [Rust Callee] convert user username: chihai -> CHIHAI
-    new name: CHIHAI%
+    new name: CHIHAI
+    [Rust Callee] counter incr by 1 -> 1
+    counter after incr(1): 1
+    [Rust Callee] counter incr by 1 -> 2
+    counter after incr(1): 2
+    [Rust Callee] counter current: 2
+    counter current: 2
     ```
 
     It works. Congratulations!
+
+## Stateful Traits (`&self` methods)
+
+The `G2RCall` trait above is stateless: its methods have no receiver, and the
+generated `G2RCallImpl` unit struct implements the trait directly.
+
+If **every** method of a `#[rust2go::g2r]` trait takes `&self`, the trait
+becomes *stateful*: the macro generates a process-wide instance registry and
+a `register` function, and FFI entries dispatch through the registered
+instance. This demo includes one (`G2RStatefulCall` in
+`rust-lib/src/user.rs`):
+
+```rust
+#[rust2go::g2r]
+pub trait G2RStatefulCall {
+    fn incr(&self, by: u64) -> u64;
+    fn current(&self) -> u64;
+}
+```
+
+Implement it on your own struct that holds the state, and register one
+instance at startup. Since Go may call the methods from any thread, the
+implementation must be `Send + Sync`; use atomics or a `Mutex` for mutable
+state:
+
+```rust
+struct StatefulCounter {
+    count: AtomicU64,
+}
+
+impl G2RStatefulCall for StatefulCounter {
+    fn incr(&self, by: u64) -> u64 {
+        self.count.fetch_add(by, Ordering::SeqCst) + by
+    }
+
+    fn current(&self) -> u64 {
+        self.count.load(Ordering::SeqCst)
+    }
+}
+```
+
+A Rust staticlib/cdylib has no automatic init hook, so this demo exports
+`rust_lib_init` (see `rust-lib/src/lib.rs`), which calls
+`G2RStatefulCallImpl::register(...)`, and `main.go` invokes it via cgo
+before any stateful call:
+
+```go
+C.rust_lib_init()
+```
+
+Notes:
+
+- `register` consumes a global `OnceLock`: calling it twice returns `Err`.
+- Calling a stateful trait method from Go before registration prints an
+  error and aborts the process — always register during startup.
+- The instance lives for the whole process; there is no unregister.
+- Mixing `&self` and non-`&self` methods in one g2r trait is a compile
+  error, as are `&mut self` / by-value `self` receivers.
+- The Go side calling convention is identical to the stateless case:
+  `G2RStatefulCallImpl{}.incr(&one)`.
 
 10. Dynamically link:
 

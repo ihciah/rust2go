@@ -35,6 +35,38 @@ For detailed example, please checkout [the example projects](./examples).
 - Trait functions may take zero, one or multiple parameters; empty (nil) slices are allowed as arguments and return values.
 - Structs keep their own attribute macros (e.g. `#[derive(...)]`) in the generated code, and `#[rust2go::r2g_struct_tag(json = "snake_case")]` adds tags to the generated Go struct fields. See [docs/trait-attrs.md](./docs/trait-attrs.md) for the full attribute reference.
 
+### Stateful Go-to-Rust Traits (`&self` methods)
+
+For the Go-to-Rust direction (`#[rust2go::g2r]`), if **every** method of the trait takes `&self`, the trait becomes *stateful*: instead of expecting you to implement the trait on the generated unit struct, the macro generates a process-wide instance registry plus a `register` function, and the FFI entries dispatch through the registered instance. (Mixing `&self` and non-`&self` methods in one trait is a compile error, as are `&mut self` or by-value `self` receivers.)
+
+```rust
+#[rust2go::g2r]
+pub trait G2RCounter {
+    fn incr(&self, by: u64) -> u64;
+    fn current(&self) -> u64;
+}
+
+struct Counter { count: AtomicU64 }
+
+impl G2RCounter for Counter {
+    fn incr(&self, by: u64) -> u64 { self.count.fetch_add(by, Ordering::SeqCst) + by }
+    fn current(&self) -> u64 { self.count.load(Ordering::SeqCst) }
+}
+
+// Call once at startup, before Go invokes any method:
+G2RCounterImpl::register(Counter { count: AtomicU64::new(0) }).expect("register once");
+```
+
+Rules to know:
+
+- The implementation must be `Send + Sync + 'static`: Go may call the methods from any thread, so keep mutable state behind atomics or a `Mutex`.
+- Register exactly once at startup; a second `register` call returns `Err` (the global `OnceLock` is consumed).
+- If Go calls a method before registration, the FFI entry prints an error and aborts the process (fail-fast for a startup-ordering bug).
+- The registered instance lives for the whole process; there is intentionally no unregister.
+- The Go-side calling convention and the FFI ABI are unchanged relative to stateless traits.
+
+See [examples/example-go2rust](./examples/example-go2rust) for a complete runnable demo (including the `rust_lib_init` cgo init hook used to register from a staticlib).
+
 ## Key Design
 
 > Detailed design details can be found in this article: [Design and Implementation of a Rust-Go FFI Framework](https://en.ihcblog.com/rust2go/).

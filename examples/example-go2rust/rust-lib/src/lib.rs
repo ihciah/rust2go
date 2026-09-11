@@ -45,7 +45,11 @@ impl G2RStatefulCall for StatefulCounter {
 /// method without registration aborts the process.
 #[no_mangle]
 pub extern "C" fn rust_lib_init() {
-    if G2RStatefulCallImpl::register(StatefulCounter { count: AtomicU64::new(0) }).is_err() {
+    if G2RStatefulCallImpl::register(StatefulCounter {
+        count: AtomicU64::new(0),
+    })
+    .is_err()
+    {
         eprintln!("[Rust] G2RStatefulCallImpl is already registered");
     }
 }

@@ -54,7 +54,8 @@ impl G2RCounter for Counter {
 }
 
 // Call once at startup, before Go invokes any method:
-G2RCounterImpl::register(Counter { count: AtomicU64::new(0) }).expect("register once");
+G2RCounterImpl::register(Counter { count: AtomicU64::new(0) })
+    .unwrap_or_else(|_| panic!("register once"));
 ```
 
 Rules to know:

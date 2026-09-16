@@ -102,11 +102,15 @@ In this demo, we will call rust from go. Rust is compiled as a statically/dynami
     // For statically link: #cgo LDFLAGS: ./librust_lib.a
     // For dynamically link: #cgo LDFLAGS: -L. -lrust_lib
     #cgo LDFLAGS: ./librust_lib.a
+    // Rust std on windows-gnu references these system libraries.
+    #cgo windows LDFLAGS: -lws2_32 -lntdll -luserenv
+
+    void rust_lib_init(void);
     */
     import "C"
     ```
 
-    You have to adjust the path. One way is copying rust side output to current directory; another way is to set relative path directly to output. Here I use the first way.
+    You have to adjust the path. One way is copying rust side output to current directory; another way is to set relative path directly to output. Here I use the first way. The `rust_lib_init` declaration exposes the Rust-side registration function to cgo; the `windows`-scoped line adds the system libraries Rust's std references when statically linking on Windows.
 
 8. Write a shell script `build.sh` to compile, which can avoid linking the old rust output.
 

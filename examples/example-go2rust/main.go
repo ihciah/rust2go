@@ -4,6 +4,8 @@ package main
 // For statically link: #cgo LDFLAGS: ./librust_lib.a
 // For dynamically link: #cgo LDFLAGS: -L. -lrust_lib
 #cgo LDFLAGS: ./librust_lib.a
+// Rust std on windows-gnu references these system libraries.
+#cgo windows LDFLAGS: -lws2_32 -lntdll -luserenv
 
 void rust_lib_init(void);
 */

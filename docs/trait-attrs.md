@@ -14,6 +14,16 @@ Now rust2go supports 6 attributes on trait's async function:
 
 In the Go-to-Rust direction (`#[rust2go::g2r]`, see `examples/example-bidirectional`), a function-level `#[cgo_call]` (alias: `#[cgo]`) similarly makes the call CGO based instead of ASM.
 
+## G2R receivers: stateless vs stateful traits
+
+A `#[rust2go::g2r]` trait is classified by its method receivers:
+
+- **Stateless** (no method has a receiver): you implement the trait for the generated unit struct `{$trait}Impl` directly.
+- **Stateful** (every method takes `&self`): the macro generates a process-wide registry `static {$TRAIT}_INSTANCE: OnceLock<Arc<dyn {$trait} + Send + Sync>>` and `{$trait}Impl::register(impl_)`. Implement the trait on your own struct and call `register` once at startup; FFI entries then dispatch through the registered instance. A second `register` returns `Err`; a Go call arriving before registration prints an error and aborts the process. Since the instance is shared across Go threads, use interior mutability (`Atomic*`, `Mutex`) for state.
+- **Mixed** (only some methods take `&self`), or any `&mut self` / by-value `self` receiver: compile error.
+
+See `examples/example-go2rust` for a runnable stateful demo.
+
 ## Trait-level parameters
 
 The `#[rust2go::r2g(...)]` attribute itself accepts optional parameters:

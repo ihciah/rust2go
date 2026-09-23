@@ -189,6 +189,14 @@ impl G2RFnRepr {
     pub const fn cgo_call(&self) -> bool {
         self.cgo_call
     }
+
+    pub fn ret(&self) -> Option<&ParamType> {
+        self.ret.as_ref()
+    }
+
+    pub fn params(&self) -> &[Param] {
+        &self.params
+    }
 }
 
 #[cfg(test)]

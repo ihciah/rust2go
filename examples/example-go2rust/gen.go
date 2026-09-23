@@ -26,7 +26,6 @@ typedef struct ListRef {
   const void *ptr;
   uintptr_t len;
 } ListRef;
-
 const void c_G2RCall_demo_log(const void*);
 const void c_G2RCall_demo_convert_name(const void*, const void*);
 const void c_G2RCall_demo_convert_name_drop(void*);

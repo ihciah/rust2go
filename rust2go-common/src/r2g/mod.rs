@@ -231,7 +231,10 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     let collides = ((is_async || ret.is_some())
                         && matches!(name.as_str(), "slot" | "cb"))
                         || (ret.is_some()
-                            && matches!(name.as_str(), "cvt_ref" | "runtime" | "asmcall" | "cgocall"))
+                            && matches!(
+                                name.as_str(),
+                                "cvt_ref" | "runtime" | "asmcall" | "cgocall"
+                            ))
                         || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"));
                     if collides {
                         let msg = format!(
@@ -469,7 +472,14 @@ mod tests {
         // The ret-path ring handler declares its conversion locals inside
         // `pool.Submit(func() { ... })`, where they shadow the decoded
         // parameters instead of colliding; those names must stay legal.
-        for name in ["resp", "resp_ref", "resp_ref_size", "buffer", "offset", "ants"] {
+        for name in [
+            "resp",
+            "resp_ref",
+            "resp_ref_size",
+            "buffer",
+            "offset",
+            "ants",
+        ] {
             let src = format!("pub trait T {{ #[mem] async fn f({name}: u8) -> u8; }}");
             assert!(parse(&src).is_ok(), "{name} should be legal");
         }

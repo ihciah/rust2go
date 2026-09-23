@@ -28,8 +28,11 @@ pub enum ResponseFuture<Req, Resp, Exec> {
     Fused,
 }
 
-unsafe impl<Req: Send, Resp: Send, Exec> Send for ResponseFuture<Req, Resp, Exec> {}
-unsafe impl<Req: Sync, Resp: Sync, Exec> Sync for ResponseFuture<Req, Resp, Exec> {}
+// Safety: the Exec closure is stored in the Init variant and may run when the
+// future is polled from another thread, so the future can only be Send/Sync
+// when the closure itself is.
+unsafe impl<Req: Send, Resp: Send, Exec: Send> Send for ResponseFuture<Req, Resp, Exec> {}
+unsafe impl<Req: Sync, Resp: Sync, Exec: Sync> Sync for ResponseFuture<Req, Resp, Exec> {}
 
 impl<Req, Resp, Exec> Future for ResponseFuture<Req, Resp, Exec>
 where

@@ -56,14 +56,19 @@ impl G2RTraitRepr {
                 quote! { <Self as #trait_name>::#f_name(#(#param_names),*) }
             };
 
-            let bottom = if f.ret.is_some() {
+            let bottom = if let Some(ret_ty) = &f.ret_ty {
                 quote! {
                     let _internal_out = #call_expr;
                     let (_internal_buf, _internal_out_ref) = ::rust2go::ToRef::calc_ref(&_internal_out);
 
                     let _internal_boxed_storage = ::std::boxed::Box::new((_internal_out, _internal_out_ref, _internal_buf));
                     let ret_ptr = &_internal_boxed_storage.as_ref().1 as *const _ as *const ();
-                    let drop_ptr = ::std::boxed::Box::leak(_internal_boxed_storage as ::std::boxed::Box<dyn ::std::any::Any>) as *mut dyn ::std::any::Any as *mut ();
+                    // A thin pointer to the boxed tuple: the generated
+                    // `c_{trait}_{fn}_drop` entry reconstructs it with the
+                    // concrete type, which runs the destructors and frees
+                    // with the correct layout (a `dyn Any` round-trip would
+                    // lose the vtable and leak the payload).
+                    let drop_ptr = ::std::boxed::Box::leak(_internal_boxed_storage) as *mut ();
 
                     *_internal_slot = [ret_ptr, drop_ptr];
                 }
@@ -73,6 +78,20 @@ impl G2RTraitRepr {
                 }
             };
 
+            // Typed drop entry for the boxed response storage above; the Go
+            // wrapper calls it once it has converted the response.
+            let drop_entry = f.ret_ty.as_ref().map(|ret_ty| {
+                let drop_fn_name = format_ident!("c_{}_{}_drop", &self.name, &f.name);
+                quote! {
+                    #[no_mangle]
+                    unsafe extern "C" fn #drop_fn_name(ptr: *mut ()) {
+                        drop(::std::boxed::Box::from_raw(
+                            ptr as *mut (#ret_ty, <#ret_ty as ::rust2go::ToRef>::Ref, ::std::vec::Vec<u8>),
+                        ));
+                    }
+                }
+            });
+
             fn_entries.push(quote! {
                 #[no_mangle]
                 unsafe extern "C" fn #cf_name(#slot_expr #params_expr) {
@@ -80,6 +99,7 @@ impl G2RTraitRepr {
                     #(#params)*
                     #bottom
                 }
+                #drop_entry
             });
         }
 

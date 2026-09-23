@@ -27,9 +27,9 @@ typedef struct ListRef {
   uintptr_t len;
 } ListRef;
 
-const void c_rust2go_internal_drop(void*);
 const void c_G2RCall_demo_log(const void*);
 const void c_G2RCall_demo_convert_name(const void*, const void*);
+const void c_G2RCall_demo_convert_name_drop(void*);
 */
 import "C"
 import (
@@ -308,7 +308,7 @@ func (G2RCallImpl) demo_convert_name(user *DemoUser) string {
 	runtime.KeepAlive(user_buffer)
 	runtime.KeepAlive(user)
 	val := ownString(*(*C.StringRef)(_internal_slot[0]))
-	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCall_demo_convert_name_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
 }
 func main() {}

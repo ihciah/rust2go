@@ -90,9 +90,6 @@ pub fn generate(args: &GenArgs) {
     if use_shm {
         importc.push_str(RawRsFile::go_shm_include());
     }
-    if g2r_traits.iter().any(|t| t.has_ret()) {
-        importc.push_str(RawRsFile::go_internal_drop());
-    }
     g2r_traits.iter().for_each(|t| {
         importc.push_str(&t.to_importc());
     });

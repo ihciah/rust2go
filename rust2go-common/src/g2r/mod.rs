@@ -29,6 +29,8 @@ pub struct G2RFnRepr {
     name: Ident,
     params: Vec<Param>,
     ret: Option<ParamType>,
+    /// The original return type, kept for the generated typed drop entry.
+    ret_ty: Option<Type>,
     cgo_call: bool,
 }
 
@@ -87,6 +89,10 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 },
             };
             let ret = param_type;
+            let ret_ty = match &fn_item.sig.output {
+                ReturnType::Default => None,
+                ReturnType::Type(_, t) => Some((**t).clone()),
+            };
             let cgo_call = fn_item
                 .attrs
                 .iter()
@@ -97,6 +103,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 name: fn_name,
                 params,
                 ret,
+                ret_ty,
                 cgo_call,
             });
         }

@@ -93,10 +93,10 @@ typedef struct QueueMeta {
     int32_t working_fd;
     int32_t unstuck_fd;
     } QueueMeta;
-
-const void c_rust2go_internal_drop(void*);
 const void c_G2RCounter_incr(const void*, const void*);
+const void c_G2RCounter_incr_drop(void*);
 const void c_G2RCounter_current(const void*);
+const void c_G2RCounter_current_drop(void*);
 */
 import "C"
 import (
@@ -899,7 +899,7 @@ func (G2RCounterImpl) incr(by *uint64) uint64 {
 	runtime.KeepAlive(by_buffer)
 	runtime.KeepAlive(by)
 	val := newC_uint64_t(*(*C.uint64_t)(_internal_slot[0]))
-	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_incr_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
 }
 func (G2RCounterImpl) current() uint64 {
@@ -907,7 +907,7 @@ func (G2RCounterImpl) current() uint64 {
 	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_current), unsafe.Pointer(&_internal_slot))
 	runtime.KeepAlive(_internal_slot)
 	val := newC_uint64_t(*(*C.uint64_t)(_internal_slot[0]))
-	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_current_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
 }
 func main() {}

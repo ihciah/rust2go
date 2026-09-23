@@ -111,14 +111,30 @@ impl R2GFnRepr {
                     //     });
                     // }
                     let mem_call_id = mem_call_id as u32;
+                    let params_ptr_expr = if self.params().is_empty() {
+                        quote! { 0usize }
+                    } else {
+                        quote! {
+                            ::std::boxed::Box::into_raw(::std::boxed::Box::new((#(#func_param_names,)*))) as usize
+                        }
+                    };
                     out.extend(quote! {
                         {
                             const CALL_ID: u32 = #mem_call_id;
                             let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((#(&#func_param_names,)*)));
+                            // Go processes oneway calls asynchronously, so the
+                            // data the refs point into must outlive this
+                            // function: box the parameters like the async path
+                            // does and free the box when the DROP ack arrives.
+                            // Owned parameters are moved into the box and are
+                            // sound; for reference parameters the caller must
+                            // keep the referent alive until Go has processed
+                            // the call (this function is unsafe).
+                            let params_ptr = #params_ptr_expr;
                             Self::WS.with(|(wq, sb)| {
                                 let sid = ::rust2go_mem_ffi::push_slab(sb, ::rust2go_mem_ffi::TaskDesc {
                                     buf,
-                                    params_ptr: 0,
+                                    params_ptr,
                                     slot_ptr: 0,
                                 });
                                 wq.push(::rust2go_mem_ffi::Payload::new_call(
@@ -167,7 +183,7 @@ impl R2GFnRepr {
                             let (_buf, #func_param_names) = ::rust2go::ToRef::calc_ref(#ref_marks #func_param_names);
                         )*
                         #[allow(clippy::useless_transmute)]
-                        unsafe { #path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names),)* &slot as *const _ as *const () as *mut _, Self::#callback_name as *const () as *mut _) };
+                        unsafe { #path_prefix #c_func_name(#(::std::mem::transmute(#func_param_names),)* &mut slot as *mut _, Self::#callback_name as *const () as *mut _) };
                         slot.take().unwrap()
                     }
                 });
@@ -301,6 +317,13 @@ impl R2GFnRepr {
 
                     let slot = unsafe { ::rust2go_mem_ffi::shared_mut_from_raw(desc.slot_ptr) };
                     #set_result
+                });
+            } else if !self.params.is_empty() {
+                // Oneway call: free the boxed parameters when the DROP ack
+                // arrives — Go has finished reading them before sending it.
+                let reqs_ty = self.params().iter().map(|p| &p.ty);
+                body = Some(quote! {
+                    let _params = unsafe { ::std::boxed::Box::from_raw(desc.params_ptr as *mut (#(#reqs_ty,)*)) };
                 });
             }
 

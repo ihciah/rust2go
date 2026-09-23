@@ -4,6 +4,7 @@ mod emit_go;
 mod emit_rust;
 
 use quote::format_ident;
+use std::collections::HashSet;
 use syn::{Error, FnArg, Ident, ItemTrait, Meta, Pat, Result, ReturnType, TraitItem, Type};
 
 use crate::common::{Param, ParamType};
@@ -157,6 +158,27 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     sbail!("function based on shm must be async or without return value")
                 } else {
                     is_safe = false;
+                }
+            }
+            if using_mem {
+                // The generated ring handlers decode parameters into locals
+                // named after the parameters themselves (plus a `{name}_`
+                // conversion variable) and use `ptr`, `pool` and `post_func`
+                // for the handler machinery; reject parameter names that
+                // would collide and generate invalid Go.
+                let mut derived_names = HashSet::new();
+                for param in params.iter() {
+                    let name = param.name.to_string();
+                    if matches!(name.as_str(), "ptr" | "pool" | "post_func") {
+                        sbail!("mem function parameter `{name}` collides with the generated ring handler")
+                    }
+                    for var in [name.clone(), format!("{name}_")] {
+                        if !derived_names.insert(var.clone()) {
+                            sbail!(
+                                "mem function parameter `{name}` collides with the generated variable `{var}`"
+                            )
+                        }
+                    }
                 }
             }
             let mem_call_id = if using_mem {
@@ -349,6 +371,23 @@ mod tests {
             err.contains("function based on shm must be async or without return value"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn rejects_mem_param_named_like_handler_locals() {
+        for name in ["ptr", "pool", "post_func"] {
+            let err = err_of(&format!("pub trait T {{ #[mem] fn f({name}: u8); }}"));
+            assert!(
+                err.contains("collides with the generated ring handler"),
+                "{name}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_mem_params_with_conversion_collision() {
+        let err = err_of("pub trait T { #[mem] fn f(x: u8, x_: u8); }");
+        assert!(err.contains("collides with the generated variable"), "{err}");
     }
 
     #[test]

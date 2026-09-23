@@ -8,10 +8,18 @@ impl G2RTraitRepr {
         let decs = self
             .fns
             .iter()
-            .map(|f| match f.ffi_param_cnt() {
-                0 => format!("{prefix}{}();\n", f.name),
-                1 => format!("{prefix}{}(const void*);\n", f.name),
-                _ => format!("{prefix}{}(const void*, const void*);\n", f.name),
+            .map(|f| {
+                let mut out = match f.ffi_param_cnt() {
+                    0 => format!("{prefix}{}();\n", f.name),
+                    1 => format!("{prefix}{}(const void*);\n", f.name),
+                    _ => format!("{prefix}{}(const void*, const void*);\n", f.name),
+                };
+                // Every function with a return value also gets a typed drop
+                // entry that releases the boxed response storage.
+                if f.ret.is_some() {
+                    out.push_str(&format!("{prefix}{}_drop(void*);\n", f.name));
+                }
+                out
             })
             .collect::<Vec<String>>();
         decs.join("")

@@ -88,12 +88,12 @@ impl G2RTraitRepr {
 
             if let Some(r) = &f.ret {
                 // val := ownString(*(*C.StringRef)(_internal_slot[0]))
-                // asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+                // asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCall_demo_convert_name_drop), unsafe.Pointer(_internal_slot[1]))
                 // return val
                 let cvt = r.c_to_go_field_converter_owned();
                 let cty = r.to_c(false);
                 out.push_str(&format!("val := {cvt}(*(*C.{cty})(_internal_slot[0]))
-                {call_type}.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+                {call_type}.CallFuncG0P1(unsafe.Pointer(C.c_{trait_name}_{f_name}_drop), unsafe.Pointer(_internal_slot[1]))
                 return val
                 "));
             }

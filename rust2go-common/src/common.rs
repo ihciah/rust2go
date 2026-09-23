@@ -8,7 +8,7 @@ use heck::{
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use rust2go_convert::primitive_by_rust_ident;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::parse::Parser;
 use syn::{
     Attribute, Error, Expr, ExprLit, File, FnArg, GenericArgument, Ident, Item, Lit, Meta,
@@ -25,10 +25,6 @@ impl RawRsFile {
         let mut syntax = syn::parse_file(src).expect("Unable to parse file");
         expand_type_aliases(&mut syntax);
         RawRsFile { file: syntax }
-    }
-
-    pub fn go_internal_drop() -> &'static str {
-        include_str!("tmpl/internal_drop.h.tmpl")
     }
 
     pub fn go_shm_include() -> &'static str {
@@ -302,24 +298,31 @@ impl RawRsFile {
             node: &Node,
             items: &HashMap<Ident, Vec<Node>>,
             out: &mut HashMap<Ident, u8>,
+            visiting: &mut HashSet<Ident>,
         ) -> u8 {
             match node {
-                Node::List(inner) => (1 + node_level(inner, items, out)).min(2),
+                Node::List(inner) => (1 + node_level(inner, items, out, visiting)).min(2),
                 Node::NamedStruct(ident) if ident.to_string().as_str() == "String" => 1,
                 Node::NamedStruct(name) => {
                     if let Some(lv) = out.get(name) {
                         return *lv;
+                    }
+                    // Reject recursive struct definitions up front instead of
+                    // overflowing the stack in this recursion.
+                    if !visiting.insert(name.clone()) {
+                        panic!("cyclic struct type detected: {name}");
                     }
                     let lv = items
                         .get(name)
                         .map(|nodes| {
                             nodes
                                 .iter()
-                                .map(|n| node_level(n, items, out))
+                                .map(|n| node_level(n, items, out, visiting))
                                 .max()
                                 .unwrap_or(0)
                         })
                         .unwrap();
+                    visiting.remove(name);
                     out.insert(name.clone(), lv);
                     lv
                 }
@@ -342,7 +345,12 @@ impl RawRsFile {
 
         let mut out = HashMap::new();
         for name in items.keys() {
-            let lv = node_level(&Node::NamedStruct(name.clone()), &items, &mut out);
+            let lv = node_level(
+                &Node::NamedStruct(name.clone()),
+                &items,
+                &mut out,
+                &mut HashSet::new(),
+            );
             out.insert(name.clone(), lv);
         }
         out.insert(Ident::new("String", Span::call_site()), 1);
@@ -527,6 +535,9 @@ impl TryFrom<&Type> for ParamType {
             }
             RefFieldClass::List => ParamTypeInner::List(ty.clone()),
             _ => {
+                if matches!(seg.ident.to_string().as_str(), "u128" | "i128") {
+                    sbail!("type `{}` is not supported in Go bindings", seg.ident)
+                }
                 if !seg.arguments.is_none() {
                     sbail!("custom types with arguments are not supported")
                 }
@@ -945,6 +956,26 @@ mod tests {
         }
         "#;
         super::RawRsFile::new(raw);
+    }
+
+    #[test]
+    #[should_panic(expected = "cyclic struct type detected")]
+    fn struct_type_cycle() {
+        let raw = r#"
+        pub struct Node {
+            pub children: Vec<Node>,
+        }
+        "#;
+        super::RawRsFile::new(raw);
+    }
+
+    #[test]
+    fn u128_param_rejected() {
+        let err = param_type_err("u128");
+        assert!(
+            err.contains("`u128` is not supported in Go bindings"),
+            "{err}"
+        );
     }
 
     #[test]

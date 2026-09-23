@@ -15,8 +15,9 @@
 #define RTMP2 R11
 // The Microsoft x64 convention requires the caller to reserve a 32-byte
 // shadow space below the call, which the callee may use to spill its
-// register arguments. Without it a spill overwrites whatever lives above
-// the current SP (here: the saved g and SP that the epilogue restores).
+// register arguments, and to enter the callee with SP 16-byte aligned
+// (RSP % 16 == 8 after the call pushes the return address). Go only
+// guarantees 8-byte alignment, so the P-variants normalize SP first.
 #define RESERVE_SHADOW_SPACE SUBQ    $32, SP
 #define RELEASE_SHADOW_SPACE ADDQ    $32, SP
 #else
@@ -61,9 +62,14 @@
     RET
 
 #define ASMCALL                                           \
+    /* Go only keeps SP 8-byte aligned; normalize to the  \
+       16-byte alignment the SysV/Win64 call requires. */ \
+    MOVQ    SP, RTMP0                                      \
+    ANDQ    $-16, SP                                       \
     RESERVE_SHADOW_SPACE                                  \
     CALL    AX                                            \
     RELEASE_SHADOW_SPACE                                  \
+    MOVQ    RTMP0, SP                                     \
     RET
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0

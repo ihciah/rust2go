@@ -150,13 +150,11 @@ fn parse_attrs(attrs: proc_macro2::TokenStream) -> syn::Result<(Option<syn::Path
                     }
                     queue_size = Some(size);
                 } else {
-                    return Err(syn::Error::new_spanned(
-                        nv,
-                        format!(
-                            "unknown attribute `{}`; supported attributes are `binding` and `queue_size`",
-                            quote::ToTokens::to_token_stream(&nv.path)
-                        ),
-                    ));
+                    let msg = format!(
+                        "unknown attribute `{}`; supported attributes are `binding` and `queue_size`",
+                        quote::ToTokens::to_token_stream(&nv.path)
+                    );
+                    return Err(syn::Error::new_spanned(nv, msg));
                 }
             }
             syn::Meta::Path(p) => {

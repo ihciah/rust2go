@@ -378,6 +378,24 @@ mod tests {
         assert!(!response.message.is_empty());
     }
 
+    #[monoio::test(timer_enabled = true)]
+    async fn oneway_mem_call() {
+        // Oneway #[mem] calls are processed asynchronously by the Go side:
+        // the ring handler decodes the parameters, invokes the Go impl and
+        // acks with a DROP payload that frees the boxed parameters. Calling
+        // twice and waiting gives both round trips time to complete; a
+        // regression in the handler or the ack path would crash or hang
+        // the test binary.
+        let user = User {
+            id: 7,
+            name: "oneway".to_string(),
+            age: 1,
+        };
+        unsafe { TestCallImpl::oneway_ping(&user) };
+        unsafe { TestCallImpl::oneway_ping(&user) };
+        monoio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
     #[test]
     fn test_type_alias() {
         let resp = TestCallImpl::get_balance(&BalanceRequest {

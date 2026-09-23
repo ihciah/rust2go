@@ -181,6 +181,10 @@ func (d *Demo) multi_param_test(user *User, message *string, token *[]uint8) Log
 	}
 }
 
+func (d *Demo) oneway_ping(user *User) {
+	fmt.Printf("[go] oneway_ping received user: %s\n", user.name)
+}
+
 func (d *Demo) get_balance(req *BalanceRequest) BalanceResponse {
 	return BalanceResponse{
 		user_id: req.user_id,

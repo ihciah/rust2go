@@ -96,13 +96,28 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             };
             // The generated Go wrappers declare `_internal_slot`,
             // `_internal_params`, `val` and per-parameter `{name}_ref` /
-            // `{name}_buffer` locals; reject parameter names that would
-            // collide and generate invalid Go.
+            // `{name}_buffer` locals and reference `C`, `unsafe`, `runtime`
+            // and `cvt_ref`; reject parameter names that would collide and
+            // generate invalid Go.
             let mut derived_names = HashSet::new();
             for param in params.iter() {
                 let name = param.name.to_string();
-                let collides = name == "_internal_params"
-                    || (ret.is_some() && matches!(name.as_str(), "_internal_slot" | "val"));
+                let raw = name.strip_prefix("r#").unwrap_or(&name);
+                if raw != name {
+                    let msg = format!(
+                        "g2r function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                    );
+                    sbail!(msg)
+                }
+                if crate::common::is_go_keyword(raw) {
+                    let msg = format!(
+                        "g2r function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                    );
+                    sbail!(msg)
+                }
+                let collides =
+                    matches!(name.as_str(), "_internal_params" | "C" | "runtime" | "cvt_ref")
+                        || (ret.is_some() && matches!(name.as_str(), "_internal_slot" | "val"));
                 if collides {
                     let msg = format!(
                         "g2r function parameter `{name}` collides with the generated Go wrapper"
@@ -252,12 +267,23 @@ mod tests {
             "pub trait T { fn f(_internal_params: u8); }",
             "pub trait T { fn f(_internal_slot: u8) -> u8; }",
             "pub trait T { fn f(val: u8) -> u8; }",
+            "pub trait T { fn f(C: u8) -> u8; }",
+            "pub trait T { fn f(runtime: u8); }",
+            "pub trait T { fn f(cvt_ref: u8); }",
         ] {
             let err = err_of(src);
             assert!(
                 err.contains("collides with the generated Go wrapper"),
                 "{src}: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn rejects_go_keyword_params() {
+        for name in ["func", "map", "select", "var"] {
+            let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
+            assert!(err.contains("Go keyword"), "{name}: {err}");
         }
     }
 

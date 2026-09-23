@@ -119,6 +119,7 @@ type TestCall interface {
 	delete_friends(req *FriendsListRequest) FriendsListResponse
 	pm_friend(req *PMFriendRequest) PMFriendResponse
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
+	oneway_ping(user *User)
 	optional_test(optional *Optional) Optional
 	preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse
 	get_balance(req *BalanceRequest) BalanceResponse
@@ -209,6 +210,14 @@ func ringHandleTestCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 		post_func(resp, buffer, offset)
 	})
 }
+func ringHandleTestCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
+	user := *(*C.UserRef)(ptr)
+	user_ := newUser(user)
+	pool.Submit(func() {
+		TestCallImpl.oneway_ping(&user_)
+		post_func(nil, nil, 0)
+	})
+}
 
 //export CTestCall_optional_test
 func CTestCall_optional_test(optional C.OptionalRef, slot *C.void, cb *C.void) {
@@ -261,7 +270,7 @@ func CTestCall_transfer(from C.uint64_t, to C.uint64_t, slot *C.void, cb *C.void
 
 //export RingsInitTestCall
 func RingsInitTestCall(crr, crw C.QueueMeta) {
-	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0})
+	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0,ringHandleTestCall1})
 }
 
 // An alternative impl of unsafe.String for go1.18

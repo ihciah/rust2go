@@ -502,6 +502,40 @@ pub fn classify_ref_field(ident: &Ident) -> RefFieldClass {
     }
 }
 
+/// Whether a parameter name is a Go keyword: the generated Go bindings paste
+/// parameter names into Go identifier positions verbatim, so a keyword would
+/// produce invalid Go.
+pub fn is_go_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "break"
+            | "case"
+            | "chan"
+            | "const"
+            | "continue"
+            | "default"
+            | "defer"
+            | "else"
+            | "fallthrough"
+            | "for"
+            | "func"
+            | "go"
+            | "goto"
+            | "if"
+            | "import"
+            | "interface"
+            | "map"
+            | "package"
+            | "range"
+            | "return"
+            | "select"
+            | "struct"
+            | "switch"
+            | "type"
+            | "var"
+    )
+}
+
 // Go converter function name for a primitive type: the prefix (`newC_`,
 // `cntC_` or `refC_`) followed by its C type name, e.g. `newC_uint8_t`.
 // Returns None for unknown primitives and for primitives without generated

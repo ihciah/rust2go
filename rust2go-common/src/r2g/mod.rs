@@ -163,15 +163,34 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
             if using_mem {
                 // The generated ring handlers decode parameters into locals
                 // named after the parameters themselves (plus a `{name}_`
-                // conversion variable) and use `ptr`, `pool`, `post_func`
-                // and (for calls with a return value) `resp` for the handler
-                // machinery; reject parameter names that would collide and
-                // generate invalid Go.
+                // conversion variable) and reference `ptr`, `pool`,
+                // `post_func`, `C`, `unsafe`, `ants` and (for calls with a
+                // return value) `resp`, `resp_ref`, `resp_ref_size`,
+                // `buffer`, `offset` and `cvt_ref_cap`; reject parameter
+                // names that would collide and generate invalid Go.
                 let mut derived_names = HashSet::new();
                 for param in params.iter() {
                     let name = param.name.to_string();
-                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func")
-                        || (ret.is_some() && name == "resp");
+                    let raw = name.strip_prefix("r#").unwrap_or(&name);
+                    if raw != name {
+                        let msg = format!(
+                            "mem function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                        );
+                        sbail!(msg)
+                    }
+                    if crate::common::is_go_keyword(raw) {
+                        let msg = format!(
+                            "mem function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                        );
+                        sbail!(msg)
+                    }
+                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func" | "ants")
+                        || (name == "C" && (params.len() > 1 || ret.is_some()))
+                        || (ret.is_some()
+                            && matches!(
+                                name.as_str(),
+                                "resp" | "resp_ref" | "resp_ref_size" | "buffer" | "offset" | "cvt_ref_cap"
+                            ));
                     if collides {
                         let msg = format!(
                             "mem function parameter `{name}` collides with the generated ring handler"
@@ -189,15 +208,30 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                 }
             } else {
                 // The generated Go exports append `slot`/`cb` parameters
-                // (calls with a return value or async) and declare `resp`
-                // plus `_new_{name}` conversion locals; reject parameter
-                // names that would collide.
+                // (calls with a return value or async), declare `resp`,
+                // `resp_ref`, `buffer` and `_new_{name}` locals and reference
+                // `C`, `unsafe` and (for calls with a return value) `runtime`;
+                // reject parameter names that would collide.
                 let mut derived_names = HashSet::new();
                 for param in params.iter() {
                     let name = param.name.to_string();
+                    let raw = name.strip_prefix("r#").unwrap_or(&name);
+                    if raw != name {
+                        let msg = format!(
+                            "function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                        );
+                        sbail!(msg)
+                    }
+                    if crate::common::is_go_keyword(raw) {
+                        let msg = format!(
+                            "function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                        );
+                        sbail!(msg)
+                    }
                     let collides = ((is_async || ret.is_some())
                         && matches!(name.as_str(), "slot" | "cb"))
-                        || (ret.is_some() && name == "resp");
+                        || (ret.is_some()
+                            && matches!(name.as_str(), "resp" | "resp_ref" | "buffer" | "runtime"));
                     if collides {
                         let msg = format!(
                             "function parameter `{name}` collides with the generated Go export"
@@ -437,10 +471,15 @@ mod tests {
             "pub trait T { fn f(slot: u8) -> u8; }",
             "pub trait T { async fn f(cb: u8) -> u8; }",
             "pub trait T { fn f(resp: u8) -> u8; }",
+            "pub trait T { fn f(resp_ref: u8) -> u8; }",
+            "pub trait T { fn f(buffer: u8) -> u8; }",
+            "pub trait T { fn f(runtime: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(buffer: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(offset: u8) -> u8; }",
         ] {
             let err = err_of(src);
             assert!(
-                err.contains("collides with the generated Go export"),
+                err.contains("collides with the generated"),
                 "{src}: {err}"
             );
         }
@@ -450,6 +489,17 @@ mod tests {
             err.contains("collides with the generated variable"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn rejects_go_keyword_params() {
+        for name in ["func", "map", "select", "var"] {
+            let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
+            assert!(err.contains("Go keyword"), "{name}: {err}");
+        }
+        // Raw identifiers are never representable in Go either.
+        let err = err_of("pub trait T { fn f(r#range: u8); }");
+        assert!(err.contains("raw identifier"), "{err}");
     }
 
     #[test]

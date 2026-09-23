@@ -13,6 +13,12 @@
 #define RTMP0 R9
 #define RTMP1 R10
 #define RTMP2 R11
+// The Microsoft x64 convention requires the caller to reserve a 32-byte
+// shadow space below the call, which the callee may use to spill its
+// register arguments. Without it a spill overwrites whatever lives above
+// the current SP (here: the saved g and SP that the epilogue restores).
+#define RESERVE_SHADOW_SPACE SUBQ    $32, SP
+#define RELEASE_SHADOW_SPACE ADDQ    $32, SP
 #else
 #define RARG0 DI
 #define RARG1 SI
@@ -20,6 +26,8 @@
 #define RTMP0 R8
 #define RTMP1 R9
 #define RTMP2 R10
+#define RESERVE_SHADOW_SPACE
+#define RELEASE_SHADOW_SPACE
 #endif
 
 #define G0ASMCALL                                         \
@@ -43,7 +51,9 @@
     PUSHQ   RTMP2                                         \
                                                           \
     /* call the function */                               \
+    RESERVE_SHADOW_SPACE                                  \
     CALL    AX                                            \
+    RELEASE_SHADOW_SPACE                                  \
                                                           \
     /* restore g and SP */                                \
     POPQ    g                                             \
@@ -51,7 +61,9 @@
     RET
 
 #define ASMCALL                                           \
+    RESERVE_SHADOW_SPACE                                  \
     CALL    AX                                            \
+    RELEASE_SHADOW_SPACE                                  \
     RET
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0

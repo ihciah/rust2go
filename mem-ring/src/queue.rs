@@ -386,6 +386,23 @@ impl<T> WriteQueue<T> {
             select! {
                 _ = unstuck_awaiter.wait() => (),
                 _ = &mut exit => {
+                    // Wake the waiters of items that are still pending so
+                    // awaiting `push_with_awaiter` futures resolve when the
+                    // write queue is dropped instead of hanging forever.
+                    #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                    let mut inner = inner.lock();
+                    #[cfg(all(feature = "monoio", feature = "tpc"))]
+                    let inner = unsafe { &mut *inner.get() };
+                    for pending_task in inner.pending_tasks.iter_mut() {
+                        if let Some(waiter) = pending_task.waiter.take() {
+                            #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                            waiter.lock().wake();
+                            #[cfg(all(feature = "monoio", feature = "tpc"))]
+                            unsafe {
+                                (*waiter.get()).wake()
+                            };
+                        }
+                    }
                     return;
                 }
             }
@@ -739,6 +756,18 @@ impl<T> Drop for Queue<T> {
     fn drop(&mut self) {
         unsafe {
             if self.do_drop {
+                // Drop the items still buffered between head and tail before
+                // freeing the buffer: slots in that range hold live values
+                // whose destructors would otherwise never run. Slots outside
+                // it were already moved out by `pop` and must not be dropped.
+                // Peers are documented to stop using the queue before it is
+                // dropped, so the head/tail reads do not race with a writer.
+                let head = (*self.head_ptr).load(Ordering::Acquire);
+                let tail = (*self.tail_ptr).load(Ordering::Acquire);
+                for i in head..tail {
+                    let slot = self.buffer_ptr.add((i % self.buffer_len as u64) as usize);
+                    std::ptr::drop_in_place(slot.cast::<T>());
+                }
                 let slice = std::slice::from_raw_parts_mut(self.buffer_ptr, self.buffer_len);
                 let _ = Box::from_raw(slice as *mut [MaybeUninit<T>]);
                 let _ = Box::from_raw(self.head_ptr);
@@ -764,6 +793,11 @@ pub enum PushResult {
     Pending(PushJoinHandle),
 }
 
+/// Handle to an item parked by [`WriteQueue::push_with_awaiter`] because the
+/// ring was full. The future resolves once the item is queued. If the write
+/// queue is dropped while the item is still pending, the unstuck handler
+/// wakes the waiter on exit and the future resolves without the item being
+/// sent.
 pub struct PushJoinHandle {
     #[cfg(all(feature = "monoio", feature = "tpc"))]
     waker_slot: Rc<UnsafeCell<WakerSlot>>,
@@ -989,6 +1023,28 @@ mod tests {
             assert_eq!(q_read.pop(), Some(2));
         }
 
+        async fn pending_push_awaiter_resolves_on_writer_drop() {
+            let (q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let mut q_read = q_read.read();
+            let q_write = q_write.write().unwrap();
+
+            assert!(q_write.push(1));
+            let handle = match q_write.push_with_awaiter(2) {
+                PushResult::Pending(handle) => handle,
+                PushResult::Ok => panic!("expected pending"),
+            };
+            // Dropping the last WriteQueue clone stops the unstuck handler,
+            // which must wake the parked waiter instead of leaving the
+            // awaiting future pending forever.
+            drop(q_write);
+            handle.await;
+            // The pending item was dropped together with the write queue,
+            // not delivered.
+            assert_eq!(q_read.pop(), Some(1));
+            assert!(q_read.pop().is_none());
+        }
+
         async fn demo_stuck() {
             let (mut tx, mut rx) = channel::<()>();
 
@@ -1205,6 +1261,35 @@ mod tests {
         assert_eq!(q.pop(), Some(6));
         assert!(q.pop().is_none());
         assert!(q.is_empty());
+    }
+
+    #[test]
+    fn drop_queue_drops_buffered_items() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        struct DropCounter(Arc<AtomicUsize>);
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let (mut queue, _meta) = Queue::<DropCounter>::new(4).unwrap();
+        queue.push(DropCounter(counter.clone())).unwrap();
+        queue.push(DropCounter(counter.clone())).unwrap();
+
+        // Popping an item drops it immediately...
+        drop(queue.pop().unwrap());
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        // ...and dropping the queue drops the item still buffered instead
+        // of leaking it.
+        drop(queue);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
     #[test]

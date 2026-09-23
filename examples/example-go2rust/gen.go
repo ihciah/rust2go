@@ -272,6 +272,8 @@ func (G2RCallImpl) demo_log(name *string, age *uint8) {
 	runtime.KeepAlive(_internal_params)
 	runtime.KeepAlive(name_buffer)
 	runtime.KeepAlive(age_buffer)
+	runtime.KeepAlive(name)
+	runtime.KeepAlive(age)
 }
 func (G2RCallImpl) demo_convert_name(user *DemoUser) string {
 	_internal_slot := [2]unsafe.Pointer{}
@@ -282,6 +284,7 @@ func (G2RCallImpl) demo_convert_name(user *DemoUser) string {
 	runtime.KeepAlive(_internal_slot)
 	runtime.KeepAlive(_internal_params)
 	runtime.KeepAlive(user_buffer)
+	runtime.KeepAlive(user)
 	val := ownString(*(*C.StringRef)(_internal_slot[0]))
 	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
@@ -298,6 +301,7 @@ func (G2RStatefulCallImpl) incr(by *uint64) uint64 {
 	runtime.KeepAlive(_internal_slot)
 	runtime.KeepAlive(_internal_params)
 	runtime.KeepAlive(by_buffer)
+	runtime.KeepAlive(by)
 	val := newC_uint64_t(*(*C.uint64_t)(_internal_slot[0]))
 	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
 	return val

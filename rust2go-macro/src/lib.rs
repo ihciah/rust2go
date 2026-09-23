@@ -101,35 +101,73 @@ fn parse_attrs(attrs: proc_macro2::TokenStream) -> syn::Result<(Option<syn::Path
     let mut queue_size = None;
 
     type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
-    if let Ok(attrs) = AttributeArgs::parse_terminated.parse2(attrs) {
-        for attr in attrs {
-            match attr {
-                syn::Meta::NameValue(nv) => {
-                    if nv.path.is_ident("binding") {
-                        // `binding = path::to::binding`: the value is the path
-                        // of the module that includes the generated bindings.
-                        if let syn::Expr::Path(expr_path) = nv.value {
-                            binding_path = Some(expr_path.path);
-                        }
-                    } else if nv.path.is_ident("queue_size") {
-                        if let syn::Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Int(litint),
-                            ..
-                        }) = nv.value
-                        {
-                            queue_size = Some(litint.base10_parse::<usize>().map_err(|_| {
-                                syn::Error::new(
-                                    litint.span(),
-                                    "queue_size must be a positive integer that fits into usize",
-                                )
-                            })?);
-                        }
+    // Report malformed attribute lists instead of silently falling back to
+    // the defaults: a typo'd attribute would otherwise change codegen
+    // silently and surface only as confusing downstream errors.
+    let attrs = AttributeArgs::parse_terminated.parse2(attrs).map_err(|e| {
+        syn::Error::new(
+            e.span(),
+            format!("failed to parse `#[rust2go::r2g(...)]` attributes: {e}"),
+        )
+    })?;
+    for attr in attrs {
+        match attr {
+            syn::Meta::NameValue(nv) => {
+                if nv.path.is_ident("binding") {
+                    // `binding = path::to::binding`: the value is the path
+                    // of the module that includes the generated bindings.
+                    let syn::Expr::Path(expr_path) = &nv.value else {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "`binding` expects a path, e.g. `binding = crate::binding`",
+                        ));
+                    };
+                    binding_path = Some(expr_path.path.clone());
+                } else if nv.path.is_ident("queue_size") {
+                    let syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(litint),
+                        ..
+                    }) = &nv.value
+                    else {
+                        return Err(syn::Error::new_spanned(
+                            &nv.value,
+                            "`queue_size` expects an integer literal, e.g. `queue_size = 4096`",
+                        ));
+                    };
+                    let size = litint.base10_parse::<usize>().map_err(|_| {
+                        syn::Error::new(
+                            litint.span(),
+                            "queue_size must be a positive integer that fits into usize",
+                        )
+                    })?;
+                    // A zero-sized ring is permanently full: every call would
+                    // park forever, so reject it at compile time.
+                    if size == 0 {
+                        return Err(syn::Error::new(
+                            litint.span(),
+                            "queue_size must be a positive integer that fits into usize",
+                        ));
                     }
+                    queue_size = Some(size);
+                } else {
+                    return Err(syn::Error::new_spanned(
+                        nv,
+                        format!(
+                            "unknown attribute `{}`; supported attributes are `binding` and `queue_size`",
+                            quote::ToTokens::to_token_stream(&nv.path)
+                        ),
+                    ));
                 }
-                syn::Meta::Path(p) => {
-                    binding_path = Some(p);
-                }
-                _ => {}
+            }
+            syn::Meta::Path(p) => {
+                // A bare path is shorthand for the binding module path.
+                binding_path = Some(p);
+            }
+            syn::Meta::List(list) => {
+                return Err(syn::Error::new_spanned(
+                    list,
+                    "unknown `#[rust2go::r2g]` attribute",
+                ));
             }
         }
     }
@@ -269,6 +307,37 @@ mod tests {
         // error, not a panic.
         let result =
             super::parse_attrs(quote::quote! { queue_size = 999999999999999999999999999999 });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_zero_queue_size_errors() {
+        // A zero-sized ring is permanently full; every call would hang.
+        let result = super::parse_attrs(quote::quote! { queue_size = 0 });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_non_integer_queue_size_errors() {
+        let result = super::parse_attrs(quote::quote! { queue_size = "x" });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_non_path_binding_errors() {
+        let result = super::parse_attrs(quote::quote! { binding = 42 });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_unknown_name_value_attribute_errors() {
+        let result = super::parse_attrs(quote::quote! { mystery = 1 });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_malformed_attrs_errors() {
+        let result = super::parse_attrs(quote::quote! { binding = });
         assert!(result.is_err());
     }
 }

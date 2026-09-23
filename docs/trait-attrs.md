@@ -61,6 +61,7 @@ Note that Go field names are copied verbatim from the Rust field names; only the
 ## Type mapping notes
 
 - `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
+- `String` ↔ Go `string`: Rust strings are always valid UTF-8, so the Rust→Go direction cannot produce invalid data. In the Go→Rust direction (`#[rust2go::g2r]`) a Go string is an arbitrary byte sequence: bytes that are not valid UTF-8 are replaced with U+FFFD (`from_utf8_lossy`) when the value is converted to a Rust `String`. Pass only valid UTF-8 to Go if you need it to arrive unchanged.
 - Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation. Cyclic aliases are rejected: the code generator fails the build with a `cyclic type alias detected` error.
 
 For example, here is the original trait:

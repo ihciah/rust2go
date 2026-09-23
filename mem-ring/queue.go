@@ -80,7 +80,8 @@ type Queue[T any] struct {
 }
 
 type ReadQueue[T any] struct {
-	q Queue[T]
+	q               Queue[T]
+	unstuckNotifier Notifier
 }
 
 type WriteQueue[T any] struct {
@@ -168,8 +169,33 @@ func (q *Queue[T]) markStuck() {
 	atomic.StoreUint32(q.stuckPtr, 1)
 }
 
+func (q *Queue[T]) stuck() bool {
+	return atomic.LoadUint32(q.stuckPtr) == 1
+}
+
+// markUnstuck clears the stuck flag. The reader must notify the unstuck fd
+// afterwards so the parked peer writer flushes its pending tasks; see
+// ReadQueue.pop.
+func (q *Queue[T]) markUnstuck() {
+	atomic.StoreUint32(q.stuckPtr, 0)
+}
+
 func (q Queue[T]) Read() ReadQueue[T] {
-	return ReadQueue[T]{q: q}
+	return ReadQueue[T]{q: q, unstuckNotifier: NewNotifier(q.unstuckFd)}
+}
+
+// pop mirrors ReadQueue::pop in the Rust crate: after every pop — including
+// an empty one — it clears the stuck flag and notifies the unstuck fd so a
+// peer writer whose ring filled up can flush its pending tasks. The writer
+// marks itself stuck (markStuck) and parks its background flusher on the
+// unstuck fd until this notification arrives.
+func (rq *ReadQueue[T]) pop() *T {
+	item := rq.q.pop()
+	if rq.q.stuck() {
+		rq.q.markUnstuck()
+		_ = rq.unstuckNotifier.Notify()
+	}
+	return item
 }
 
 func (q Queue[T]) Write() WriteQueue[T] {
@@ -259,7 +285,7 @@ func (rq *ReadQueue[T]) RunHandler(handler func(T), w ...TinyWaiter) *Guard {
 	c:
 		for {
 			cnt := uint(0)
-			for item := rq.q.pop(); item != nil; item = rq.q.pop() {
+			for item := rq.pop(); item != nil; item = rq.pop() {
 				handler(*item)
 				cnt += 1
 			}

@@ -76,6 +76,15 @@ impl G2RTraitRepr {
             for p in f.params.iter() {
                 out.push_str(&format!("runtime.KeepAlive({}_buffer)\n", p.name));
             }
+            // Keep the user's parameter objects alive too: for
+            // SimpleWrapper types (e.g. String) the ref carries a pointer
+            // straight into the user's memory, which the GC cannot see
+            // through the uintptr conversion. Without this, the backing
+            // memory could be collected while the Rust side still reads it
+            // if the caller's frame does not root the object.
+            for p in f.params.iter() {
+                out.push_str(&format!("runtime.KeepAlive({})\n", p.name));
+            }
 
             if let Some(r) = &f.ret {
                 // val := ownString(*(*C.StringRef)(_internal_slot[0]))

@@ -31,7 +31,7 @@ For detailed example, please checkout [the example projects](./examples).
 
 ### Binding File Notes
 
-- Supported types: `i8`/`i16`/`i32`/`i64`/`isize`, `u8`/`u16`/`u32`/`u64`/`usize`, `f32`/`f64`, `bool`, `char`, `String`, `Vec<T>`, user-defined structs, and non-generic type aliases (e.g. `pub type Amount = i64;`, expanded during code generation). `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
+- Supported types: `i8`/`i16`/`i32`/`i64`/`isize`, `u8`/`u16`/`u32`/`u64`/`usize`, `f32`/`f64`, `bool`, `String`, `Vec<T>`, user-defined structs, and non-generic type aliases (e.g. `pub type Amount = i64;`, expanded during code generation). `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side. Go strings are arbitrary byte sequences: in the Go-to-Rust direction, invalid UTF-8 bytes are replaced with U+FFFD when converted to a Rust `String`. `char` is not supported in Go bindings.
 - Trait functions may take zero, one or multiple parameters; empty (nil) slices are allowed as arguments and return values.
 - Structs keep their own attribute macros (e.g. `#[derive(...)]`) in the generated code, and `#[rust2go::r2g_struct_tag(json = "snake_case")]` adds tags to the generated Go struct fields. See [docs/trait-attrs.md](./docs/trait-attrs.md) for the full attribute reference.
 

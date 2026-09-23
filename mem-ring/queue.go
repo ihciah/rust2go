@@ -93,6 +93,11 @@ type WriteQueue[T any] struct {
 }
 
 func NewQueue[T any](meta QueueMeta) Queue[T] {
+	if meta.BufferLen == 0 {
+		// A zero-sized ring is permanently full: every push would park
+		// forever.
+		panic("mem_ring: NewQueue: BufferLen must be positive")
+	}
 	return Queue[T]{
 		bufferPtr:  unsafe.Pointer(meta.BufferPtr),
 		bufferLen:  meta.BufferLen,

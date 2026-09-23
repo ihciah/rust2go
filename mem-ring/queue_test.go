@@ -401,6 +401,18 @@ func TestReadQueuePopNotifiesUnstuck(t *testing.T) {
 	}
 }
 
+// A zero-sized ring is permanently full and would park every push forever;
+// NewQueue must reject it instead of accepting a configuration that can only
+// deadlock.
+func TestNewQueueRejectsZeroBuffer(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewQueue with BufferLen 0 did not panic")
+		}
+	}()
+	NewQueue[uint64](QueueMeta{})
+}
+
 // NewQueue must wire QueueMeta pointers up the same way as manual
 // construction (fds are irrelevant for push/pop and left unset).
 func TestNewQueueFromMeta(t *testing.T) {

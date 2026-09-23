@@ -148,7 +148,14 @@ impl<T> ReadQueue<T> {
             }
 
             select! {
-                _ = working_awaiter.wait() => (),
+                peer_closed = working_awaiter.wait() => {
+                    // The peer closed the socket: stop instead of spinning
+                    // on the dead fd (the read reports EOF immediately and
+                    // forever).
+                    if peer_closed {
+                        return;
+                    }
+                }
                 _ = &mut exit => {
                     return;
                 }
@@ -187,7 +194,14 @@ impl<T> ReadQueue<T> {
             }
 
             select! {
-                _ = working_awaiter.wait() => (),
+                peer_closed = working_awaiter.wait() => {
+                    // The peer closed the socket: stop instead of spinning
+                    // on the dead fd (the read reports EOF immediately and
+                    // forever).
+                    if peer_closed {
+                        return;
+                    }
+                }
                 _ = &mut exit => {
                     return;
                 }
@@ -437,7 +451,29 @@ impl<T> WriteQueue<T> {
             }
 
             select! {
-                _ = unstuck_awaiter.wait() => (),
+                peer_closed = unstuck_awaiter.wait() => {
+                    // The peer (reader) closed the socket: stop instead of
+                    // spinning on the dead fd, and wake the parked waiters
+                    // like the exit path below does — their items can never
+                    // be delivered anymore.
+                    if peer_closed {
+                        #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                        let mut inner = inner.lock();
+                        #[cfg(all(feature = "monoio", feature = "tpc"))]
+                        let inner = unsafe { &mut *inner.get() };
+                        for pending_task in inner.pending_tasks.iter_mut() {
+                            if let Some(waiter) = pending_task.waiter.take() {
+                                #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                                waiter.lock().wake();
+                                #[cfg(all(feature = "monoio", feature = "tpc"))]
+                                unsafe {
+                                    (*waiter.get()).wake()
+                                };
+                            }
+                        }
+                        return;
+                    }
+                }
                 _ = &mut exit => {
                     // Wake the waiters of items that are still pending so
                     // awaiting `push_with_awaiter` futures resolve when the
@@ -562,6 +598,14 @@ unsafe impl<T: Sync> Sync for Queue<T> {}
 
 impl<T> Queue<T> {
     pub fn new(size: usize) -> Result<(Self, QueueMeta), io::Error> {
+        if size == 0 {
+            // A zero-sized ring is permanently full: every push would park
+            // forever, so reject it up front.
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "mem-ring queue size must be positive",
+            ));
+        }
         // Create both fd pairs before leaking any memory, so a failure here
         // leaks nothing. If the second pair fails, close the first one.
         let (working_fd, working_fd_peer) = new_pair()?;
@@ -848,9 +892,9 @@ pub enum PushResult {
 
 /// Handle to an item parked by [`WriteQueue::push_with_awaiter`] because the
 /// ring was full. The future resolves once the item is queued. If the write
-/// queue is dropped while the item is still pending, the unstuck handler
-/// wakes the waiter on exit and the future resolves without the item being
-/// sent.
+/// queue is dropped — or the peer reader closes the notification socket —
+/// while the item is still pending, the unstuck handler wakes the waiter on
+/// exit and the future resolves without the item being sent.
 pub struct PushJoinHandle {
     #[cfg(all(feature = "monoio", feature = "tpc"))]
     waker_slot: Rc<UnsafeCell<WakerSlot>>,
@@ -1344,6 +1388,13 @@ mod tests {
         // of leaking it.
         drop(queue);
         assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn new_rejects_zero_size() {
+        // A zero-sized ring is permanently full and would park every push
+        // forever.
+        assert!(Queue::<u32>::new(0).is_err());
     }
 
     #[test]

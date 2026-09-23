@@ -129,20 +129,31 @@ impl Awaiter {
         Ok(Self { unix_stream })
     }
 
+    /// Waits until the peer notifies. Returns `true` when the peer end has
+    /// been closed (or the read failed): the socket then reports EOF
+    /// immediately and forever, so callers must stop instead of spinning on
+    /// a dead fd.
     #[cfg(feature = "monoio")]
-    pub(crate) async fn wait(&mut self) {
+    pub(crate) async fn wait(&mut self) -> bool {
         // Pass an owned buffer to the read op so the buffer lives as long as
         // the op itself. Using a thread_local buffer with a raw pointer is
         // unsound: the spawned task holding this read may leak (outlive the
         // runtime) and the kernel could write into freed TLS memory.
         let buf = vec![0; 64];
-        let _ = self.unix_stream.read(buf).await;
+        match self.unix_stream.read(buf).await {
+            Ok((Ok(n), _)) => n == 0,
+            _ => true,
+        }
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
-    pub(crate) async fn wait(&mut self) {
+    pub(crate) async fn wait(&mut self) -> bool {
         let mut buf: [u8; 64] = [0; 64];
-        let _ = self.unix_stream.read(&mut buf).await;
+        match self.unix_stream.read(&mut buf).await {
+            Ok(0) => true,
+            Ok(_) => false,
+            Err(_) => true,
+        }
     }
 }
 
@@ -202,7 +213,7 @@ mod tests {
             assert!(awaiter.as_raw_fd() >= 0);
             // Wake the awaiter by writing to the peer end.
             unsafe { libc::write(peer, &0u8 as *const u8 as *const libc::c_void, 1) };
-            awaiter.wait().await;
+            assert!(!awaiter.wait().await);
             unsafe { libc::close(peer) };
         }
     }

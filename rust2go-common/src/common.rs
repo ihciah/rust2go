@@ -502,6 +502,31 @@ pub fn classify_ref_field(ident: &Ident) -> RefFieldClass {
     }
 }
 
+/// The owned-conversion helper names the g2r wrapper's return path calls:
+/// `newC_*` for primitives, `own{Type}` for custom types and
+/// `new_list_mapper(...)` (with the element's owned helpers) for lists,
+/// mirroring `c_to_go_field_converter_owned`.
+pub fn go_owned_converter_names(ty: &ParamType) -> Vec<String> {
+    match &ty.inner {
+        ParamTypeInner::Primitive(name) => {
+            if let Some(info) = primitive_by_rust_ident(&name.to_string()) {
+                if info.has_go_converters {
+                    return vec![format!("newC_{}", info.c_name)];
+                }
+            }
+            Vec::new()
+        }
+        ParamTypeInner::Custom(ident) => vec![format!("own{}", ident)],
+        ParamTypeInner::List(inner) => {
+            let mut out = vec!["new_list_mapper".to_string()];
+            if let Ok(inner) = ParamType::try_from(inner) {
+                out.extend(go_owned_converter_names(&inner));
+            }
+            out
+        }
+    }
+}
+
 /// Whether a parameter name is a Go keyword: the generated Go bindings paste
 /// parameter names into Go identifier positions verbatim, so a keyword would
 /// produce invalid Go.

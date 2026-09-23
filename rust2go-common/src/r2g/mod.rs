@@ -260,13 +260,10 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         sbail!(msg)
                     }
                     let sync_ret = !is_async && ret.is_some();
+                    let call_type = if cgo_cb { "cgocall" } else { "asmcall" };
                     let collides = ((is_async || ret.is_some())
-                        && matches!(name.as_str(), "slot" | "cb"))
-                        || (ret.is_some()
-                            && matches!(
-                                name.as_str(),
-                                "cvt_ref" | "runtime" | "asmcall" | "cgocall"
-                            ))
+                        && (matches!(name.as_str(), "slot" | "cb") || name == call_type))
+                        || (ret.is_some() && matches!(name.as_str(), "cvt_ref" | "runtime"))
                         || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"))
                         || name == impl_name;
                     if collides {
@@ -548,6 +545,11 @@ mod tests {
         // Async exports declare their conversion locals inside a closure,
         // where they shadow the parameter names; those stay legal.
         assert!(parse("pub trait T { async fn f(buffer: u8) -> u8; }").is_ok());
+        // The export references exactly one of asmcall/cgocall; the other
+        // stays legal as a parameter name.
+        assert!(parse("pub trait T { #[cgo_callback] fn f(asmcall: u8) -> u8; }").is_ok());
+        let err = err_of("pub trait T { #[cgo_callback] fn f(cgocall: u8) -> u8; }");
+        assert!(err.contains("collides with the generated"), "{err}");
         // `_new_{name}` conversion locals must not collide either.
         let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");
         assert!(

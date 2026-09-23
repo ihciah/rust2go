@@ -104,8 +104,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             // by name; a parameter named like one of them shadows the helper
             // and generates invalid Go. The counting/writing helpers
             // (`cnt*`/`ref*`) come from the parameter types, the owned
-            // conversion (`own{Type}` / `newC_*` / the list mappers) from the
-            // return type.
+            // conversion helpers from the return type.
             let mut converter_names = HashSet::new();
             for param in params.iter() {
                 converter_names.extend(crate::common::go_converter_names(
@@ -116,7 +115,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 ));
             }
             if let Some(ret) = ret.as_ref() {
-                converter_names.extend(crate::common::go_converter_names(ret, true, false, true));
+                converter_names.extend(crate::common::go_owned_converter_names(ret));
             }
             let mut derived_names = HashSet::new();
             for param in params.iter() {
@@ -141,10 +140,10 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                     sbail!(msg)
                 }
                 let ret_path_names = ["_internal_slot", "val"];
-                let collides = matches!(
-                    name.as_str(),
-                    "_internal_params" | "C" | "runtime" | "cvt_ref" | "asmcall" | "cgocall"
-                ) || (ret.is_some() && ret_path_names.contains(&name.as_str()));
+                let call_type = if cgo_call { "cgocall" } else { "asmcall" };
+                let collides = matches!(name.as_str(), "_internal_params" | "C" | "runtime" | "cvt_ref")
+                    || name == call_type
+                    || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                 if collides {
                     let msg = format!(
                         "g2r function parameter `{name}` collides with the generated Go wrapper"
@@ -346,7 +345,25 @@ mod tests {
         // is decode-only, and ownU is only a return-type helper when the
         // return type is U.
         assert!(parse("pub trait T { fn f(newU: U); }").is_ok());
+        assert!(parse("pub trait T { fn f(newU: u8) -> U; }").is_ok());
         assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
+    }
+
+    #[test]
+    fn rejects_only_the_referenced_call_helper() {
+        // The wrapper references exactly one of asmcall/cgocall; the other
+        // stays legal as a parameter name.
+        assert!(parse("pub trait T { #[cgo_call] fn f(asmcall: u8) -> u8; }").is_ok());
+        let err = err_of("pub trait T { #[cgo_call] fn f(cgocall: u8) -> u8; }");
+        assert!(
+            err.contains("collides with the generated Go wrapper"),
+            "{err}"
+        );
+        let err = err_of("pub trait T { fn f(asmcall: u8) -> u8; }");
+        assert!(
+            err.contains("collides with the generated Go wrapper"),
+            "{err}"
+        );
     }
 
     #[test]

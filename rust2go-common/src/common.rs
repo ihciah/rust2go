@@ -590,7 +590,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "newC_")
-                    .unwrap_or_else(|| panic!("rust primitive type `{name}` is not supported in Go bindings")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -622,7 +622,7 @@ impl ParamType {
     pub fn c_to_go_field_converter_owned(&self) -> String {
         match &self.inner {
             ParamTypeInner::Primitive(name) => go_primitive_converter(name, "newC_")
-                .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
+                .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
             ParamTypeInner::Custom(c) => format!("own{}", c.to_string().as_str()),
             ParamTypeInner::List(inner) => {
                 let seg = type_to_segment(inner).unwrap();
@@ -645,7 +645,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "cntC_")
-                    .unwrap_or_else(|| panic!("rust primitive type `{name}` is not supported in Go bindings")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -678,7 +678,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "refC_")
-                    .unwrap_or_else(|| panic!("rust primitive type `{name}` is not supported in Go bindings")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (

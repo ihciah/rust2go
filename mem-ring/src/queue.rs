@@ -1270,6 +1270,7 @@ mod tests {
             Arc,
         };
 
+        #[derive(Debug)]
         struct DropCounter(Arc<AtomicUsize>);
         impl Drop for DropCounter {
             fn drop(&mut self) {

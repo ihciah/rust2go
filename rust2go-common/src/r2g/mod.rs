@@ -184,13 +184,17 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         );
                         sbail!(msg)
                     }
+                    let ret_path_names = [
+                        "resp",
+                        "resp_ref",
+                        "resp_ref_size",
+                        "buffer",
+                        "offset",
+                        "cvt_ref_cap",
+                    ];
                     let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func" | "ants")
                         || (name == "C" && (params.len() > 1 || ret.is_some()))
-                        || (ret.is_some()
-                            && matches!(
-                                name.as_str(),
-                                "resp" | "resp_ref" | "resp_ref_size" | "buffer" | "offset" | "cvt_ref_cap"
-                            ));
+                        || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                     if collides {
                         let msg = format!(
                             "mem function parameter `{name}` collides with the generated ring handler"
@@ -228,10 +232,10 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         );
                         sbail!(msg)
                     }
+                    let ret_path_names = ["resp", "resp_ref", "buffer", "runtime"];
                     let collides = ((is_async || ret.is_some())
                         && matches!(name.as_str(), "slot" | "cb"))
-                        || (ret.is_some()
-                            && matches!(name.as_str(), "resp" | "resp_ref" | "buffer" | "runtime"));
+                        || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                     if collides {
                         let msg = format!(
                             "function parameter `{name}` collides with the generated Go export"

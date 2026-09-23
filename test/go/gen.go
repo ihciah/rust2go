@@ -270,7 +270,7 @@ func CTestCall_transfer(from C.uint64_t, to C.uint64_t, slot *C.void, cb *C.void
 
 //export RingsInitTestCall
 func RingsInitTestCall(crr, crw C.QueueMeta) {
-	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0,ringHandleTestCall1})
+	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0, ringHandleTestCall1})
 }
 
 // An alternative impl of unsafe.String for go1.18

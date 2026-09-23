@@ -68,7 +68,9 @@ impl G2RTraitRepr {
                     // concrete type, which runs the destructors and frees
                     // with the correct layout (a `dyn Any` round-trip would
                     // lose the vtable and leak the payload).
-                    let drop_ptr = ::std::boxed::Box::leak(_internal_boxed_storage) as *mut ();
+                    let _internal_storage_ptr =
+                        ::std::boxed::Box::leak(_internal_boxed_storage);
+                    let drop_ptr = _internal_storage_ptr as *mut _ as *mut ();
 
                     *_internal_slot = [ret_ptr, drop_ptr];
                 }
@@ -85,9 +87,11 @@ impl G2RTraitRepr {
                 quote! {
                     #[no_mangle]
                     unsafe extern "C" fn #drop_fn_name(ptr: *mut ()) {
-                        drop(::std::boxed::Box::from_raw(
-                            ptr as *mut (#ret_ty, <#ret_ty as ::rust2go::ToRef>::Ref, ::std::vec::Vec<u8>),
-                        ));
+                        drop(::std::boxed::Box::from_raw(ptr as *mut (
+                            #ret_ty,
+                            <#ret_ty as ::rust2go::ToRef>::Ref,
+                            ::std::vec::Vec<u8>,
+                        )));
                     }
                 }
             });

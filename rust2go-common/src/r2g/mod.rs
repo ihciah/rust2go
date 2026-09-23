@@ -391,7 +391,10 @@ mod tests {
     #[test]
     fn rejects_mem_params_with_conversion_collision() {
         let err = err_of("pub trait T { #[mem] fn f(x: u8, x_: u8); }");
-        assert!(err.contains("collides with the generated variable"), "{err}");
+        assert!(
+            err.contains("collides with the generated variable"),
+            "{err}"
+        );
     }
 
     #[test]

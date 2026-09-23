@@ -56,7 +56,7 @@ impl G2RTraitRepr {
                 quote! { <Self as #trait_name>::#f_name(#(#param_names),*) }
             };
 
-            let bottom = if let Some(ret_ty) = &f.ret_ty {
+            let bottom = if f.ret_ty.is_some() {
                 quote! {
                     let _internal_out = #call_expr;
                     let (_internal_buf, _internal_out_ref) = ::rust2go::ToRef::calc_ref(&_internal_out);

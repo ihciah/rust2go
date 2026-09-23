@@ -1439,7 +1439,8 @@ mod tests {
     }
 
     // A primitive ident that is not in the shared table (u128) drives every
-    // "unrecognized rust primitive type" panic arm.
+    // panic arm: the type-name lookups report it as unrecognized, the Go
+    // converter lookups report it as unsupported in Go bindings.
     fn bogus_primitive() -> super::ParamType {
         super::ParamType {
             inner: super::ParamTypeInner::Primitive(ident("u128")),
@@ -1460,25 +1461,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_c_to_go_converter_panics() {
         bogus_primitive().c_to_go_field_converter(&Default::default());
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_c_to_go_owned_converter_panics() {
         bogus_primitive().c_to_go_field_converter_owned();
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_go_to_c_counter_panics() {
         bogus_primitive().go_to_c_field_counter(&Default::default());
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_go_to_c_converter_panics() {
         bogus_primitive().go_to_c_field_converter(&Default::default());
     }

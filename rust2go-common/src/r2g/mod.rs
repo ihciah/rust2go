@@ -482,10 +482,7 @@ mod tests {
             "pub trait T { #[mem] async fn f(offset: u8) -> u8; }",
         ] {
             let err = err_of(src);
-            assert!(
-                err.contains("collides with the generated"),
-                "{src}: {err}"
-            );
+            assert!(err.contains("collides with the generated"), "{src}: {err}");
         }
         // `_new_{name}` conversion locals must not collide either.
         let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");

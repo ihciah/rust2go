@@ -116,8 +116,10 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                     sbail!(msg)
                 }
                 let ret_path_names = ["_internal_slot", "val"];
-                let collides = matches!(name.as_str(), "_internal_params" | "C" | "runtime" | "cvt_ref")
-                    || (ret.is_some() && ret_path_names.contains(&name.as_str()));
+                let collides = matches!(
+                    name.as_str(),
+                    "_internal_params" | "C" | "runtime" | "cvt_ref"
+                ) || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                 if collides {
                     let msg = format!(
                         "g2r function parameter `{name}` collides with the generated Go wrapper"

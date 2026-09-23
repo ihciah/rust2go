@@ -328,9 +328,25 @@ func (wq *WriteQueue[T]) Push(item T) {
 			_ = wq.workingNotifier.Notify()
 			return
 		}
-	} else {
-		wq.q.markStuck()
-		wq.pendingTasks.PushBack(item)
+		wq.Lock.Unlock()
+		return
 	}
+	// The ring is full: park the item and tell the reader it is stuck.
+	wq.q.markStuck()
+	// The reader may have drained the ring between the failed push and the
+	// markStuck above. If so, deliver directly instead of parking: the
+	// flusher is asleep on the unstuck fd and the reader only checks the
+	// stuck flag while popping, so nobody would wake it.
+	if !wq.q.isFull() && wq.q.push(item) {
+		if !wq.q.working() {
+			wq.q.markWorking()
+			wq.Lock.Unlock()
+			_ = wq.workingNotifier.Notify()
+			return
+		}
+		wq.Lock.Unlock()
+		return
+	}
+	wq.pendingTasks.PushBack(item)
 	wq.Lock.Unlock()
 }

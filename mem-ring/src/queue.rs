@@ -242,6 +242,27 @@ impl<T> WriteQueue<T> {
 
         // The queue is full now
         inner.queue.mark_stuck();
+        // The reader may have drained the ring between the failed push and
+        // the mark_stuck above. If so, deliver directly instead of parking:
+        // the unstuck handler is asleep on the unstuck fd and the reader
+        // only checks the stuck flag while popping, so nobody would wake it.
+        let item = if !inner.queue.is_full() {
+            match inner.queue.push(item) {
+                Ok(_) => {
+                    if !inner.queue.working() {
+                        inner.queue.mark_working();
+                        #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                        drop(inner);
+                        let _ = self.working_notifier.notify();
+                    }
+                    return true;
+                }
+                Err(item) => item,
+            }
+        } else {
+            item
+        };
+
         let pending = PendingTask {
             data: Some(item),
             waiter: None,
@@ -264,6 +285,18 @@ impl<T> WriteQueue<T> {
 
         // The queue is full now
         inner.queue.mark_stuck();
+        // See `push`: the reader may have drained the ring between the
+        // failed push and the mark_stuck above, so deliver directly if the
+        // ring has space again instead of parking the item forever.
+        let item = if !inner.queue.is_full() {
+            match inner.queue.push(item) {
+                Ok(_) => return true,
+                Err(item) => item,
+            }
+        } else {
+            item
+        };
+
         let pending = PendingTask {
             data: Some(item),
             waiter: None,
@@ -321,6 +354,26 @@ impl<T> WriteQueue<T> {
 
         // The queue is full now
         inner.queue.mark_stuck();
+        // See `push`: the reader may have drained the ring between the
+        // failed push and the mark_stuck above, so deliver directly if the
+        // ring has space again instead of parking the item forever.
+        let item = if !inner.queue.is_full() {
+            match inner.queue.push(item) {
+                Ok(_) => {
+                    if !inner.queue.working() {
+                        inner.queue.mark_working();
+                        #[cfg(not(all(feature = "monoio", feature = "tpc")))]
+                        drop(inner);
+                        let _ = self.working_notifier.notify();
+                    }
+                    return PushResult::Ok;
+                }
+                Err(item) => item,
+            }
+        } else {
+            item
+        };
+
         #[cfg(not(all(feature = "monoio", feature = "tpc")))]
         let waker_slot = Arc::new(Mutex::new(WakerSlot::None));
         #[cfg(all(feature = "monoio", feature = "tpc"))]

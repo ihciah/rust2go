@@ -382,10 +382,11 @@ mod tests {
     async fn oneway_mem_call() {
         // Oneway #[mem] calls are processed asynchronously by the Go side:
         // the ring handler decodes the parameters, invokes the Go impl and
-        // acks with a DROP payload that frees the boxed parameters. Calling
-        // twice and waiting gives both round trips time to complete; a
-        // regression in the handler or the ack path would crash or hang
-        // the test binary.
+        // acks with a DROP payload that frees the boxed parameters. The Go
+        // impl counts every invocation; polling through the sync getter
+        // asserts the calls were actually delivered — a regression to the
+        // ack-only stub would never increment the counter.
+        let before = TestCallImpl::oneway_ping_count();
         let user = User {
             id: 7,
             name: "oneway".to_string(),
@@ -393,7 +394,13 @@ mod tests {
         };
         unsafe { TestCallImpl::oneway_ping(&user) };
         unsafe { TestCallImpl::oneway_ping(&user) };
-        monoio::time::sleep(std::time::Duration::from_millis(200)).await;
+        for _ in 0..250 {
+            if TestCallImpl::oneway_ping_count() == before + 2 {
+                break;
+            }
+            monoio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(TestCallImpl::oneway_ping_count(), before + 2);
     }
 
     #[test]

@@ -162,16 +162,23 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
             }
             // The generated Go calls the per-type converter helpers by name;
             // a parameter named like one of them shadows the helper and
-            // generates invalid Go.
+            // generates invalid Go. The decode helpers (`new*`) come from the
+            // parameter types, the counting/writing helpers (`cnt*`/`ref*`)
+            // from the return type.
             let mut converter_names = HashSet::new();
             for param in params.iter() {
                 converter_names.extend(crate::common::go_converter_names(
                     param.ty(),
                     true,
-                    ret.is_some(),
+                    false,
                     false,
                 ));
             }
+            if let Some(ret) = ret.as_ref() {
+                converter_names
+                    .extend(crate::common::go_converter_names(ret, false, true, false));
+            }
+            let impl_name = format!("{}Impl", trait_name);
             if using_mem {
                 // The generated ring handlers decode parameters into locals
                 // named after the parameters themselves (plus a `{name}_`
@@ -181,7 +188,7 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                 // `buffer`, `offset` and `cvt_ref_cap`; reject parameter
                 // names that would collide and generate invalid Go.
                 let mut derived_names = HashSet::new();
-                for param in params.iter() {
+                for (idx, param) in params.iter().enumerate() {
                     let name = param.name.to_string();
                     let raw = name.strip_prefix("r#").unwrap_or(&name);
                     if raw != name {
@@ -202,10 +209,12 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         );
                         sbail!(msg)
                     }
+                    let has_later = idx + 1 != params.len();
                     let ret_reserved = ["cvt_ref_cap", "uint", "byte", "len", "append"];
-                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func")
-                        || (name == "uintptr" && params.len() > 1)
-                        || (name == "C" && (params.len() > 1 || ret.is_some()))
+                    let collides = matches!(name.as_str(), "pool" | "post_func")
+                        || (has_later && matches!(name.as_str(), "ptr" | "uintptr"))
+                        || (name == "C" && (has_later || ret.is_some()))
+                        || (name == impl_name)
                         || (ret.is_some() && ret_reserved.contains(&name.as_str()))
                         || (!ret.is_some() && name == "nil");
                     if collides {
@@ -259,7 +268,8 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                                 name.as_str(),
                                 "cvt_ref" | "runtime" | "asmcall" | "cgocall"
                             ))
-                        || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"));
+                        || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"))
+                        || name == impl_name;
                     if collides {
                         let msg = format!(
                             "function parameter `{name}` collides with the generated Go export"
@@ -560,19 +570,39 @@ mod tests {
 
     #[test]
     fn rejects_params_named_like_converters() {
+        // The decode helpers derive from the parameter types.
         let err = err_of("pub trait T { fn f(newU: U); }");
         assert!(
             err.contains("collides with the generated converter helper"),
             "{err}"
         );
-        let err = err_of("pub trait T { fn f(cntU: U) -> u8; }");
+        // The counting/writing helpers derive from the return type.
+        let err = err_of("pub trait T { fn f(cntC_uint64_t: u8) -> u64; }");
         assert!(
             err.contains("collides with the generated converter helper"),
             "{err}"
         );
-        // Converter groups the r2g exports never call stay legal.
+        // Converter groups the r2g exports never call stay legal: own{Type}
+        // is g2r-only, and cntU is only a parameter-type helper when the
+        // return type uses it.
         assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
+        assert!(parse("pub trait T { fn f(cntU: U) -> u8; }").is_ok());
         assert!(parse("pub trait T { fn f(plain: U); }").is_ok());
+    }
+
+    #[test]
+    fn rejects_params_named_like_impl_var_or_handler_locals() {
+        let err = err_of("pub trait T { fn f(TImpl: u8); }");
+        assert!(err.contains("collides with the generated"), "{err}");
+        // `ptr` only collides when a later parameter's decode/advance uses it.
+        assert!(parse("pub trait T { #[mem] fn f(ptr: u8); }").is_ok());
+        let err = err_of("pub trait T { #[mem] fn f(ptr: u8, x: u8); }");
+        assert!(
+            err.contains("collides with the generated ring handler"),
+            "{err}"
+        );
+        // A last-position `C` in a oneway handler never shadows a later use.
+        assert!(parse("pub trait T { #[mem] fn f(x: u8, C: u8); }").is_ok());
     }
 
     #[test]

@@ -100,14 +100,24 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             // and `cvt_ref`, and call the per-type converter helpers by
             // name; reject parameter names that would collide and generate
             // invalid Go.
+            // The generated Go wrappers call the per-type converter helpers
+            // by name; a parameter named like one of them shadows the helper
+            // and generates invalid Go. The counting/writing helpers
+            // (`cnt*`/`ref*`) come from the parameter types, the owned
+            // conversion (`own{Type}` / `newC_*` / the list mappers) from the
+            // return type.
             let mut converter_names = HashSet::new();
             for param in params.iter() {
                 converter_names.extend(crate::common::go_converter_names(
                     param.ty(),
                     false,
                     true,
-                    ret.is_some(),
+                    false,
                 ));
+            }
+            if let Some(ret) = ret.as_ref() {
+                converter_names
+                    .extend(crate::common::go_converter_names(ret, true, false, true));
             }
             let mut derived_names = HashSet::new();
             for param in params.iter() {
@@ -316,18 +326,28 @@ mod tests {
 
     #[test]
     fn rejects_params_named_like_converters() {
+        // The counting/writing helpers derive from the parameter types.
         let err = err_of("pub trait T { fn f(refU: U); }");
         assert!(
             err.contains("collides with the generated converter helper"),
             "{err}"
         );
-        let err = err_of("pub trait T { fn f(ownU: U) -> u8; }");
+        // The owned-conversion helpers derive from the return type.
+        let err = err_of("pub trait T { fn f(ownU: u8) -> U; }");
         assert!(
             err.contains("collides with the generated converter helper"),
             "{err}"
         );
-        // Converter groups the g2r wrappers never call stay legal.
+        let err = err_of("pub trait T { fn f(newC_uint64_t: u8) -> u64; }");
+        assert!(
+            err.contains("collides with the generated converter helper"),
+            "{err}"
+        );
+        // Converter groups the g2r wrappers never call stay legal: new{Type}
+        // is decode-only, and ownU is only a return-type helper when the
+        // return type is U.
         assert!(parse("pub trait T { fn f(newU: U); }").is_ok());
+        assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
     }
 
     #[test]

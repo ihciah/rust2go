@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 type Demo struct {
@@ -181,8 +182,15 @@ func (d *Demo) multi_param_test(user *User, message *string, token *[]uint8) Log
 	}
 }
 
+var onewayPingCount uint64
+
 func (d *Demo) oneway_ping(user *User) {
+	atomic.AddUint64(&onewayPingCount, 1)
 	fmt.Printf("[go] oneway_ping received user: %s\n", user.name)
+}
+
+func (d *Demo) oneway_ping_count() uint {
+	return uint(atomic.LoadUint64(&onewayPingCount))
 }
 
 func (d *Demo) get_balance(req *BalanceRequest) BalanceResponse {

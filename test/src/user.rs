@@ -110,6 +110,7 @@ pub trait TestCall {
     async fn multi_param_test(user: &User, message: &String, token: &Vec<u8>) -> LoginResponse;
     #[mem]
     fn oneway_ping(user: &User);
+    fn oneway_ping_count() -> usize;
     fn optional_test(optional: Optional) -> Optional;
 
     async fn preserve_struct_attrs_test(

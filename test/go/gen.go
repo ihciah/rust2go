@@ -120,6 +120,7 @@ type TestCall interface {
 	pm_friend(req *PMFriendRequest) PMFriendResponse
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
 	oneway_ping(user *User)
+	oneway_ping_count() uint
 	optional_test(optional *Optional) Optional
 	preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse
 	get_balance(req *BalanceRequest) BalanceResponse
@@ -217,6 +218,16 @@ func ringHandleTestCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 		TestCallImpl.oneway_ping(&user_)
 		post_func(nil, nil, 0)
 	})
+}
+
+//export CTestCall_oneway_ping_count
+func CTestCall_oneway_ping_count(slot *C.void, cb *C.void) {
+	resp := TestCallImpl.oneway_ping_count()
+	resp_ref, buffer := cvt_ref(cntC_uintptr_t, refC_uintptr_t)(&resp)
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
 }
 
 //export CTestCall_optional_test

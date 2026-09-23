@@ -147,8 +147,10 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 }
                 let ret_path_names = ["_internal_slot", "val"];
                 let call_type = if cgo_call { "cgocall" } else { "asmcall" };
-                let collides = matches!(name.as_str(), "_internal_params" | "C" | "runtime" | "cvt_ref")
-                    || name == call_type
+                let collides = matches!(
+                    name.as_str(),
+                    "_internal_params" | "C" | "runtime" | "cvt_ref"
+                ) || name == call_type
                     || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                 if collides {
                     let msg = format!(

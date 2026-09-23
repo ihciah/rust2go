@@ -170,13 +170,17 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                 for param in params.iter() {
                     let name = param.name.to_string();
                     if matches!(name.as_str(), "ptr" | "pool" | "post_func") {
-                        sbail!("mem function parameter `{name}` collides with the generated ring handler")
+                        let msg = format!(
+                            "mem function parameter `{name}` collides with the generated ring handler"
+                        );
+                        sbail!(msg)
                     }
                     for var in [name.clone(), format!("{name}_")] {
                         if !derived_names.insert(var.clone()) {
-                            sbail!(
+                            let msg = format!(
                                 "mem function parameter `{name}` collides with the generated variable `{var}`"
-                            )
+                            );
+                            sbail!(msg)
                         }
                     }
                 }

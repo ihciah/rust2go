@@ -536,7 +536,8 @@ impl TryFrom<&Type> for ParamType {
             RefFieldClass::List => ParamTypeInner::List(ty.clone()),
             _ => {
                 if matches!(seg.ident.to_string().as_str(), "u128" | "i128") {
-                    sbail!("type `{}` is not supported in Go bindings", seg.ident)
+                    let msg = format!("type `{}` is not supported in Go bindings", seg.ident);
+                    sbail!(msg)
                 }
                 if !seg.arguments.is_none() {
                     sbail!("custom types with arguments are not supported")

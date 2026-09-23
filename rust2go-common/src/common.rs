@@ -536,6 +536,57 @@ pub fn is_go_keyword(name: &str) -> bool {
     )
 }
 
+/// The Go converter helper names the generated bindings call for a
+/// parameter of the given type. `new` covers the decode helpers, `cnt_ref`
+/// the counting/writing helpers and `own` the owned-conversion helpers; the
+/// callers enable only the groups their emitted code actually references, so
+/// a parameter named like one of them shadows the helper and generates
+/// invalid Go.
+pub fn go_converter_names(ty: &ParamType, new: bool, cnt_ref: bool, own: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    match &ty.inner {
+        ParamTypeInner::Primitive(name) => {
+            if let Some(info) = primitive_by_rust_ident(&name.to_string()) {
+                if info.has_go_converters {
+                    if new {
+                        out.push(format!("newC_{}", info.c_name));
+                    }
+                    if cnt_ref {
+                        out.push(format!("cntC_{}", info.c_name));
+                        out.push(format!("refC_{}", info.c_name));
+                    }
+                }
+            }
+        }
+        ParamTypeInner::Custom(ident) => {
+            let name = ident.to_string();
+            if new {
+                out.push(format!("new{name}"));
+            }
+            if cnt_ref {
+                out.push(format!("cnt{name}"));
+                out.push(format!("ref{name}"));
+            }
+            if own {
+                out.push(format!("own{name}"));
+            }
+        }
+        ParamTypeInner::List(_) => {
+            if new {
+                out.push("new_list_mapper".into());
+                out.push("new_list_mapper_primitive".into());
+            }
+            if cnt_ref {
+                out.push("cnt_list_mapper".into());
+                out.push("cnt_list_mapper_primitive".into());
+                out.push("ref_list_mapper".into());
+                out.push("ref_list_mapper_primitive".into());
+            }
+        }
+    }
+    out
+}
+
 // Go converter function name for a primitive type: the prefix (`newC_`,
 // `cntC_` or `refC_`) followed by its C type name, e.g. `newC_uint8_t`.
 // Returns None for unknown primitives and for primitives without generated

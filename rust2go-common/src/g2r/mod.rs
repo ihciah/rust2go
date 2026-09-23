@@ -96,9 +96,19 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
             };
             // The generated Go wrappers declare `_internal_slot`,
             // `_internal_params`, `val` and per-parameter `{name}_ref` /
-            // `{name}_buffer` locals and reference `C`, `unsafe`, `runtime`
-            // and `cvt_ref`; reject parameter names that would collide and
-            // generate invalid Go.
+            // `{name}_buffer` locals, reference `C`, `unsafe`, `runtime`
+            // and `cvt_ref`, and call the per-type converter helpers by
+            // name; reject parameter names that would collide and generate
+            // invalid Go.
+            let mut converter_names = HashSet::new();
+            for param in params.iter() {
+                converter_names.extend(crate::common::go_converter_names(
+                    param.ty(),
+                    false,
+                    true,
+                    ret.is_some(),
+                ));
+            }
             let mut derived_names = HashSet::new();
             for param in params.iter() {
                 let name = param.name.to_string();
@@ -112,6 +122,12 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 if crate::common::is_go_keyword(raw) {
                     let msg = format!(
                         "g2r function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                    );
+                    sbail!(msg)
+                }
+                if converter_names.contains(&name) {
+                    let msg = format!(
+                        "g2r function parameter `{name}` collides with the generated converter helper"
                     );
                     sbail!(msg)
                 }
@@ -296,6 +312,22 @@ mod tests {
             let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
             assert!(err.contains("Go keyword"), "{name}: {err}");
         }
+    }
+
+    #[test]
+    fn rejects_params_named_like_converters() {
+        let err = err_of("pub trait T { fn f(refU: U); }");
+        assert!(
+            err.contains("collides with the generated converter helper"),
+            "{err}"
+        );
+        let err = err_of("pub trait T { fn f(ownU: U) -> u8; }");
+        assert!(
+            err.contains("collides with the generated converter helper"),
+            "{err}"
+        );
+        // Converter groups the g2r wrappers never call stay legal.
+        assert!(parse("pub trait T { fn f(newU: U); }").is_ok());
     }
 
     #[test]

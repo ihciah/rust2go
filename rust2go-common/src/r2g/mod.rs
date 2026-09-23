@@ -160,6 +160,18 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     is_safe = false;
                 }
             }
+            // The generated Go calls the per-type converter helpers by name;
+            // a parameter named like one of them shadows the helper and
+            // generates invalid Go.
+            let mut converter_names = HashSet::new();
+            for param in params.iter() {
+                converter_names.extend(crate::common::go_converter_names(
+                    param.ty(),
+                    true,
+                    ret.is_some(),
+                    false,
+                ));
+            }
             if using_mem {
                 // The generated ring handlers decode parameters into locals
                 // named after the parameters themselves (plus a `{name}_`
@@ -181,6 +193,12 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     if crate::common::is_go_keyword(raw) {
                         let msg = format!(
                             "mem function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                        );
+                        sbail!(msg)
+                    }
+                    if converter_names.contains(&name) {
+                        let msg = format!(
+                            "mem function parameter `{name}` collides with the generated converter helper"
                         );
                         sbail!(msg)
                     }
@@ -224,6 +242,12 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     if crate::common::is_go_keyword(raw) {
                         let msg = format!(
                             "function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                        );
+                        sbail!(msg)
+                    }
+                    if converter_names.contains(&name) {
+                        let msg = format!(
+                            "function parameter `{name}` collides with the generated converter helper"
                         );
                         sbail!(msg)
                     }
@@ -532,6 +556,23 @@ mod tests {
         // Raw identifiers are never representable in Go either.
         let err = err_of("pub trait T { fn f(r#range: u8); }");
         assert!(err.contains("raw identifier"), "{err}");
+    }
+
+    #[test]
+    fn rejects_params_named_like_converters() {
+        let err = err_of("pub trait T { fn f(newU: U); }");
+        assert!(
+            err.contains("collides with the generated converter helper"),
+            "{err}"
+        );
+        let err = err_of("pub trait T { fn f(cntU: U) -> u8; }");
+        assert!(
+            err.contains("collides with the generated converter helper"),
+            "{err}"
+        );
+        // Converter groups the r2g exports never call stay legal.
+        assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
+        assert!(parse("pub trait T { fn f(plain: U); }").is_ok());
     }
 
     #[test]

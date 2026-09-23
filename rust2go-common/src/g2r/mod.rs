@@ -94,6 +94,12 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 ReturnType::Default => None,
                 ReturnType::Type(_, t) => Some((**t).clone()),
             };
+            let cgo_call = fn_item
+                .attrs
+                .iter()
+                .any(|attr|
+                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("cgo_call")) || p.get_ident() == Some(&format_ident!("cgo")))
+                );
             // The generated Go wrappers declare `_internal_slot`,
             // `_internal_params`, `val` and per-parameter `{name}_ref` /
             // `{name}_buffer` locals, reference `C`, `unsafe`, `runtime`
@@ -163,12 +169,6 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                     }
                 }
             }
-            let cgo_call = fn_item
-                .attrs
-                .iter()
-                .any(|attr|
-                    matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("cgo_call")) || p.get_ident() == Some(&format_ident!("cgo")))
-                );
             fns.push(G2RFnRepr {
                 name: fn_name,
                 params,

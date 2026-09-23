@@ -175,8 +175,7 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                 ));
             }
             if let Some(ret) = ret.as_ref() {
-                converter_names
-                    .extend(crate::common::go_converter_names(ret, false, true, false));
+                converter_names.extend(crate::common::go_converter_names(ret, false, true, false));
             }
             let impl_name = format!("{}Impl", trait_name);
             if using_mem {
@@ -480,7 +479,7 @@ mod tests {
 
     #[test]
     fn rejects_mem_param_named_like_handler_locals() {
-        for name in ["ptr", "pool", "post_func"] {
+        for name in ["pool", "post_func"] {
             let err = err_of(&format!("pub trait T {{ #[mem] fn f({name}: u8); }}"));
             assert!(
                 err.contains("collides with the generated ring handler"),

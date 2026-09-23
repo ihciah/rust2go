@@ -116,8 +116,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 ));
             }
             if let Some(ret) = ret.as_ref() {
-                converter_names
-                    .extend(crate::common::go_converter_names(ret, true, false, true));
+                converter_names.extend(crate::common::go_converter_names(ret, true, false, true));
             }
             let mut derived_names = HashSet::new();
             for param in params.iter() {

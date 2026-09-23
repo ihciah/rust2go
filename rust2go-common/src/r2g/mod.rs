@@ -184,17 +184,12 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         );
                         sbail!(msg)
                     }
-                    let ret_path_names = [
-                        "resp",
-                        "resp_ref",
-                        "resp_ref_size",
-                        "buffer",
-                        "offset",
-                        "cvt_ref_cap",
-                    ];
-                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func" | "ants")
+                    let ret_reserved = ["cvt_ref_cap", "uint", "byte", "len", "append"];
+                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func")
+                        || (name == "uintptr" && params.len() > 1)
                         || (name == "C" && (params.len() > 1 || ret.is_some()))
-                        || (ret.is_some() && ret_path_names.contains(&name.as_str()));
+                        || (ret.is_some() && ret_reserved.contains(&name.as_str()))
+                        || (!ret.is_some() && name == "nil");
                     if collides {
                         let msg = format!(
                             "mem function parameter `{name}` collides with the generated ring handler"
@@ -232,10 +227,12 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         );
                         sbail!(msg)
                     }
-                    let ret_path_names = ["resp", "resp_ref", "buffer", "runtime"];
+                    let sync_ret = !is_async && ret.is_some();
                     let collides = ((is_async || ret.is_some())
                         && matches!(name.as_str(), "slot" | "cb"))
-                        || (ret.is_some() && ret_path_names.contains(&name.as_str()));
+                        || (ret.is_some()
+                            && matches!(name.as_str(), "cvt_ref" | "runtime" | "asmcall" | "cgocall"))
+                        || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"));
                     if collides {
                         let msg = format!(
                             "function parameter `{name}` collides with the generated Go export"
@@ -453,11 +450,32 @@ mod tests {
                 "{name}: {err}"
             );
         }
-        let err = err_of("pub trait T { #[mem] async fn f(resp: u8) -> u8; }");
+        // `nil` is referenced by the oneway ack, `uint` by the ret-path
+        // conversion.
+        let err = err_of("pub trait T { #[mem] fn f(nil: u8); }");
         assert!(
             err.contains("collides with the generated ring handler"),
             "{err}"
         );
+        let err = err_of("pub trait T { #[mem] async fn f(uint: u8) -> u8; }");
+        assert!(
+            err.contains("collides with the generated ring handler"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn mem_params_shadowed_by_closure_locals_stay_legal() {
+        // The ret-path ring handler declares its conversion locals inside
+        // `pool.Submit(func() { ... })`, where they shadow the decoded
+        // parameters instead of colliding; those names must stay legal.
+        for name in ["resp", "resp_ref", "resp_ref_size", "buffer", "offset", "ants"] {
+            let src = format!("pub trait T {{ #[mem] async fn f({name}: u8) -> u8; }}");
+            assert!(parse(&src).is_ok(), "{name} should be legal");
+        }
+        // A single-parameter oneway handler never references the C package
+        // after the decode, so `C` is legal there too.
+        assert!(parse("pub trait T { #[mem] fn f(C: u8); }").is_ok());
     }
 
     #[test]
@@ -478,12 +496,15 @@ mod tests {
             "pub trait T { fn f(resp_ref: u8) -> u8; }",
             "pub trait T { fn f(buffer: u8) -> u8; }",
             "pub trait T { fn f(runtime: u8) -> u8; }",
-            "pub trait T { #[mem] async fn f(buffer: u8) -> u8; }",
-            "pub trait T { #[mem] async fn f(offset: u8) -> u8; }",
+            "pub trait T { fn f(cvt_ref: u8) -> u8; }",
+            "pub trait T { fn f(asmcall: u8) -> u8; }",
         ] {
             let err = err_of(src);
             assert!(err.contains("collides with the generated"), "{src}: {err}");
         }
+        // Async exports declare their conversion locals inside a closure,
+        // where they shadow the parameter names; those stay legal.
+        assert!(parse("pub trait T { async fn f(buffer: u8) -> u8; }").is_ok());
         // `_new_{name}` conversion locals must not collide either.
         let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");
         assert!(

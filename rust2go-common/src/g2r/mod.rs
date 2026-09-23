@@ -118,7 +118,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 let ret_path_names = ["_internal_slot", "val"];
                 let collides = matches!(
                     name.as_str(),
-                    "_internal_params" | "C" | "runtime" | "cvt_ref"
+                    "_internal_params" | "C" | "runtime" | "cvt_ref" | "asmcall" | "cgocall"
                 ) || (ret.is_some() && ret_path_names.contains(&name.as_str()));
                 if collides {
                     let msg = format!(
@@ -272,6 +272,7 @@ mod tests {
             "pub trait T { fn f(C: u8) -> u8; }",
             "pub trait T { fn f(runtime: u8); }",
             "pub trait T { fn f(cvt_ref: u8); }",
+            "pub trait T { fn f(asmcall: u8) -> u8; }",
         ] {
             let err = err_of(src);
             assert!(

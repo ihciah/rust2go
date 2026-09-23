@@ -141,8 +141,8 @@ impl Awaiter {
         // runtime) and the kernel could write into freed TLS memory.
         let buf = vec![0; 64];
         match self.unix_stream.read(buf).await {
-            Ok((Ok(n), _)) => n == 0,
-            _ => true,
+            (Ok(n), _) => n == 0,
+            (Err(_), _) => true,
         }
     }
 

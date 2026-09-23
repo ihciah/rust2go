@@ -967,7 +967,8 @@ mod tests {
             pub children: Vec<Node>,
         }
         "#;
-        super::RawRsFile::new(raw);
+        let raw_file = super::RawRsFile::new(raw);
+        raw_file.convert_structs_levels().unwrap();
     }
 
     #[test]

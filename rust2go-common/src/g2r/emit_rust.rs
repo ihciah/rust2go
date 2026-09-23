@@ -204,9 +204,18 @@ mod tests {
 
                     let _internal_boxed_storage = ::std::boxed::Box::new((_internal_out, _internal_out_ref, _internal_buf));
                     let ret_ptr = &_internal_boxed_storage.as_ref().1 as *const _ as *const ();
-                    let drop_ptr = ::std::boxed::Box::leak(_internal_boxed_storage as ::std::boxed::Box<dyn ::std::any::Any>) as *mut dyn ::std::any::Any as *mut ();
+                    let _internal_storage_ptr = ::std::boxed::Box::leak(_internal_boxed_storage);
+                    let drop_ptr = _internal_storage_ptr as *mut _ as *mut ();
 
                     *_internal_slot = [ret_ptr, drop_ptr];
+                }
+                #[no_mangle]
+                unsafe extern "C" fn c_G2RCall_demo_check_drop(ptr: *mut ()) {
+                    drop(::std::boxed::Box::from_raw(ptr as *mut (
+                        String,
+                        <String as ::rust2go::ToRef>::Ref,
+                        ::std::vec::Vec<u8>,
+                    )));
                 }
             }
         "#;

@@ -15,6 +15,7 @@ mod emit_go;
 mod emit_rust;
 
 use quote::format_ident;
+use std::collections::HashSet;
 use syn::{Error, FnArg, Ident, ItemTrait, Meta, Pat, Result, ReturnType, TraitItem, Type};
 
 use crate::common::{Param, ParamType};
@@ -93,6 +94,34 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 ReturnType::Default => None,
                 ReturnType::Type(_, t) => Some((**t).clone()),
             };
+            // The generated Go wrappers declare `_internal_slot`,
+            // `_internal_params`, `val` and per-parameter `{name}_ref` /
+            // `{name}_buffer` locals; reject parameter names that would
+            // collide and generate invalid Go.
+            let mut derived_names = HashSet::new();
+            for param in params.iter() {
+                let name = param.name.to_string();
+                let collides = name == "_internal_params"
+                    || (ret.is_some() && matches!(name.as_str(), "_internal_slot" | "val"));
+                if collides {
+                    let msg = format!(
+                        "g2r function parameter `{name}` collides with the generated Go wrapper"
+                    );
+                    sbail!(msg)
+                }
+                for var in [
+                    name.clone(),
+                    format!("{name}_ref"),
+                    format!("{name}_buffer"),
+                ] {
+                    if !derived_names.insert(var.clone()) {
+                        let msg = format!(
+                            "g2r function parameter `{name}` collides with the generated variable `{var}`"
+                        );
+                        sbail!(msg)
+                    }
+                }
+            }
             let cgo_call = fn_item
                 .attrs
                 .iter()
@@ -213,6 +242,30 @@ mod tests {
         let err = err_of("pub trait T { fn f() -> impl Send; }");
         assert!(
             err.contains("only path type returns are supported"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_params_colliding_with_wrapper_locals() {
+        for src in [
+            "pub trait T { fn f(_internal_params: u8); }",
+            "pub trait T { fn f(_internal_slot: u8) -> u8; }",
+            "pub trait T { fn f(val: u8) -> u8; }",
+        ] {
+            let err = err_of(src);
+            assert!(
+                err.contains("collides with the generated Go wrapper"),
+                "{src}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_params_with_conversion_collision() {
+        let err = err_of("pub trait T { fn f(x: u8, x_ref: u8); }");
+        assert!(
+            err.contains("collides with the generated variable"),
             "{err}"
         );
     }

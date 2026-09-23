@@ -63,13 +63,15 @@
 
 #define ASMCALL                                           \
     /* Go only keeps SP 8-byte aligned; normalize to the  \
-       16-byte alignment the SysV/Win64 call requires. */ \
-    MOVQ    SP, RTMP0                                      \
+       16-byte alignment the SysV/Win64 call requires.    \
+       Save the old SP on the stack: a register would be  \
+       caller-saved and the callee may clobber it. */     \
+    PUSHQ   SP                                            \
     ANDQ    $-16, SP                                       \
     RESERVE_SHADOW_SPACE                                  \
     CALL    AX                                            \
     RELEASE_SHADOW_SPACE                                  \
-    MOVQ    RTMP0, SP                                     \
+    POPQ    SP                                            \
     RET
 
 TEXT ·CallFuncG0P0(SB), NOSPLIT|NOPTR|NOFRAME, $0

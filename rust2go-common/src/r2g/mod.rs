@@ -163,13 +163,16 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
             if using_mem {
                 // The generated ring handlers decode parameters into locals
                 // named after the parameters themselves (plus a `{name}_`
-                // conversion variable) and use `ptr`, `pool` and `post_func`
-                // for the handler machinery; reject parameter names that
-                // would collide and generate invalid Go.
+                // conversion variable) and use `ptr`, `pool`, `post_func`
+                // and (for calls with a return value) `resp` for the handler
+                // machinery; reject parameter names that would collide and
+                // generate invalid Go.
                 let mut derived_names = HashSet::new();
                 for param in params.iter() {
                     let name = param.name.to_string();
-                    if matches!(name.as_str(), "ptr" | "pool" | "post_func") {
+                    let collides = matches!(name.as_str(), "ptr" | "pool" | "post_func")
+                        || (ret.is_some() && name == "resp");
+                    if collides {
                         let msg = format!(
                             "mem function parameter `{name}` collides with the generated ring handler"
                         );
@@ -179,6 +182,32 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                         if !derived_names.insert(var.clone()) {
                             let msg = format!(
                                 "mem function parameter `{name}` collides with the generated variable `{var}`"
+                            );
+                            sbail!(msg)
+                        }
+                    }
+                }
+            } else {
+                // The generated Go exports append `slot`/`cb` parameters
+                // (calls with a return value or async) and declare `resp`
+                // plus `_new_{name}` conversion locals; reject parameter
+                // names that would collide.
+                let mut derived_names = HashSet::new();
+                for param in params.iter() {
+                    let name = param.name.to_string();
+                    let collides = ((is_async || ret.is_some())
+                        && matches!(name.as_str(), "slot" | "cb"))
+                        || (ret.is_some() && name == "resp");
+                    if collides {
+                        let msg = format!(
+                            "function parameter `{name}` collides with the generated Go export"
+                        );
+                        sbail!(msg)
+                    }
+                    for var in [name.clone(), format!("_new_{name}")] {
+                        if !derived_names.insert(var.clone()) {
+                            let msg = format!(
+                                "function parameter `{name}` collides with the generated variable `{var}`"
                             );
                             sbail!(msg)
                         }
@@ -386,11 +415,37 @@ mod tests {
                 "{name}: {err}"
             );
         }
+        let err = err_of("pub trait T { #[mem] async fn f(resp: u8) -> u8; }");
+        assert!(
+            err.contains("collides with the generated ring handler"),
+            "{err}"
+        );
     }
 
     #[test]
     fn rejects_mem_params_with_conversion_collision() {
         let err = err_of("pub trait T { #[mem] fn f(x: u8, x_: u8); }");
+        assert!(
+            err.contains("collides with the generated variable"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_params_colliding_with_export_machinery() {
+        for src in [
+            "pub trait T { fn f(slot: u8) -> u8; }",
+            "pub trait T { async fn f(cb: u8) -> u8; }",
+            "pub trait T { fn f(resp: u8) -> u8; }",
+        ] {
+            let err = err_of(src);
+            assert!(
+                err.contains("collides with the generated Go export"),
+                "{src}: {err}"
+            );
+        }
+        // `_new_{name}` conversion locals must not collide either.
+        let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");
         assert!(
             err.contains("collides with the generated variable"),
             "{err}"

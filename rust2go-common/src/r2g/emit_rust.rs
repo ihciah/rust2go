@@ -96,11 +96,12 @@ impl R2GFnRepr {
                     // fn demo_oneway(req: &DemoUser) {
                     //     const CALL_ID: u32 = 0;
                     //     let (buf, ptr) = ::rust2go::ToRef::calc_ref(&::rust2go::CopyStruct((&req,)));
+                    //     let params_ptr = Box::into_raw(Box::new((req,))) as usize;
                     //     Self::WS.with(|(wq, slab)| {
                     //         let slab = unsafe { &mut *slab.get() };
                     //         let sid = slab.insert(::rust2go_mem_ffi::TaskDesc {
                     //             buf,
-                    //             params_ptr: 0,
+                    //             params_ptr,
                     //             slot_ptr: 0,
                     //         });
                     //         wq.push(::rust2go_mem_ffi::Payload::new_call(
@@ -170,7 +171,7 @@ impl R2GFnRepr {
                 //     let (_buf, r) = ::rust2go::ToRef::calc_ref(&r);
                 //     unsafe { binding::CDemoCall_demo_check(
                 //         ::std::mem::transmute(r),
-                //         &slot as *const _ as *const () as *mut _,
+                //         &mut slot as *mut Option<DemoResponse> as *mut _,
                 //         Self::demo_check_cb as *const () as *mut _,
                 //     )}
                 //     slot.take().unwrap()
@@ -202,7 +203,7 @@ impl R2GFnRepr {
                     //     let slab = unsafe { &mut *sb.get() };
                     //     let sid = slab.insert(::rust2go_mem_ffi::TaskDesc {
                     //         buf,
-                    //         params_ptr: Box::leak(Box::new((req,))) as *const _ as usize,
+                    //         params_ptr: Box::into_raw(Box::new((req,))) as usize,
                     //         slot_ptr,
                     //     });
                     //     let payload = ::rust2go_mem_ffi::Payload::new_call(CALL_ID, sid, ptr as usize);

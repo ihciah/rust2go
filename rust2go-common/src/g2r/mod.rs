@@ -305,6 +305,12 @@ mod tests {
     }
 
     #[test]
+    fn rejects_raw_identifier_params() {
+        let err = err_of("pub trait T { fn f(r#type: u8); }");
+        assert!(err.contains("raw identifier"), "{err}");
+    }
+
+    #[test]
     fn rejects_params_with_conversion_collision() {
         let err = err_of("pub trait T { fn f(x: u8, x_ref: u8); }");
         assert!(

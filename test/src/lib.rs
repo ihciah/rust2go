@@ -434,6 +434,14 @@ mod tests {
 
     #[test]
     fn g2r_counter_register_once() {
+        // The counter methods are invoked from Go through the g2r bindings;
+        // exercise them directly as well.
+        let probe = AtomicCounter {
+            count: AtomicU64::new(3),
+        };
+        assert_eq!(probe.incr(2), 5);
+        assert_eq!(probe.current(), 5);
+
         let counter = AtomicCounter {
             count: AtomicU64::new(0),
         };

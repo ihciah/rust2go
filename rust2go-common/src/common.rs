@@ -951,6 +951,7 @@ mod tests {
         pub trait DemoCall {
             fn demo_check(req: DemoRequest, tip: Amount) -> DemoResponse;
             fn demo_list(amounts: Vec<Amount>) -> Money;
+            fn demo_void(amount: Amount);
             fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
         }
         "#;
@@ -978,6 +979,28 @@ mod tests {
         assert_eq!(demo_list.params()[0].ty().to_go(), "[]int64");
         assert_eq!(demo_list.ret().unwrap().to_go(), "int64");
         fns.iter().find(|f| f.name() == "demo_check_async").unwrap();
+    }
+
+    #[test]
+    fn type_alias_expansion_ignores_unsupported_type_forms() {
+        // Aliases whose targets use unsupported type forms must be resolved
+        // without panicking; only bare alias idents are rewritten.
+        let raw = r#"
+        pub struct DemoRequest { pub id: u32 }
+        pub type Assoc = <DemoRequest as Into<i64>>::Output;
+        pub type Lifetimes = Vec<&'static str>;
+        pub type Impl = impl Send;
+        pub type Arr = [u8; 4];
+        pub type Tup = (i64, i64);
+        pub struct Demo {
+            pub a: Assoc,
+            pub b: Lifetimes,
+            pub c: Impl,
+            pub d: Arr,
+            pub e: Tup,
+        }
+        "#;
+        super::RawRsFile::new(raw);
     }
 
     #[test]
@@ -1024,6 +1047,7 @@ mod tests {
         pub struct DemoResponse {
             pub pass: bool,
         }
+        #[::rust2go::r2g]
         pub trait DemoCall {
             fn demo_check(req: DemoRequest) -> DemoResponse;
             fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
@@ -1269,6 +1293,12 @@ mod tests {
             pub user_name: String,
             pub login_count: u32,
         }
+        // A bare tag and a tag with a non-string value are both ignored.
+        #[r2g_struct_tag]
+        #[r2g_struct_tag(num = 5)]
+        pub struct OddTagged {
+            pub x: u8,
+        }
         "#;
         let raw_file = super::RawRsFile::new(raw);
         let levels = raw_file.convert_structs_levels().unwrap();
@@ -1279,6 +1309,8 @@ mod tests {
             go.contains("login_count uint32 `json:\"login_count\"`"),
             "{go}"
         );
+        assert!(go.contains("type OddTagged struct {"), "{go}");
+        assert!(!go.contains("x uint8 `"), "{go}");
     }
 
     #[test]

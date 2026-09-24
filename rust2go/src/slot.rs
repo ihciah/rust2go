@@ -240,6 +240,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn second_write_is_rejected_until_read() {
+        let (reader, writer) = new_atomic_slot::<u32, ()>();
+        let ptr = writer.into_ptr();
+        unsafe { SlotWriter::<u32, ()>::from_ptr(ptr) }.write(1);
+        // The slot is already written and no read happened in between: the
+        // second writer gets its value back instead of overwriting the first.
+        unsafe { SlotWriter::<u32, ()>::from_ptr(ptr) }.write(2);
+        assert_eq!(reader.read(), Some(1));
+        assert!(reader.read().is_none());
+    }
+
+    #[test]
     fn write_then_read() {
         let (reader, writer) = new_atomic_slot::<u32, ()>();
         // nothing written yet

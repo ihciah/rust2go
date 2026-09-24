@@ -1100,6 +1100,41 @@ mod tests {
             assert_eq!(q_read.pop(), Some(1));
         }
 
+        async fn push_without_notify_parks_when_full() {
+            let (mut q_read, meta) = Queue::<u32>::new(1).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let q_write = q_write.write().unwrap();
+
+            assert!(q_write.push_without_notify(1));
+            // the ring is full: the item is parked instead of pushed
+            assert!(!q_write.push_without_notify(2));
+            // popping notifies the unstuck handler, which flushes the parked
+            // item into the freed slot
+            assert_eq!(q_read.pop(), Some(1));
+            let mut got = None;
+            for _ in 0..50 {
+                if let Some(v) = q_read.pop() {
+                    got = Some(v);
+                    break;
+                }
+                sleep(Duration::from_millis(20)).await;
+            }
+            assert_eq!(got, Some(2));
+            assert!(q_read.pop().is_none());
+        }
+
+        async fn write_queue_clone_shares_state() {
+            let (mut q_read, meta) = Queue::<u32>::new(2).unwrap();
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let q_write = q_write.write().unwrap();
+
+            let clone = q_write.clone();
+            assert!(clone.push(1));
+            assert!(q_write.push(2));
+            assert_eq!(q_read.pop(), Some(1));
+            assert_eq!(q_read.pop(), Some(2));
+        }
+
         async fn push_with_awaiter_test() {
             let (q_read, meta) = Queue::<u32>::new(1).unwrap();
             let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();

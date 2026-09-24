@@ -511,6 +511,15 @@ mod tests {
     }
 
     #[test]
+    fn to_size_accumulates() {
+        let mut acc = 0;
+        ().to_size(&mut acc);
+        (1u32, 2u64).to_size(&mut acc);
+        CopyStruct((String::from("x"),)).to_size(&mut acc);
+        assert!(acc > 0);
+    }
+
+    #[test]
     fn mem_type_next() {
         assert!(matches!(MemType::Primitive.next(), MemType::SimpleWrapper));
         assert!(matches!(MemType::SimpleWrapper.next(), MemType::Complex));

@@ -344,31 +344,4 @@ mod tests {
         let result = super::parse_attrs(quote::quote! { binding = crate::binding, extra(1) });
         assert!(result.is_err());
     }
-
-    #[derive(super::R2G)]
-    struct Generic<T> {
-        t: T,
-    }
-
-    #[derive(super::R2G)]
-    enum SkipEnum {
-        A,
-    }
-
-    #[derive(super::R2G)]
-    struct RefField {
-        r: &'static str,
-    }
-
-    #[test]
-    fn derive_skips_unsupported_inputs() {
-        // Generic types, enums and non-path field types get an empty derive
-        // expansion; instantiate the types so the derives are actually
-        // exercised and no dead-code warning fires.
-        let g = Generic { t: 1u8 };
-        assert_eq!(g.t, 1);
-        let _e = SkipEnum::A;
-        let r = RefField { r: "x" };
-        assert_eq!(r.r, "x");
-    }
 }

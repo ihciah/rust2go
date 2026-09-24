@@ -216,5 +216,14 @@ mod tests {
             assert!(!awaiter.wait().await);
             unsafe { libc::close(peer) };
         }
+
+        async fn awaiter_reports_peer_close() {
+            let (mut awaiter, peer) = Awaiter::new().unwrap();
+            // A socketpair whose peer end is closed reports EOF forever; the
+            // awaiter must surface it so callers can stop instead of
+            // spinning on the dead fd.
+            unsafe { libc::close(peer) };
+            assert!(awaiter.wait().await);
+        }
     }
 }

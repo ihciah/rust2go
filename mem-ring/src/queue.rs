@@ -1142,6 +1142,28 @@ mod tests {
             assert!(q_read.pop().is_none());
         }
 
+        async fn unstuck_handler_wakes_waiters_on_peer_closed_fd() {
+            let (mut q_read, meta) = Queue::<u32>::new(1).unwrap();
+            // Detach the reader's end of the unstuck socketpair: closing it
+            // makes the writer's unstuck handler observe EOF.
+            let reader_unstuck_fd = q_read.unstuck_fd;
+            q_read.unstuck_fd = -1;
+            let q_write = unsafe { Queue::<u32>::new_from_meta(&meta) }.unwrap();
+            let q_write = q_write.write().unwrap();
+
+            assert!(q_write.push(1));
+            let handle = match q_write.push_with_awaiter(2) {
+                PushResult::Pending(handle) => handle,
+                PushResult::Ok => panic!("expected pending"),
+            };
+            // The handler exits on the closed peer and wakes the parked
+            // waiter, whose item can never be delivered anymore.
+            unsafe { libc::close(reader_unstuck_fd) };
+            handle.await;
+            assert_eq!(q_read.pop(), Some(1));
+            assert!(q_read.pop().is_none());
+        }
+
         async fn demo_stuck() {
             let (mut tx, mut rx) = channel::<()>();
 
@@ -1272,6 +1294,24 @@ mod tests {
             drop(guard);
             sleep(Duration::from_millis(100)).await;
             assert!(q_write.push(2));
+            sleep(Duration::from_millis(100)).await;
+            assert!(!q_write.is_empty());
+        }
+
+        async fn working_handler_exits_on_peer_closed_fd() {
+            let (q_read, meta) = Queue::<u8>::new(4).unwrap();
+            let mut q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+            let q_read = q_read.read();
+            let _guard = q_read.run_handler(|_item| {}).unwrap();
+            // Close the writer's end of the working socketpair: the handler
+            // observes EOF and must exit instead of spinning on the dead fd.
+            unsafe { libc::close(q_write.working_fd) };
+            q_write.working_fd = -1;
+            let q_write = q_write.write().unwrap();
+            // Give the handler time to observe the EOF and exit; a push
+            // afterwards must no longer be consumed.
+            sleep(Duration::from_millis(100)).await;
+            assert!(q_write.push(1));
             sleep(Duration::from_millis(100)).await;
             assert!(!q_write.is_empty());
         }

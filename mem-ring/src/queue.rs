@@ -1299,8 +1299,11 @@ mod tests {
         }
 
         async fn working_handler_exits_on_peer_closed_fd() {
-            let (q_read, meta) = Queue::<u8>::new(4).unwrap();
-            let mut q_write = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
+            // The WRITE side owns the shared memory: when the handler exits
+            // it drops the read queue, which must not free the buffer the
+            // write queue still uses.
+            let (mut q_write, meta) = Queue::<u8>::new(4).unwrap();
+            let q_read = unsafe { Queue::<u8>::new_from_meta(&meta) }.unwrap();
             let q_read = q_read.read();
             let _guard = q_read.run_handler(|_item| {}).unwrap();
             // Close the writer's end of the working socketpair: the handler

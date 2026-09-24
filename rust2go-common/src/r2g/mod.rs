@@ -214,11 +214,7 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     );
                     sbail!(msg)
                 }
-                for var in [
-                    name.clone(),
-                    format!("{name}_"),
-                    format!("_new_{name}"),
-                ] {
+                for var in [name.clone(), format!("{name}_"), format!("_new_{name}")] {
                     if !derived_names.insert(var.clone()) {
                         let msg = format!(
                             "function parameter `{name}` collides with the generated variable `{var}`"

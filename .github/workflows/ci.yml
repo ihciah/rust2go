@@ -224,6 +224,9 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq lcov
           lcov --add-tracefile lcov.info --add-tracefile lcov-mem-ring.info --add-tracefile lcov-mem-ring-tokio.info --add-tracefile lcov-mem-ffi-tokio.info --output-file lcov-merged.info
+      - name: List uncovered lines (debug)
+        run: |
+          awk -F: '/^SF:/{f=$2} /^DA:/{split($2,a,","); if(a[2]==0) printf "%s:%s\n", f, a[1]}' lcov-merged.info | sort -t: -k1,1
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...

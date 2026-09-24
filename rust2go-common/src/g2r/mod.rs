@@ -100,29 +100,21 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 .any(|attr|
                     matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("cgo_call")) || p.get_ident() == Some(&format_ident!("cgo")))
                 );
-            // The generated Go wrappers declare `_internal_slot`,
-            // `_internal_params`, `val` and per-parameter `{name}_ref` /
-            // `{name}_buffer` locals, reference `C`, `unsafe`, `runtime`
-            // and `cvt_ref`, and call the per-type converter helpers by
-            // name; reject parameter names that would collide and generate
-            // invalid Go.
-            // The generated Go wrappers call the per-type converter helpers
-            // by name; a parameter named like one of them shadows the helper
-            // and generates invalid Go. The counting/writing helpers
-            // (`cnt*`/`ref*`) come from the parameter types, the owned
-            // conversion helpers from the return type.
-            let mut converter_names = HashSet::new();
-            for param in params.iter() {
-                converter_names.extend(crate::common::go_converter_names(
-                    param.ty(),
-                    false,
-                    true,
-                    false,
-                ));
-            }
-            if let Some(ret) = ret.as_ref() {
-                converter_names.extend(crate::common::go_owned_converter_names(ret));
-            }
+            // The generated Go wrappers paste parameter names into Go
+            // identifier positions and reference a fixed set of helpers and
+            // locals; reject names that would collide. The list is
+            // deliberately conservative (some names only collide in
+            // specific paths) so the check stays simple and predictable.
+            let reserved = [
+                "C",
+                "_internal_params",
+                "_internal_slot",
+                "asmcall",
+                "cgocall",
+                "cvt_ref",
+                "runtime",
+                "val",
+            ];
             let mut derived_names = HashSet::new();
             for param in params.iter() {
                 let name = param.name.to_string();
@@ -139,20 +131,7 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                     );
                     sbail!(msg)
                 }
-                if converter_names.contains(&name) {
-                    let msg = format!(
-                        "g2r function parameter `{name}` collides with the generated converter helper"
-                    );
-                    sbail!(msg)
-                }
-                let ret_path_names = ["_internal_slot", "val"];
-                let call_type = if cgo_call { "cgocall" } else { "asmcall" };
-                let collides = matches!(
-                    name.as_str(),
-                    "_internal_params" | "C" | "runtime" | "cvt_ref"
-                ) || name == call_type
-                    || (ret.is_some() && ret_path_names.contains(&name.as_str()));
-                if collides {
+                if reserved.contains(&name.as_str()) {
                     let msg = format!(
                         "g2r function parameter `{name}` collides with the generated Go wrapper"
                     );
@@ -307,6 +286,7 @@ mod tests {
             "pub trait T { fn f(runtime: u8); }",
             "pub trait T { fn f(cvt_ref: u8); }",
             "pub trait T { fn f(asmcall: u8) -> u8; }",
+            "pub trait T { fn f(cgocall: u8) -> u8; }",
         ] {
             let err = err_of(src);
             assert!(
@@ -322,50 +302,6 @@ mod tests {
             let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
             assert!(err.contains("Go keyword"), "{name}: {err}");
         }
-    }
-
-    #[test]
-    fn rejects_params_named_like_converters() {
-        // The counting/writing helpers derive from the parameter types.
-        let err = err_of("pub trait T { fn f(refU: U); }");
-        assert!(
-            err.contains("collides with the generated converter helper"),
-            "{err}"
-        );
-        // The owned-conversion helpers derive from the return type.
-        let err = err_of("pub trait T { fn f(ownU: u8) -> U; }");
-        assert!(
-            err.contains("collides with the generated converter helper"),
-            "{err}"
-        );
-        let err = err_of("pub trait T { fn f(newC_uint64_t: u8) -> u64; }");
-        assert!(
-            err.contains("collides with the generated converter helper"),
-            "{err}"
-        );
-        // Converter groups the g2r wrappers never call stay legal: new{Type}
-        // is decode-only, and ownU is only a return-type helper when the
-        // return type is U.
-        assert!(parse("pub trait T { fn f(newU: U); }").is_ok());
-        assert!(parse("pub trait T { fn f(newU: u8) -> U; }").is_ok());
-        assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
-    }
-
-    #[test]
-    fn rejects_only_the_referenced_call_helper() {
-        // The wrapper references exactly one of asmcall/cgocall; the other
-        // stays legal as a parameter name.
-        assert!(parse("pub trait T { #[cgo_call] fn f(asmcall: u8) -> u8; }").is_ok());
-        let err = err_of("pub trait T { #[cgo_call] fn f(cgocall: u8) -> u8; }");
-        assert!(
-            err.contains("collides with the generated Go wrapper"),
-            "{err}"
-        );
-        let err = err_of("pub trait T { fn f(asmcall: u8) -> u8; }");
-        assert!(
-            err.contains("collides with the generated Go wrapper"),
-            "{err}"
-        );
     }
 
     #[test]

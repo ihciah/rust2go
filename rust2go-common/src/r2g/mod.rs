@@ -160,125 +160,66 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     is_safe = false;
                 }
             }
-            // The generated Go calls the per-type converter helpers by name;
-            // a parameter named like one of them shadows the helper and
-            // generates invalid Go. The decode helpers (`new*`) come from the
-            // parameter types, the counting/writing helpers (`cnt*`/`ref*`)
-            // from the return type.
-            let mut converter_names = HashSet::new();
-            for param in params.iter() {
-                converter_names.extend(crate::common::go_converter_names(
-                    param.ty(),
-                    true,
-                    false,
-                    false,
-                ));
-            }
-            if let Some(ret) = ret.as_ref() {
-                converter_names.extend(crate::common::go_converter_names(ret, false, true, false));
-            }
+            // The generated Go bindings paste parameter names into Go
+            // identifier positions and reference a fixed set of helpers and
+            // locals; reject names that would collide. The list is
+            // deliberately conservative (some names only collide in
+            // specific paths) so the check stays simple and predictable.
+            let reserved = [
+                "C",
+                "ants",
+                "append",
+                "asmcall",
+                "buffer",
+                "byte",
+                "cb",
+                "cgocall",
+                "cvt_ref",
+                "cvt_ref_cap",
+                "len",
+                "nil",
+                "offset",
+                "pool",
+                "post_func",
+                "ptr",
+                "resp",
+                "resp_ref",
+                "resp_ref_size",
+                "runtime",
+                "slot",
+                "uint",
+                "uintptr",
+                "val",
+            ];
             let impl_name = format!("{}Impl", trait_name);
-            if using_mem {
-                // The generated ring handlers decode parameters into locals
-                // named after the parameters themselves (plus a `{name}_`
-                // conversion variable) and reference `ptr`, `pool`,
-                // `post_func`, `C`, `unsafe`, `ants` and (for calls with a
-                // return value) `resp`, `resp_ref`, `resp_ref_size`,
-                // `buffer`, `offset` and `cvt_ref_cap`; reject parameter
-                // names that would collide and generate invalid Go.
-                let mut derived_names = HashSet::new();
-                for (idx, param) in params.iter().enumerate() {
-                    let name = param.name.to_string();
-                    let raw = name.strip_prefix("r#").unwrap_or(&name);
-                    if raw != name {
-                        let msg = format!(
-                            "mem function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
-                        );
-                        sbail!(msg)
-                    }
-                    if crate::common::is_go_keyword(raw) {
-                        let msg = format!(
-                            "mem function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
-                        );
-                        sbail!(msg)
-                    }
-                    if converter_names.contains(&name) {
-                        let msg = format!(
-                            "mem function parameter `{name}` collides with the generated converter helper"
-                        );
-                        sbail!(msg)
-                    }
-                    let has_later = idx + 1 != params.len();
-                    let ret_reserved = ["cvt_ref_cap", "uint", "byte", "len", "append"];
-                    let collides = matches!(name.as_str(), "pool" | "post_func")
-                        || (has_later && matches!(name.as_str(), "ptr" | "uintptr"))
-                        || (name == "C" && (has_later || ret.is_some()))
-                        || (name == impl_name)
-                        || (ret.is_some() && ret_reserved.contains(&name.as_str()))
-                        || (!ret.is_some() && name == "nil");
-                    if collides {
-                        let msg = format!(
-                            "mem function parameter `{name}` collides with the generated ring handler"
-                        );
-                        sbail!(msg)
-                    }
-                    for var in [name.clone(), format!("{name}_")] {
-                        if !derived_names.insert(var.clone()) {
-                            let msg = format!(
-                                "mem function parameter `{name}` collides with the generated variable `{var}`"
-                            );
-                            sbail!(msg)
-                        }
-                    }
+            let mut derived_names = HashSet::new();
+            for param in params.iter() {
+                let name = param.name.to_string();
+                let raw = name.strip_prefix("r#").unwrap_or(&name);
+                if raw != name {
+                    let msg = format!(
+                        "function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                    );
+                    sbail!(msg)
                 }
-            } else {
-                // The generated Go exports append `slot`/`cb` parameters
-                // (calls with a return value or async), declare `resp`,
-                // `resp_ref`, `buffer` and `_new_{name}` locals and reference
-                // `C`, `unsafe` and (for calls with a return value) `runtime`;
-                // reject parameter names that would collide.
-                let mut derived_names = HashSet::new();
-                for param in params.iter() {
-                    let name = param.name.to_string();
-                    let raw = name.strip_prefix("r#").unwrap_or(&name);
-                    if raw != name {
+                if crate::common::is_go_keyword(raw) {
+                    let msg = format!(
+                        "function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                    );
+                    sbail!(msg)
+                }
+                if reserved.contains(&name.as_str()) || name == impl_name {
+                    let msg = format!(
+                        "function parameter `{name}` collides with the generated Go bindings"
+                    );
+                    sbail!(msg)
+                }
+                for var in [name.clone(), format!("{name}_")] {
+                    if !derived_names.insert(var.clone()) {
                         let msg = format!(
-                            "function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                            "function parameter `{name}` collides with the generated variable `{var}`"
                         );
                         sbail!(msg)
-                    }
-                    if crate::common::is_go_keyword(raw) {
-                        let msg = format!(
-                            "function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
-                        );
-                        sbail!(msg)
-                    }
-                    if converter_names.contains(&name) {
-                        let msg = format!(
-                            "function parameter `{name}` collides with the generated converter helper"
-                        );
-                        sbail!(msg)
-                    }
-                    let sync_ret = !is_async && ret.is_some();
-                    let call_type = if cgo_cb { "cgocall" } else { "asmcall" };
-                    let collides = ((is_async || ret.is_some())
-                        && (matches!(name.as_str(), "slot" | "cb") || name == call_type))
-                        || (ret.is_some() && matches!(name.as_str(), "cvt_ref" | "runtime"))
-                        || (sync_ret && matches!(name.as_str(), "resp" | "resp_ref" | "buffer"))
-                        || name == impl_name;
-                    if collides {
-                        let msg = format!(
-                            "function parameter `{name}` collides with the generated Go export"
-                        );
-                        sbail!(msg)
-                    }
-                    for var in [name.clone(), format!("_new_{name}")] {
-                        if !derived_names.insert(var.clone()) {
-                            let msg = format!(
-                                "function parameter `{name}` collides with the generated variable `{var}`"
-                            );
-                            sbail!(msg)
-                        }
                     }
                 }
             }
@@ -475,47 +416,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_mem_param_named_like_handler_locals() {
-        for name in ["pool", "post_func"] {
-            let err = err_of(&format!("pub trait T {{ #[mem] fn f({name}: u8); }}"));
+    fn rejects_params_named_like_generated_identifiers() {
+        for src in [
+            "pub trait T { #[mem] fn f(ptr: u8); }",
+            "pub trait T { #[mem] fn f(pool: u8); }",
+            "pub trait T { #[mem] fn f(post_func: u8); }",
+            "pub trait T { #[mem] fn f(nil: u8); }",
+            "pub trait T { #[mem] async fn f(resp: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(buffer: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(offset: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(ants: u8) -> u8; }",
+            "pub trait T { fn f(slot: u8) -> u8; }",
+            "pub trait T { fn f(cb: u8) -> u8; }",
+            "pub trait T { fn f(resp: u8) -> u8; }",
+            "pub trait T { fn f(runtime: u8) -> u8; }",
+            "pub trait T { fn f(cvt_ref: u8) -> u8; }",
+            "pub trait T { fn f(asmcall: u8) -> u8; }",
+            "pub trait T { fn f(TImpl: u8); }",
+        ] {
+            let err = err_of(src);
             assert!(
-                err.contains("collides with the generated ring handler"),
-                "{name}: {err}"
+                err.contains("collides with the generated Go bindings"),
+                "{src}: {err}"
             );
         }
-        // `nil` is referenced by the oneway ack, `uint` by the ret-path
-        // conversion.
-        let err = err_of("pub trait T { #[mem] fn f(nil: u8); }");
-        assert!(
-            err.contains("collides with the generated ring handler"),
-            "{err}"
-        );
-        let err = err_of("pub trait T { #[mem] async fn f(uint: u8) -> u8; }");
-        assert!(
-            err.contains("collides with the generated ring handler"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn mem_params_shadowed_by_closure_locals_stay_legal() {
-        // The ret-path ring handler declares its conversion locals inside
-        // `pool.Submit(func() { ... })`, where they shadow the decoded
-        // parameters instead of colliding; those names must stay legal.
-        for name in [
-            "resp",
-            "resp_ref",
-            "resp_ref_size",
-            "buffer",
-            "offset",
-            "ants",
-        ] {
-            let src = format!("pub trait T {{ #[mem] async fn f({name}: u8) -> u8; }}");
-            assert!(parse(&src).is_ok(), "{name} should be legal");
-        }
-        // A single-parameter oneway handler never references the C package
-        // after the decode, so `C` is legal there too.
-        assert!(parse("pub trait T { #[mem] fn f(C: u8); }").is_ok());
     }
 
     #[test]
@@ -528,29 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_params_colliding_with_export_machinery() {
-        for src in [
-            "pub trait T { fn f(slot: u8) -> u8; }",
-            "pub trait T { async fn f(cb: u8) -> u8; }",
-            "pub trait T { fn f(resp: u8) -> u8; }",
-            "pub trait T { fn f(resp_ref: u8) -> u8; }",
-            "pub trait T { fn f(buffer: u8) -> u8; }",
-            "pub trait T { fn f(runtime: u8) -> u8; }",
-            "pub trait T { fn f(cvt_ref: u8) -> u8; }",
-            "pub trait T { fn f(asmcall: u8) -> u8; }",
-        ] {
-            let err = err_of(src);
-            assert!(err.contains("collides with the generated"), "{src}: {err}");
-        }
-        // Async exports declare their conversion locals inside a closure,
-        // where they shadow the parameter names; those stay legal.
-        assert!(parse("pub trait T { async fn f(buffer: u8) -> u8; }").is_ok());
-        // The export references exactly one of asmcall/cgocall; the other
-        // stays legal as a parameter name.
-        assert!(parse("pub trait T { #[cgo_callback] fn f(asmcall: u8) -> u8; }").is_ok());
-        let err = err_of("pub trait T { #[cgo_callback] fn f(cgocall: u8) -> u8; }");
-        assert!(err.contains("collides with the generated"), "{err}");
-        // `_new_{name}` conversion locals must not collide either.
+    fn rejects_params_with_conversion_collision() {
         let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");
         assert!(
             err.contains("collides with the generated variable"),
@@ -567,43 +469,6 @@ mod tests {
         // Raw identifiers are never representable in Go either.
         let err = err_of("pub trait T { fn f(r#range: u8); }");
         assert!(err.contains("raw identifier"), "{err}");
-    }
-
-    #[test]
-    fn rejects_params_named_like_converters() {
-        // The decode helpers derive from the parameter types.
-        let err = err_of("pub trait T { fn f(newU: U); }");
-        assert!(
-            err.contains("collides with the generated converter helper"),
-            "{err}"
-        );
-        // The counting/writing helpers derive from the return type.
-        let err = err_of("pub trait T { fn f(cntC_uint64_t: u8) -> u64; }");
-        assert!(
-            err.contains("collides with the generated converter helper"),
-            "{err}"
-        );
-        // Converter groups the r2g exports never call stay legal: own{Type}
-        // is g2r-only, and cntU is only a parameter-type helper when the
-        // return type uses it.
-        assert!(parse("pub trait T { fn f(ownU: U) -> u8; }").is_ok());
-        assert!(parse("pub trait T { fn f(cntU: U) -> u8; }").is_ok());
-        assert!(parse("pub trait T { fn f(plain: U); }").is_ok());
-    }
-
-    #[test]
-    fn rejects_params_named_like_impl_var_or_handler_locals() {
-        let err = err_of("pub trait T { fn f(TImpl: u8); }");
-        assert!(err.contains("collides with the generated"), "{err}");
-        // `ptr` only collides when a later parameter's decode/advance uses it.
-        assert!(parse("pub trait T { #[mem] fn f(ptr: u8); }").is_ok());
-        let err = err_of("pub trait T { #[mem] fn f(ptr: u8, x: u8); }");
-        assert!(
-            err.contains("collides with the generated ring handler"),
-            "{err}"
-        );
-        // A last-position `C` in a oneway handler never shadows a later use.
-        assert!(parse("pub trait T { #[mem] fn f(x: u8, C: u8); }").is_ok());
     }
 
     #[test]

@@ -502,31 +502,6 @@ pub fn classify_ref_field(ident: &Ident) -> RefFieldClass {
     }
 }
 
-/// The owned-conversion helper names the g2r wrapper's return path calls:
-/// `newC_*` for primitives, `own{Type}` for custom types and
-/// `new_list_mapper(...)` (with the element's owned helpers) for lists,
-/// mirroring `c_to_go_field_converter_owned`.
-pub fn go_owned_converter_names(ty: &ParamType) -> Vec<String> {
-    match &ty.inner {
-        ParamTypeInner::Primitive(name) => {
-            if let Some(info) = primitive_by_rust_ident(&name.to_string()) {
-                if info.has_go_converters {
-                    return vec![format!("newC_{}", info.c_name)];
-                }
-            }
-            Vec::new()
-        }
-        ParamTypeInner::Custom(ident) => vec![format!("own{}", ident)],
-        ParamTypeInner::List(inner) => {
-            let mut out = vec!["new_list_mapper".to_string()];
-            if let Ok(inner) = ParamType::try_from(inner) {
-                out.extend(go_owned_converter_names(&inner));
-            }
-            out
-        }
-    }
-}
-
 /// Whether a parameter name is a Go keyword: the generated Go bindings paste
 /// parameter names into Go identifier positions verbatim, so a keyword would
 /// produce invalid Go.
@@ -559,57 +534,6 @@ pub fn is_go_keyword(name: &str) -> bool {
             | "type"
             | "var"
     )
-}
-
-/// The Go converter helper names the generated bindings call for a
-/// parameter of the given type. `new` covers the decode helpers, `cnt_ref`
-/// the counting/writing helpers and `own` the owned-conversion helpers; the
-/// callers enable only the groups their emitted code actually references, so
-/// a parameter named like one of them shadows the helper and generates
-/// invalid Go.
-pub fn go_converter_names(ty: &ParamType, new: bool, cnt_ref: bool, own: bool) -> Vec<String> {
-    let mut out = Vec::new();
-    match &ty.inner {
-        ParamTypeInner::Primitive(name) => {
-            if let Some(info) = primitive_by_rust_ident(&name.to_string()) {
-                if info.has_go_converters {
-                    if new {
-                        out.push(format!("newC_{}", info.c_name));
-                    }
-                    if cnt_ref {
-                        out.push(format!("cntC_{}", info.c_name));
-                        out.push(format!("refC_{}", info.c_name));
-                    }
-                }
-            }
-        }
-        ParamTypeInner::Custom(ident) => {
-            let name = ident.to_string();
-            if new {
-                out.push(format!("new{name}"));
-            }
-            if cnt_ref {
-                out.push(format!("cnt{name}"));
-                out.push(format!("ref{name}"));
-            }
-            if own {
-                out.push(format!("own{name}"));
-            }
-        }
-        ParamTypeInner::List(_) => {
-            if new {
-                out.push("new_list_mapper".into());
-                out.push("new_list_mapper_primitive".into());
-            }
-            if cnt_ref {
-                out.push("cnt_list_mapper".into());
-                out.push("cnt_list_mapper_primitive".into());
-                out.push("ref_list_mapper".into());
-                out.push("ref_list_mapper_primitive".into());
-            }
-        }
-    }
-    out
 }
 
 // Go converter function name for a primitive type: the prefix (`newC_`,

@@ -4,6 +4,7 @@ mod emit_go;
 mod emit_rust;
 
 use quote::format_ident;
+use std::collections::HashSet;
 use syn::{Error, FnArg, Ident, ItemTrait, Meta, Pat, Result, ReturnType, TraitItem, Type};
 
 use crate::common::{Param, ParamType};
@@ -157,6 +158,69 @@ impl TryFrom<&ItemTrait> for R2GTraitRepr {
                     sbail!("function based on shm must be async or without return value")
                 } else {
                     is_safe = false;
+                }
+            }
+            // The generated Go bindings paste parameter names into Go
+            // identifier positions and reference a fixed set of helpers and
+            // locals; reject names that would collide. The list is
+            // deliberately conservative (some names only collide in
+            // specific paths) so the check stays simple and predictable.
+            let reserved = [
+                "C",
+                "ants",
+                "append",
+                "asmcall",
+                "buffer",
+                "byte",
+                "cb",
+                "cgocall",
+                "cvt_ref",
+                "cvt_ref_cap",
+                "len",
+                "nil",
+                "offset",
+                "pool",
+                "post_func",
+                "ptr",
+                "resp",
+                "resp_ref",
+                "resp_ref_size",
+                "runtime",
+                "slot",
+                "uint",
+                "uintptr",
+                "val",
+            ];
+            let impl_name = format!("{}Impl", trait_name);
+            let mut derived_names = HashSet::new();
+            for param in params.iter() {
+                let name = param.name.to_string();
+                let raw = name.strip_prefix("r#").unwrap_or(&name);
+                if raw != name {
+                    let msg = format!(
+                        "function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                    );
+                    sbail!(msg)
+                }
+                if crate::common::is_go_keyword(raw) {
+                    let msg = format!(
+                        "function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                    );
+                    sbail!(msg)
+                }
+                if reserved.contains(&name.as_str()) || name == impl_name {
+                    let msg = format!(
+                        "function parameter `{name}` collides with the generated Go bindings"
+                    );
+                    sbail!(msg)
+                }
+                for var in [name.clone(), format!("{name}_"), format!("_new_{name}")] {
+                    if !derived_names.insert(var.clone()) {
+                        let msg = format!(
+                            "function parameter `{name}` collides with the generated variable `{var}`"
+                        );
+                        sbail!(msg)
+                    }
                 }
             }
             let mem_call_id = if using_mem {
@@ -349,6 +413,62 @@ mod tests {
             err.contains("function based on shm must be async or without return value"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn rejects_params_named_like_generated_identifiers() {
+        for src in [
+            "pub trait T { #[mem] fn f(ptr: u8); }",
+            "pub trait T { #[mem] fn f(pool: u8); }",
+            "pub trait T { #[mem] fn f(post_func: u8); }",
+            "pub trait T { #[mem] fn f(nil: u8); }",
+            "pub trait T { #[mem] async fn f(resp: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(buffer: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(offset: u8) -> u8; }",
+            "pub trait T { #[mem] async fn f(ants: u8) -> u8; }",
+            "pub trait T { fn f(slot: u8) -> u8; }",
+            "pub trait T { fn f(cb: u8) -> u8; }",
+            "pub trait T { fn f(resp: u8) -> u8; }",
+            "pub trait T { fn f(runtime: u8) -> u8; }",
+            "pub trait T { fn f(cvt_ref: u8) -> u8; }",
+            "pub trait T { fn f(asmcall: u8) -> u8; }",
+            "pub trait T { fn f(TImpl: u8); }",
+        ] {
+            let err = err_of(src);
+            assert!(
+                err.contains("collides with the generated Go bindings"),
+                "{src}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_mem_params_with_conversion_collision() {
+        let err = err_of("pub trait T { #[mem] fn f(x: u8, x_: u8); }");
+        assert!(
+            err.contains("collides with the generated variable"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_params_with_conversion_collision() {
+        let err = err_of("pub trait T { fn f(x: u8, _new_x: u8); }");
+        assert!(
+            err.contains("collides with the generated variable"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_go_keyword_params() {
+        for name in ["func", "map", "select", "var"] {
+            let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
+            assert!(err.contains("Go keyword"), "{name}: {err}");
+        }
+        // Raw identifiers are never representable in Go either.
+        let err = err_of("pub trait T { fn f(r#range: u8); }");
+        assert!(err.contains("raw identifier"), "{err}");
     }
 
     #[test]

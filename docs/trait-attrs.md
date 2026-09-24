@@ -8,7 +8,7 @@ Now rust2go supports 6 attributes on trait's async function:
 1. `#[send]`: the function will be generated as `impl Future<Output=..> + Send + Sync`. Use it when you need it.
 2. `#[drop_safe]`: this makes the function safe, but requires all parameters passing ownership. Use it when you cannot make sure the future may cancel.
 3. `#[drop_safe_ret]`: to make the function safe, it requires passing ownership; this attribute allow users to get the parameters ownership back. Use it when you cannot make sure the future may cancel, and you want to get back the parameters ownership after the calling.
-4. `#[mem]` or `#[shm]`: make this function implemented based on shared memory, whose performance is highly improved(but it requires unix now). Unless you find obvious performance bottlenecks, there is no need to enable it.
+4. `#[mem]` or `#[shm]`: make this function implemented based on shared memory, whose performance is highly improved(but it requires unix now). Unless you find obvious performance bottlenecks, there is no need to enable it. A oneway `#[mem]`/`#[shm]` function (no return value) is generated as an `unsafe fn`: Go processes the call asynchronously, so owned parameters are boxed until Go has read them, while reference parameters additionally require the caller to keep the referent alive until Go has processed the call.
 5. `#[go_pass_struct]`: make the generated go side code use pointer instead of value at parameters. This is useful when the parameter is large. This does not affect the rust side code. It is not recommended to enable this unless you explicitly want to pass the structure itself.
 6. `#[cgo_callback]` (alias: `#[cgo]`): make the generated go side code use CGO based method instead of ASM. It is not recommended to enable it unless you find some failures caused by ASMCALL.
 
@@ -61,6 +61,7 @@ Note that Go field names are copied verbatim from the Rust field names; only the
 ## Type mapping notes
 
 - `Option<T>` is treated as `Vec<T>`: `None` maps to an empty list on the Go side.
+- `String` ↔ Go `string`: Rust strings are always valid UTF-8, so the Rust→Go direction cannot produce invalid data. In the Go→Rust direction (`#[rust2go::g2r]`) a Go string is an arbitrary byte sequence: bytes that are not valid UTF-8 are replaced with U+FFFD (`from_utf8_lossy`) when the value is converted to a Rust `String`. Pass only valid UTF-8 to Go if you need it to arrive unchanged.
 - Non-generic type aliases (e.g. `pub type Amount = i64;`) can be used in struct fields and trait signatures; they are expanded during code generation. Cyclic aliases are rejected: the code generator fails the build with a `cyclic type alias detected` error.
 
 For example, here is the original trait:

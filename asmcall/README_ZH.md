@@ -60,7 +60,7 @@ ok      github.com/ihciah/rust2go/asmcall/bench 4.055s
 3. 当需要从 Go 侧发起 CGO 调用时，调用 `CallFuncG0Px`（`x` 根据参数数量可取0～3）:
     `asmcall.CallFuncG0P1(fn, arg0)`
 4. 如果需要使用 CGO 方式完成调用，只需要将 `asmcall` 修改为 `cgocall`
-5. 另外，本 package 还提供了原地完成调用的 `CallFuncPx`（x 根据参数数量可取0～3）函数，适用于不需要栈切换的外部函数（但请注意，如果你不能保证外部函数所需栈空间为零，使用该方法可能导致内存踩踏）
+5. 另外，本 package 还提供了原地完成调用的 `CallFuncPx`（x 根据参数数量可取0～3）函数，适用于不需要栈切换的外部函数（但请注意，如果你不能保证外部函数所需栈空间为零，使用该方法可能导致内存踩踏）。在 amd64 上，与 `CallFuncG0Px` 不同，原地变体不会对齐栈指针：Go 只保证 8 字节对齐，因此被调方还必须容忍仅 8 字节而未 16 字节对齐的 SP（使用对齐 SSE/AVX 栈访问的函数可能出错）；在 arm64 上原地变体会将栈指针对齐到 16 字节。若被调方要求完整的 ABI 对齐，请使用 `CallFuncG0Px`。
 
 ## 在 Rust2Go 中使用
 

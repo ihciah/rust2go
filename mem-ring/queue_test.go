@@ -229,6 +229,45 @@ func newFdQueue[T any](t *testing.T, n int) (q Queue[T], workingPeer, unstuckPee
 	}, wp, up
 }
 
+// newFdQueuePair builds writer- and reader-side Queues over shared ring
+// memory with real socketpair fds split across them, mirroring the FFI
+// layout: the writer holds one end of each pair, the reader the other. The
+// queue-side fds follow the newFdPair convention: NewAwaiter takes ownership
+// of the fds it wraps, and fds only wrapped by a Notifier are leaked until
+// the test process exits.
+func newFdQueuePair[T any](t *testing.T, n int) (writerQ, readerQ Queue[T]) {
+	t.Helper()
+	state := &fdQueueState[T]{buf: make([]T, n)}
+	workingWriter, workingReader := newRawFdPair(t)
+	unstuckWriter, unstuckReader := newRawFdPair(t)
+	build := func(workingFd, unstuckFd int32) Queue[T] {
+		return Queue[T]{
+			bufferPtr:  unsafe.Pointer(&state.buf[0]),
+			bufferLen:  uintptr(n),
+			headPtr:    &state.head,
+			tailPtr:    &state.tail,
+			workingPtr: &state.working,
+			stuckPtr:   &state.stuck,
+			workingFd:  workingFd,
+			unstuckFd:  unstuckFd,
+		}
+	}
+	return build(workingWriter, unstuckWriter), build(workingReader, unstuckReader)
+}
+
+// newRawFdPair returns both ends of a connected unix socketpair. Following
+// the newFdPair convention, the returned fds are not registered for
+// cleanup: the queue side either takes ownership (NewAwaiter) or leaks the
+// fd until process exit (Notifier).
+func newRawFdPair(t *testing.T) (int32, int32) {
+	t.Helper()
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair: %v", err)
+	}
+	return int32(fds[0]), int32(fds[1])
+}
+
 func waitStopped(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
@@ -325,6 +364,53 @@ func TestRunHandlerStop(t *testing.T) {
 		t.Fatalf("handler called %d times, want 1: vals=%v head=%d tail=%d",
 			len(vals), vals, atomic.LoadUint64(q.headPtr), atomic.LoadUint64(q.tailPtr))
 	}
+}
+
+// A full ring parks overflow items on the writer; the reader must notify the
+// unstuck fd when it drains so the parked writer flushes them. Mirrors the
+// Rust push_pop_and_pending test: the Rust reader has always sent this
+// notification, the Go reader did not, so a Go reader never unblocked a
+// full-ring writer.
+func TestReadQueuePopNotifiesUnstuck(t *testing.T) {
+	writerQ, readerQ := newFdQueuePair[uint64](t, 1)
+	wq := writerQ.Write()
+	defer wq.Stop()
+	rq := readerQ.Read()
+
+	wq.Push(1)
+	wq.Push(2) // ring full: parked in pendingTasks, writer marks itself stuck
+
+	item := rq.pop()
+	if item == nil || *item != 1 {
+		t.Fatalf("pop = %v, want 1 (head=%d tail=%d)",
+			item, atomic.LoadUint64(readerQ.headPtr), atomic.LoadUint64(readerQ.tailPtr))
+	}
+	// The pop above notified the unstuck fd; the writer's flusher must now
+	// deliver the parked item.
+	var got *uint64
+	for i := 0; i < 100; i++ {
+		if item := rq.pop(); item != nil {
+			got = item
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got == nil || *got != 2 {
+		t.Fatalf("pending item 2 was never flushed (head=%d tail=%d)",
+			atomic.LoadUint64(readerQ.headPtr), atomic.LoadUint64(readerQ.tailPtr))
+	}
+}
+
+// A zero-sized ring is permanently full and would park every push forever;
+// NewQueue must reject it instead of accepting a configuration that can only
+// deadlock.
+func TestNewQueueRejectsZeroBuffer(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewQueue with BufferLen 0 did not panic")
+		}
+	}()
+	NewQueue[uint64](QueueMeta{})
 }
 
 // NewQueue must wire QueueMeta pointers up the same way as manual

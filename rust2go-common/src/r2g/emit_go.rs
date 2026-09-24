@@ -55,7 +55,45 @@ impl R2GFnRepr {
         if let Some(mem_call_id) = self.mem_call_id {
             let fn_sig = format!("func ringHandle{trait_name}{mem_call_id}(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{{}}, []byte, uint)) {{\n");
             let Some(ret) = &self.ret else {
-                return format!("{fn_sig}post_func(nil, nil, 0)\n}}\n");
+                // Oneway mem call: decode the parameters and invoke the Go
+                // implementation, then ack with `post_func(nil, nil, 0)` (a
+                // DROP payload) so the Rust side frees the request. An
+                // ack-only stub would silently discard every oneway
+                // `#[mem]`/`#[shm]` request.
+                let mut fn_body = String::new();
+                let params_len = self.params().len();
+                for (idx, p) in self.params().iter().enumerate() {
+                    fn_body.push_str(&format!(
+                        "{name}:=*(*C.{ref_type})(ptr)\n",
+                        name = p.name,
+                        ref_type = p.ty.to_c(false)
+                    ));
+                    if idx + 1 != params_len {
+                        fn_body.push_str(&format!(
+                            "ptr=unsafe.Pointer(uintptr(ptr)+unsafe.Sizeof({name}))\n",
+                            name = p.name
+                        ));
+                    }
+                    fn_body.push_str(&format!(
+                        "{name}_:={cvt}({name})\n",
+                        name = p.name,
+                        cvt = p.ty.c_to_go_field_converter(levels).0
+                    ));
+                }
+                fn_body.push_str("pool.Submit(func() {\n");
+                fn_body.push_str(&format!(
+                    "{trait_name}Impl.{fn_name}({params})\n",
+                    fn_name = self.name,
+                    params = self
+                        .params
+                        .iter()
+                        .map(|p| format!("{ref_mark}{}_", p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                fn_body.push_str("post_func(nil, nil, 0)\n})\n");
+                let fn_ending = "}\n";
+                return format!("{fn_sig}{fn_body}{fn_ending}");
             };
 
             let mut fn_body = String::new();

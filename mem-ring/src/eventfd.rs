@@ -129,20 +129,31 @@ impl Awaiter {
         Ok(Self { unix_stream })
     }
 
+    /// Waits until the peer notifies. Returns `true` when the peer end has
+    /// been closed (or the read failed): the socket then reports EOF
+    /// immediately and forever, so callers must stop instead of spinning on
+    /// a dead fd.
     #[cfg(feature = "monoio")]
-    pub(crate) async fn wait(&mut self) {
+    pub(crate) async fn wait(&mut self) -> bool {
         // Pass an owned buffer to the read op so the buffer lives as long as
         // the op itself. Using a thread_local buffer with a raw pointer is
         // unsound: the spawned task holding this read may leak (outlive the
         // runtime) and the kernel could write into freed TLS memory.
         let buf = vec![0; 64];
-        let _ = self.unix_stream.read(buf).await;
+        match self.unix_stream.read(buf).await {
+            (Ok(n), _) => n == 0,
+            (Err(_), _) => true,
+        }
     }
 
     #[cfg(all(feature = "tokio", not(feature = "monoio")))]
-    pub(crate) async fn wait(&mut self) {
+    pub(crate) async fn wait(&mut self) -> bool {
         let mut buf: [u8; 64] = [0; 64];
-        let _ = self.unix_stream.read(&mut buf).await;
+        match self.unix_stream.read(&mut buf).await {
+            Ok(0) => true,
+            Ok(_) => false,
+            Err(_) => true,
+        }
     }
 }
 
@@ -202,8 +213,17 @@ mod tests {
             assert!(awaiter.as_raw_fd() >= 0);
             // Wake the awaiter by writing to the peer end.
             unsafe { libc::write(peer, &0u8 as *const u8 as *const libc::c_void, 1) };
-            awaiter.wait().await;
+            assert!(!awaiter.wait().await);
             unsafe { libc::close(peer) };
+        }
+
+        async fn awaiter_reports_peer_close() {
+            let (mut awaiter, peer) = Awaiter::new().unwrap();
+            // A socketpair whose peer end is closed reports EOF forever; the
+            // awaiter must surface it so callers can stop instead of
+            // spinning on the dead fd.
+            unsafe { libc::close(peer) };
+            assert!(awaiter.wait().await);
         }
     }
 }

@@ -334,7 +334,52 @@ mod tests {
 
         // No value yet: pending, and the waker is registered.
         assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Pending));
+        // A second poll with a different waker replaces the stored one.
+        let waker2 = noop_waker();
+        let mut cx2 = Context::from_waker(&waker2);
+        assert!(matches!(fut.as_mut().poll(&mut cx2), Poll::Pending));
+        waker2.wake_by_ref();
         set_result_for_shared_mut_slot(&slot, 42);
         assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Ready(42)));
+    }
+
+    #[test]
+    fn shared_mut_from_raw_roundtrip() {
+        #[cfg(all(feature = "tokio", not(feature = "monoio")))]
+        {
+            let shared = std::sync::Arc::new(std::sync::Mutex::new(5u32));
+            let raw = std::sync::Arc::into_raw(shared) as usize;
+            let back = unsafe { shared_mut_from_raw::<u32>(raw) };
+            assert_eq!(*back.lock().unwrap(), 5);
+        }
+        #[cfg(not(all(feature = "tokio", not(feature = "monoio"))))]
+        {
+            let shared = std::rc::Rc::new(std::cell::UnsafeCell::new(5u32));
+            let raw = std::rc::Rc::into_raw(shared) as usize;
+            let back = unsafe { shared_mut_from_raw::<u32>(raw) };
+            assert_eq!(unsafe { *back.get() }, 5);
+        }
+    }
+
+    macro_rules! runtime_test {
+        ($($i: item)*) => {$(
+            #[cfg(feature = "monoio")]
+            #[monoio::test]
+            $i
+
+            #[cfg(all(feature = "tokio", not(feature = "monoio")))]
+            #[tokio::test]
+            $i
+        )*};
+    }
+
+    runtime_test! {
+        async fn init_rings_creates_usable_rings() {
+            unsafe extern "C" fn noop(_read_meta: QueueMeta, _write_meta: QueueMeta) {}
+            let (read, write) = unsafe { init_rings::<u32>(noop as *const (), 4) }.unwrap();
+            write.push(7);
+            drop(read);
+            drop(write);
+        }
     }
 }

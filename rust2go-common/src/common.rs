@@ -8,7 +8,7 @@ use heck::{
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use rust2go_convert::primitive_by_rust_ident;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::parse::Parser;
 use syn::{
     Attribute, Error, Expr, ExprLit, File, FnArg, GenericArgument, Ident, Item, Lit, Meta,
@@ -25,10 +25,6 @@ impl RawRsFile {
         let mut syntax = syn::parse_file(src).expect("Unable to parse file");
         expand_type_aliases(&mut syntax);
         RawRsFile { file: syntax }
-    }
-
-    pub fn go_internal_drop() -> &'static str {
-        include_str!("tmpl/internal_drop.h.tmpl")
     }
 
     pub fn go_shm_include() -> &'static str {
@@ -302,24 +298,31 @@ impl RawRsFile {
             node: &Node,
             items: &HashMap<Ident, Vec<Node>>,
             out: &mut HashMap<Ident, u8>,
+            visiting: &mut HashSet<Ident>,
         ) -> u8 {
             match node {
-                Node::List(inner) => (1 + node_level(inner, items, out)).min(2),
+                Node::List(inner) => (1 + node_level(inner, items, out, visiting)).min(2),
                 Node::NamedStruct(ident) if ident.to_string().as_str() == "String" => 1,
                 Node::NamedStruct(name) => {
                     if let Some(lv) = out.get(name) {
                         return *lv;
+                    }
+                    // Reject recursive struct definitions up front instead of
+                    // overflowing the stack in this recursion.
+                    if !visiting.insert(name.clone()) {
+                        panic!("cyclic struct type detected: {name}");
                     }
                     let lv = items
                         .get(name)
                         .map(|nodes| {
                             nodes
                                 .iter()
-                                .map(|n| node_level(n, items, out))
+                                .map(|n| node_level(n, items, out, visiting))
                                 .max()
                                 .unwrap_or(0)
                         })
                         .unwrap();
+                    visiting.remove(name);
                     out.insert(name.clone(), lv);
                     lv
                 }
@@ -342,7 +345,12 @@ impl RawRsFile {
 
         let mut out = HashMap::new();
         for name in items.keys() {
-            let lv = node_level(&Node::NamedStruct(name.clone()), &items, &mut out);
+            let lv = node_level(
+                &Node::NamedStruct(name.clone()),
+                &items,
+                &mut out,
+                &mut HashSet::new(),
+            );
             out.insert(name.clone(), lv);
         }
         out.insert(Ident::new("String", Span::call_site()), 1);
@@ -494,6 +502,40 @@ pub fn classify_ref_field(ident: &Ident) -> RefFieldClass {
     }
 }
 
+/// Whether a parameter name is a Go keyword: the generated Go bindings paste
+/// parameter names into Go identifier positions verbatim, so a keyword would
+/// produce invalid Go.
+pub fn is_go_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "break"
+            | "case"
+            | "chan"
+            | "const"
+            | "continue"
+            | "default"
+            | "defer"
+            | "else"
+            | "fallthrough"
+            | "for"
+            | "func"
+            | "go"
+            | "goto"
+            | "if"
+            | "import"
+            | "interface"
+            | "map"
+            | "package"
+            | "range"
+            | "return"
+            | "select"
+            | "struct"
+            | "switch"
+            | "type"
+            | "var"
+    )
+}
+
 // Go converter function name for a primitive type: the prefix (`newC_`,
 // `cntC_` or `refC_`) followed by its C type name, e.g. `newC_uint8_t`.
 // Returns None for unknown primitives and for primitives without generated
@@ -527,6 +569,10 @@ impl TryFrom<&Type> for ParamType {
             }
             RefFieldClass::List => ParamTypeInner::List(ty.clone()),
             _ => {
+                if matches!(seg.ident.to_string().as_str(), "u128" | "i128") {
+                    let msg = format!("type `{}` is not supported in Go bindings", seg.ident);
+                    sbail!(msg)
+                }
                 if !seg.arguments.is_none() {
                     sbail!("custom types with arguments are not supported")
                 }
@@ -590,7 +636,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "newC_")
-                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -622,7 +668,7 @@ impl ParamType {
     pub fn c_to_go_field_converter_owned(&self) -> String {
         match &self.inner {
             ParamTypeInner::Primitive(name) => go_primitive_converter(name, "newC_")
-                .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
+                .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
             ParamTypeInner::Custom(c) => format!("own{}", c.to_string().as_str()),
             ParamTypeInner::List(inner) => {
                 let seg = type_to_segment(inner).unwrap();
@@ -645,7 +691,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "cntC_")
-                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -678,7 +724,7 @@ impl ParamType {
         match &self.inner {
             ParamTypeInner::Primitive(name) => (
                 go_primitive_converter(name, "refC_")
-                    .unwrap_or_else(|| panic!("unrecognized rust primitive type {name}")),
+                    .unwrap_or_else(|| panic!("`{name}` is not supported in Go bindings")),
                 0,
             ),
             ParamTypeInner::Custom(c) => (
@@ -905,6 +951,7 @@ mod tests {
         pub trait DemoCall {
             fn demo_check(req: DemoRequest, tip: Amount) -> DemoResponse;
             fn demo_list(amounts: Vec<Amount>) -> Money;
+            fn demo_void(amount: Amount);
             fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
         }
         "#;
@@ -935,6 +982,28 @@ mod tests {
     }
 
     #[test]
+    fn type_alias_expansion_ignores_unsupported_type_forms() {
+        // Aliases whose targets use unsupported type forms must be resolved
+        // without panicking; only bare alias idents are rewritten.
+        let raw = r#"
+        pub struct DemoRequest { pub id: u32 }
+        pub type Assoc = <DemoRequest as Into<i64>>::Output;
+        pub type Lifetimes = Vec<&'static str>;
+        pub type Impl = impl Send;
+        pub type Arr = [u8; 4];
+        pub type Tup = (i64, i64);
+        pub struct Demo {
+            pub a: Assoc,
+            pub b: Lifetimes,
+            pub c: Impl,
+            pub d: Arr,
+            pub e: Tup,
+        }
+        "#;
+        super::RawRsFile::new(raw);
+    }
+
+    #[test]
     #[should_panic(expected = "cyclic type alias detected")]
     fn type_alias_cycle() {
         let raw = r#"
@@ -948,6 +1017,27 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "cyclic struct type detected")]
+    fn struct_type_cycle() {
+        let raw = r#"
+        pub struct Node {
+            pub children: Vec<Node>,
+        }
+        "#;
+        let raw_file = super::RawRsFile::new(raw);
+        raw_file.convert_structs_levels().unwrap();
+    }
+
+    #[test]
+    fn u128_param_rejected() {
+        let err = param_type_err("u128");
+        assert!(
+            err.contains("`u128` is not supported in Go bindings"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn it_works() {
         let raw = r#"
         pub struct DemoRequest {
@@ -957,6 +1047,7 @@ mod tests {
         pub struct DemoResponse {
             pub pass: bool,
         }
+        #[::rust2go::r2g]
         pub trait DemoCall {
             fn demo_check(req: DemoRequest) -> DemoResponse;
             fn demo_check_async(req: DemoRequest) -> impl std::future::Future<Output = DemoResponse>;
@@ -1202,6 +1293,12 @@ mod tests {
             pub user_name: String,
             pub login_count: u32,
         }
+        // A bare tag and a tag with a non-string value are both ignored.
+        #[r2g_struct_tag]
+        #[r2g_struct_tag(num = 5)]
+        pub struct OddTagged {
+            pub x: u8,
+        }
         "#;
         let raw_file = super::RawRsFile::new(raw);
         let levels = raw_file.convert_structs_levels().unwrap();
@@ -1212,6 +1309,8 @@ mod tests {
             go.contains("login_count uint32 `json:\"login_count\"`"),
             "{go}"
         );
+        assert!(go.contains("type OddTagged struct {"), "{go}");
+        assert!(!go.contains("x uint8 `"), "{go}");
     }
 
     #[test]
@@ -1439,7 +1538,8 @@ mod tests {
     }
 
     // A primitive ident that is not in the shared table (u128) drives every
-    // "unrecognized rust primitive type" panic arm.
+    // panic arm: the type-name lookups report it as unrecognized, the Go
+    // converter lookups report it as unsupported in Go bindings.
     fn bogus_primitive() -> super::ParamType {
         super::ParamType {
             inner: super::ParamTypeInner::Primitive(ident("u128")),
@@ -1460,25 +1560,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_c_to_go_converter_panics() {
         bogus_primitive().c_to_go_field_converter(&Default::default());
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_c_to_go_owned_converter_panics() {
         bogus_primitive().c_to_go_field_converter_owned();
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_go_to_c_counter_panics() {
         bogus_primitive().go_to_c_field_counter(&Default::default());
     }
 
     #[test]
-    #[should_panic(expected = "unrecognized rust primitive type")]
+    #[should_panic(expected = "is not supported in Go bindings")]
     fn unknown_primitive_go_to_c_converter_panics() {
         bogus_primitive().go_to_c_field_converter(&Default::default());
     }

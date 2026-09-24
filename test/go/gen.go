@@ -93,10 +93,10 @@ typedef struct QueueMeta {
     int32_t working_fd;
     int32_t unstuck_fd;
     } QueueMeta;
-
-const void c_rust2go_internal_drop(void*);
 const void c_G2RCounter_incr(const void*, const void*);
+const void c_G2RCounter_incr_drop(void*);
 const void c_G2RCounter_current(const void*);
+const void c_G2RCounter_current_drop(void*);
 */
 import "C"
 import (
@@ -119,6 +119,8 @@ type TestCall interface {
 	delete_friends(req *FriendsListRequest) FriendsListResponse
 	pm_friend(req *PMFriendRequest) PMFriendResponse
 	multi_param_test(user *User, message *string, token *[]uint8) LoginResponse
+	oneway_ping(user *User)
+	oneway_ping_count() uint
 	optional_test(optional *Optional) Optional
 	preserve_struct_attrs_test(data *PreserveStructAttrsRequest) PreserveStructAttrsResponse
 	get_balance(req *BalanceRequest) BalanceResponse
@@ -209,6 +211,24 @@ func ringHandleTestCall0(ptr unsafe.Pointer, pool *ants.MultiPool, post_func fun
 		post_func(resp, buffer, offset)
 	})
 }
+func ringHandleTestCall1(ptr unsafe.Pointer, pool *ants.MultiPool, post_func func(interface{}, []byte, uint)) {
+	user := *(*C.UserRef)(ptr)
+	user_ := newUser(user)
+	pool.Submit(func() {
+		TestCallImpl.oneway_ping(&user_)
+		post_func(nil, nil, 0)
+	})
+}
+
+//export CTestCall_oneway_ping_count
+func CTestCall_oneway_ping_count(slot *C.void, cb *C.void) {
+	resp := TestCallImpl.oneway_ping_count()
+	resp_ref, buffer := cvt_ref(cntC_uintptr_t, refC_uintptr_t)(&resp)
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
+}
 
 //export CTestCall_optional_test
 func CTestCall_optional_test(optional C.OptionalRef, slot *C.void, cb *C.void) {
@@ -261,7 +281,7 @@ func CTestCall_transfer(from C.uint64_t, to C.uint64_t, slot *C.void, cb *C.void
 
 //export RingsInitTestCall
 func RingsInitTestCall(crr, crw C.QueueMeta) {
-	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0})
+	ringsInit(crr, crw, []func(unsafe.Pointer, *ants.MultiPool, func(interface{}, []byte, uint)){ringHandleTestCall0, ringHandleTestCall1})
 }
 
 // An alternative impl of unsafe.String for go1.18
@@ -897,8 +917,9 @@ func (G2RCounterImpl) incr(by *uint64) uint64 {
 	runtime.KeepAlive(_internal_slot)
 	runtime.KeepAlive(_internal_params)
 	runtime.KeepAlive(by_buffer)
+	runtime.KeepAlive(by)
 	val := newC_uint64_t(*(*C.uint64_t)(_internal_slot[0]))
-	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_incr_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
 }
 func (G2RCounterImpl) current() uint64 {
@@ -906,7 +927,7 @@ func (G2RCounterImpl) current() uint64 {
 	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_current), unsafe.Pointer(&_internal_slot))
 	runtime.KeepAlive(_internal_slot)
 	val := newC_uint64_t(*(*C.uint64_t)(_internal_slot[0]))
-	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+	asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCounter_current_drop), unsafe.Pointer(_internal_slot[1]))
 	return val
 }
 func main() {}

@@ -15,6 +15,10 @@ slab = "0.4"
 mem-ring = { workspace = true }
 rust2go-convert = { workspace = true }
 
+[dev-dependencies]
+monoio = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt"], default-features = false }
+
 [features]
 default = ["monoio"]
 monoio = ["mem-ring/monoio"]

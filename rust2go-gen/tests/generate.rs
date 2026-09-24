@@ -116,11 +116,11 @@ fn g2r_emits_drop_and_exports() {
         "examples/example-go2rust/rust-lib/src/user.rs",
         |_| {},
     );
-    // demo_convert_name returns a String, so the internal drop helper and
-    // the runtime import are required.
+    // demo_convert_name returns a String, so the generated typed drop entry
+    // and the runtime import are required.
     assert!(
-        go.contains("c_rust2go_internal_drop"),
-        "missing internal drop: {go}"
+        go.contains("c_G2RCall_demo_convert_name_drop"),
+        "missing typed drop entry: {go}"
     );
     assert!(go.contains("\"runtime\""), "missing runtime import: {go}");
     // g2r calls default to asmcall.

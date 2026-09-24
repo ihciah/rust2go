@@ -15,6 +15,7 @@ mod emit_go;
 mod emit_rust;
 
 use quote::format_ident;
+use std::collections::HashSet;
 use syn::{Error, FnArg, Ident, ItemTrait, Meta, Pat, Result, ReturnType, TraitItem, Type};
 
 use crate::common::{Param, ParamType};
@@ -29,6 +30,8 @@ pub struct G2RFnRepr {
     name: Ident,
     params: Vec<Param>,
     ret: Option<ParamType>,
+    /// The original return type, kept for the generated typed drop entry.
+    ret_ty: Option<Type>,
     cgo_call: bool,
 }
 
@@ -87,16 +90,71 @@ impl TryFrom<&ItemTrait> for G2RTraitRepr {
                 },
             };
             let ret = param_type;
+            let ret_ty = match &fn_item.sig.output {
+                ReturnType::Default => None,
+                ReturnType::Type(_, t) => Some((**t).clone()),
+            };
             let cgo_call = fn_item
                 .attrs
                 .iter()
                 .any(|attr|
                     matches!(&attr.meta, Meta::Path(p) if p.get_ident() == Some(&format_ident!("cgo_call")) || p.get_ident() == Some(&format_ident!("cgo")))
                 );
+            // The generated Go wrappers paste parameter names into Go
+            // identifier positions and reference a fixed set of helpers and
+            // locals; reject names that would collide. The list is
+            // deliberately conservative (some names only collide in
+            // specific paths) so the check stays simple and predictable.
+            let reserved = [
+                "C",
+                "_internal_params",
+                "_internal_slot",
+                "asmcall",
+                "cgocall",
+                "cvt_ref",
+                "runtime",
+                "val",
+            ];
+            let mut derived_names = HashSet::new();
+            for param in params.iter() {
+                let name = param.name.to_string();
+                let raw = name.strip_prefix("r#").unwrap_or(&name);
+                if raw != name {
+                    let msg = format!(
+                        "g2r function parameter `{name}` is a raw identifier, which is not supported in Go bindings"
+                    );
+                    sbail!(msg)
+                }
+                if crate::common::is_go_keyword(raw) {
+                    let msg = format!(
+                        "g2r function parameter `{name}` is a Go keyword and cannot be used in the generated bindings"
+                    );
+                    sbail!(msg)
+                }
+                if reserved.contains(&name.as_str()) {
+                    let msg = format!(
+                        "g2r function parameter `{name}` collides with the generated Go wrapper"
+                    );
+                    sbail!(msg)
+                }
+                for var in [
+                    name.clone(),
+                    format!("{name}_ref"),
+                    format!("{name}_buffer"),
+                ] {
+                    if !derived_names.insert(var.clone()) {
+                        let msg = format!(
+                            "g2r function parameter `{name}` collides with the generated variable `{var}`"
+                        );
+                        sbail!(msg)
+                    }
+                }
+            }
             fns.push(G2RFnRepr {
                 name: fn_name,
                 params,
                 ret,
+                ret_ty,
                 cgo_call,
             });
         }
@@ -135,6 +193,14 @@ impl G2RFnRepr {
 
     pub const fn cgo_call(&self) -> bool {
         self.cgo_call
+    }
+
+    pub fn ret(&self) -> Option<&ParamType> {
+        self.ret.as_ref()
+    }
+
+    pub fn params(&self) -> &[Param] {
+        &self.params
     }
 }
 
@@ -206,6 +272,49 @@ mod tests {
         let err = err_of("pub trait T { fn f() -> impl Send; }");
         assert!(
             err.contains("only path type returns are supported"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_params_colliding_with_wrapper_locals() {
+        for src in [
+            "pub trait T { fn f(_internal_params: u8); }",
+            "pub trait T { fn f(_internal_slot: u8) -> u8; }",
+            "pub trait T { fn f(val: u8) -> u8; }",
+            "pub trait T { fn f(C: u8) -> u8; }",
+            "pub trait T { fn f(runtime: u8); }",
+            "pub trait T { fn f(cvt_ref: u8); }",
+            "pub trait T { fn f(asmcall: u8) -> u8; }",
+            "pub trait T { fn f(cgocall: u8) -> u8; }",
+        ] {
+            let err = err_of(src);
+            assert!(
+                err.contains("collides with the generated Go wrapper"),
+                "{src}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_go_keyword_params() {
+        for name in ["func", "map", "select", "var"] {
+            let err = err_of(&format!("pub trait T {{ fn f({name}: u8); }}"));
+            assert!(err.contains("Go keyword"), "{name}: {err}");
+        }
+    }
+
+    #[test]
+    fn rejects_raw_identifier_params() {
+        let err = err_of("pub trait T { fn f(r#type: u8); }");
+        assert!(err.contains("raw identifier"), "{err}");
+    }
+
+    #[test]
+    fn rejects_params_with_conversion_collision() {
+        let err = err_of("pub trait T { fn f(x: u8, x_ref: u8); }");
+        assert!(
+            err.contains("collides with the generated variable"),
             "{err}"
         );
     }

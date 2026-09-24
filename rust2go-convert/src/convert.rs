@@ -336,6 +336,25 @@ tuple_impl!(
     (T16, 15)
 );
 
+// The tuple macros above start at arity 1; zero-parameter trait functions
+// still need these (the generated code builds `CopyStruct(())` for them).
+impl ToRef for () {
+    const MEM_TYPE: MemType = MemType::Primitive;
+    type Ref = ();
+
+    #[inline]
+    fn to_size(&self, _: &mut usize) {}
+
+    #[inline]
+    fn to_ref(&self, _: &mut Writer) -> Self::Ref {}
+}
+
+impl FromRef for () {
+    type Ref = ();
+
+    fn from_ref(_: &Self::Ref) -> Self {}
+}
+
 #[inline]
 fn copy_item<T>(buf: &mut Writer, item: T) {
     unsafe { buf.put(item) };
@@ -392,6 +411,10 @@ copy_tuple!(
     (T15, 14),
     (T16, 15)
 );
+
+impl CopyTuple for () {
+    fn tuple_copy_to(self, _buf: &mut Writer) {}
+}
 
 pub struct CopyStruct<T>(pub T);
 
@@ -457,9 +480,44 @@ copy_struct_for_tuple!(
     (T16, 15)
 );
 
+// Zero-parameter trait functions generate `CopyStruct(())`; the macro above
+// starts at arity 1.
+impl ToRef for CopyStruct<()> {
+    // Complex since we need buffer
+    const MEM_TYPE: MemType = MemType::Complex;
+    type Ref = *const u8;
+
+    fn to_size(&self, _acc: &mut usize) {}
+
+    fn to_ref(&self, buffer: &mut Writer) -> Self::Ref {
+        let ptr = buffer.ptr as *const u8;
+        ().tuple_copy_to(buffer);
+        ptr
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unit_refs_roundtrip() {
+        // Zero-parameter trait functions generate CopyStruct(()).
+        let (buf, _) = CopyStruct(()).calc_ref();
+        assert!(buf.is_empty());
+        let (buf, ()) = ().calc_ref();
+        assert!(buf.is_empty());
+        assert_eq!(<() as FromRef>::from_ref(&()), ());
+    }
+
+    #[test]
+    fn to_size_accumulates() {
+        let mut acc = 0;
+        ().to_size(&mut acc);
+        (1u32, 2u64).to_size(&mut acc);
+        CopyStruct((String::from("x"),)).to_size(&mut acc);
+        assert!(acc > 0);
+    }
 
     #[test]
     fn mem_type_next() {

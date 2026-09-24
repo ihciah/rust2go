@@ -80,18 +80,18 @@ pub fn generate(args: &GenArgs) {
         };
     }
     let use_shm = r2g_any!(|f| f.mem_call_id().is_some());
-    let use_runtime =
-        r2g_any!(|f| f.mem_call_id().is_none()) || g2r_traits.iter().any(|t| !t.fns().is_empty());
+    // runtime.KeepAlive is emitted only for r2g non-mem functions with a
+    // return value and for g2r wrappers with a return value or parameters.
+    let use_runtime = r2g_any!(|f| f.mem_call_id().is_none() && f.ret().is_some())
+        || g2r_any!(|f| f.ret().is_some() || !f.params().is_empty());
     let use_cgocall =
-        r2g_any!(|f| f.mem_call_id().is_none() && f.cgo_callback()) || g2r_any!(|f| f.cgo_call());
+        r2g_any!(|f| f.mem_call_id().is_none() && f.cgo_callback() && f.ret().is_some())
+            || g2r_any!(|f| f.cgo_call());
     let use_asmcall =
         r2g_any!(|f| f.mem_call_id().is_none() && !f.cgo_callback() && f.ret().is_some())
             || g2r_any!(|f| !f.cgo_call());
     if use_shm {
         importc.push_str(RawRsFile::go_shm_include());
-    }
-    if g2r_traits.iter().any(|t| t.has_ret()) {
-        importc.push_str(RawRsFile::go_internal_drop());
     }
     g2r_traits.iter().for_each(|t| {
         importc.push_str(&t.to_importc());

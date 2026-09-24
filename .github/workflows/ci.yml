@@ -210,13 +210,33 @@ jobs:
       # exclusive, so --all-features is not usable.
       - name: Collect mem-ring coverage
         run: cargo llvm-cov -p mem-ring --all-targets --lcov --output-path lcov-mem-ring.info
+      # Instrument the tokio variant too: its tests run in build-and-test,
+      # but a single llvm-cov invocation covers only the default (monoio)
+      # feature set, leaving the Arc/tokio code paths unobserved.
+      - name: Collect mem-ring coverage (tokio)
+        run: cargo llvm-cov -p mem-ring --no-default-features --features tokio --all-targets --lcov --output-path lcov-mem-ring-tokio.info
+      # The monoio-without-tpc configuration (multi-thread producers sharing
+      # one queue) is never executed by the runs above: the default features
+      # always include tpc. Run its tests under llvm-cov so the Arc/Mutex
+      # branches stay observed.
+      - name: Collect mem-ring coverage (monoio, no tpc)
+        run: cargo llvm-cov -p mem-ring --no-default-features --features monoio --all-targets --lcov --output-path lcov-mem-ring-monoio-notpc.info
+      - name: Collect rust2go-mem-ffi coverage (tokio)
+        run: cargo llvm-cov -p rust2go-mem-ffi --no-default-features --features tokio --all-targets --lcov --output-path lcov-mem-ffi-tokio.info
+      # Merge the traces locally: uploading several reports that contain the
+      # same source files makes Codecov keep one report per file instead of
+      # unioning the per-line hits, which discards the monoio-side coverage.
+      - name: Merge coverage traces
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lcov
+          lcov --add-tracefile lcov.info --add-tracefile lcov-mem-ring.info --add-tracefile lcov-mem-ring-tokio.info --add-tracefile lcov-mem-ring-monoio-notpc.info --add-tracefile lcov-mem-ffi-tokio.info --output-file lcov-merged.info
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
-          files: lcov.info,lcov-mem-ring.info,test/go/coverage.out
+          files: lcov-merged.info,test/go/coverage.out
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

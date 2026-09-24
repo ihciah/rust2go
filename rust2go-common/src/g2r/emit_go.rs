@@ -76,15 +76,24 @@ impl G2RTraitRepr {
             for p in f.params.iter() {
                 out.push_str(&format!("runtime.KeepAlive({}_buffer)\n", p.name));
             }
+            // Keep the user's parameter objects alive too: for
+            // SimpleWrapper types (e.g. String) the ref carries a pointer
+            // straight into the user's memory, which the GC cannot see
+            // through the uintptr conversion. Without this, the backing
+            // memory could be collected while the Rust side still reads it
+            // if the caller's frame does not root the object.
+            for p in f.params.iter() {
+                out.push_str(&format!("runtime.KeepAlive({})\n", p.name));
+            }
 
             if let Some(r) = &f.ret {
                 // val := ownString(*(*C.StringRef)(_internal_slot[0]))
-                // asmcall.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+                // asmcall.CallFuncG0P1(unsafe.Pointer(C.c_G2RCall_demo_convert_name_drop), unsafe.Pointer(_internal_slot[1]))
                 // return val
                 let cvt = r.c_to_go_field_converter_owned();
                 let cty = r.to_c(false);
                 out.push_str(&format!("val := {cvt}(*(*C.{cty})(_internal_slot[0]))
-                {call_type}.CallFuncG0P1(unsafe.Pointer(C.c_rust2go_internal_drop), unsafe.Pointer(_internal_slot[1]))
+                {call_type}.CallFuncG0P1(unsafe.Pointer(C.c_{trait_name}_{f_name}_drop), unsafe.Pointer(_internal_slot[1]))
                 return val
                 "));
             }

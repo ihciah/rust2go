@@ -378,6 +378,31 @@ mod tests {
         assert!(!response.message.is_empty());
     }
 
+    #[monoio::test(timer_enabled = true)]
+    async fn oneway_mem_call() {
+        // Oneway #[mem] calls are processed asynchronously by the Go side:
+        // the ring handler decodes the parameters, invokes the Go impl and
+        // acks with a DROP payload that frees the boxed parameters. The Go
+        // impl counts every invocation; polling through the sync getter
+        // asserts the calls were actually delivered — a regression to the
+        // ack-only stub would never increment the counter.
+        let before = TestCallImpl::oneway_ping_count();
+        let user = User {
+            id: 7,
+            name: "oneway".to_string(),
+            age: 1,
+        };
+        unsafe { TestCallImpl::oneway_ping(&user) };
+        unsafe { TestCallImpl::oneway_ping(&user) };
+        for _ in 0..250 {
+            if TestCallImpl::oneway_ping_count() == before + 2 {
+                break;
+            }
+            monoio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(TestCallImpl::oneway_ping_count(), before + 2);
+    }
+
     #[test]
     fn test_type_alias() {
         let resp = TestCallImpl::get_balance(&BalanceRequest {
@@ -409,6 +434,14 @@ mod tests {
 
     #[test]
     fn g2r_counter_register_once() {
+        // The counter methods are invoked from Go through the g2r bindings;
+        // exercise them directly as well.
+        let probe = AtomicCounter {
+            count: AtomicU64::new(3),
+        };
+        assert_eq!(probe.incr(2), 5);
+        assert_eq!(probe.current(), 5);
+
         let counter = AtomicCounter {
             count: AtomicU64::new(0),
         };

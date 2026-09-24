@@ -217,13 +217,20 @@ jobs:
         run: cargo llvm-cov -p mem-ring --no-default-features --features tokio --all-targets --lcov --output-path lcov-mem-ring-tokio.info
       - name: Collect rust2go-mem-ffi coverage (tokio)
         run: cargo llvm-cov -p rust2go-mem-ffi --no-default-features --features tokio --all-targets --lcov --output-path lcov-mem-ffi-tokio.info
+      # Merge the traces locally: uploading several reports that contain the
+      # same source files makes Codecov keep one report per file instead of
+      # unioning the per-line hits, which discards the monoio-side coverage.
+      - name: Merge coverage traces
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lcov
+          lcov --add-tracefile lcov.info --add-tracefile lcov-mem-ring.info --add-tracefile lcov-mem-ring-tokio.info --add-tracefile lcov-mem-ffi-tokio.info --output-file lcov-merged.info
       - name: Collect Go coverage
         working-directory: test/go
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
-          files: lcov.info,lcov-mem-ring.info,lcov-mem-ring-tokio.info,lcov-mem-ffi-tokio.info,test/go/coverage.out
+          files: lcov-merged.info,test/go/coverage.out
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 

@@ -20,6 +20,9 @@ use std::{
 #[inline]
 pub fn new_atomic_slot<T, A>() -> (SlotReader<T, A>, SlotWriter<T, A>) {
     let inner = SlotInner::new();
+    // clippy suggests Box::into_non_null here, but it was only stabilized in
+    // Rust 1.99; keep the manual conversion so older toolchains keep working.
+    #[allow(clippy::nonnull_unchecked_on_box_ptr)]
     let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(inner))) };
     (SlotReader(ptr), SlotWriter(ptr))
 }

@@ -42,7 +42,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.11
         timeout-minutes: 5
         continue-on-error: true
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       # rust2go-mem-ffi and mem-ring reject enabling `monoio` and `tokio`
       # together (compile_error!), so --all-features is not usable here.
       # Build with default features (monoio) and cover the tokio branch and
@@ -193,7 +193,7 @@ jobs:
       CXX: clang++
     steps:
       - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
@@ -246,7 +246,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - *setup-sccache
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
       - name: Install rustfmt
         run: rustup component add rustfmt
       - name: Install clippy
